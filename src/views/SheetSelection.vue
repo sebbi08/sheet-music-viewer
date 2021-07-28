@@ -1,6 +1,6 @@
 <template>
   <div class="wrapper">
-    <h2 class="text-h2">Select PDF : {{ folderPath }}</h2>
+    <h6 class="text-h6">Select PDF : {{ folderPath }}</h6>
 
     <div class="container">
       <v-card
@@ -82,11 +82,13 @@ export default class SheetSelection extends Vue {
 
 <style scoped lang="less">
 .container {
-  height: 100%;
+  overflow: auto;
+  height: calc(100% - 32px);
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+
   .v-card {
     display: flex;
     flex-direction: column;
@@ -96,6 +98,7 @@ export default class SheetSelection extends Vue {
     margin: 16px;
   }
 }
+
 .wrapper {
   height: 100%;
 }

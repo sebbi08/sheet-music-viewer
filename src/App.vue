@@ -21,3 +21,9 @@ export default Vue.extend({
   }),
 });
 </script>
+
+<style lang="less">
+html {
+  overflow: hidden !important;
+}
+</style>

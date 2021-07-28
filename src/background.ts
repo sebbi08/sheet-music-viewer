@@ -118,7 +118,9 @@ ipcMain.on(eventNames.FOLDER_SELECTED, async (event, args) => {
   const basePath = args.basePath;
   const relativePath = args.relativePath;
   const folderPath = path.join(basePath, relativePath);
-  const folderContent = await fs.readdir(folderPath, { withFileTypes: true });
+  let folderContent = await fs.readdir(folderPath, { withFileTypes: true });
+
+  folderContent = folderContent.filter((item) => !item.name.startsWith("."));
 
   const filesAndFolders = folderContent.map((item) => {
     return {
