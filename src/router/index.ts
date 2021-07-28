@@ -3,19 +3,26 @@ import VueRouter, { RouteConfig } from "vue-router";
 import SheetSelection from "@/views/SheetSelection.vue";
 import FolderSetup from "@/views/FolderSetup.vue";
 import store from "@/store";
+import SheetViewer from "@/views/SheetViewer.vue";
+import { RouteNames } from "@/Enums";
 
 Vue.use(VueRouter);
 
 const routes: Array<RouteConfig> = [
-  { path: "/", redirect: "/sheetSelection", name: "Root" },
+  {
+    path: "/sheetViewer/:path:",
+    component: SheetViewer,
+    name: RouteNames.SheetViewer,
+  },
+  { path: "/", redirect: "/sheetSelection", name: RouteNames.Root },
   {
     path: "/sheetSelection/:path:",
-    name: "SheetSelection",
+    name: RouteNames.SheetSelection,
     component: SheetSelection,
   },
   {
     path: "/folderSetup",
-    name: "FolderSetup",
+    name: RouteNames.FolderSetup,
     component: FolderSetup,
   },
 ];

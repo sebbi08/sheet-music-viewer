@@ -1,26 +1,28 @@
 <template>
   <div class="wrapper">
     <h6 class="text-h6">Select PDF : {{ folderPath }}</h6>
-
+    <!--    <div class="scroll-container">-->
     <div class="container">
       <v-card
         @click="selectItem(item)"
-        v-for="item in filesAndFolder"
+        v-for="item in pdfsAndFolders"
         :key="item.name"
       >
         <v-icon x-large>{{ item.isFile ? "mdi-file" : "mdi-folder" }}</v-icon>
         <h2>{{ item.name }}</h2>
       </v-card>
     </div>
+    <!--    </div>-->
   </div>
 </template>
 
 <script lang="ts">
 import Vue from "vue";
 import Component from "vue-class-component";
-import { eventNames } from "@/eventNames";
+import { EventNames } from "@/Enums";
 import { SheetFile } from "@/models/SheetFile";
 import { mapFields } from "vuex-map-fields";
+import { Watch } from "vue-property-decorator";
 
 declare global {
   interface Window {
@@ -28,14 +30,21 @@ declare global {
   }
 }
 
-@Component({
-  computed: {
-    ...mapFields(["filesAndFolder"]),
-  },
-})
+@Component
 export default class SheetSelection extends Vue {
-  filesAndFolder?: SheetFile[];
+  filesAndFolder: SheetFile[] = [];
+  pdfsAndFolders: SheetFile[] = [];
   loadedBasePath = "";
+
+  @Watch("filesAndFolder", { immediate: true, deep: true })
+  getFolderAndPDFs(newVal: SheetFile[]): void {
+    this.pdfsAndFolders = newVal.filter((item) => {
+      if (item.isFile) {
+        return item.name.toLowerCase().endsWith(".pdf");
+      }
+      return true;
+    });
+  }
 
   get folderPath() {
     return this.$route?.params?.path ? this.$route.params.path : "/";
@@ -44,32 +53,31 @@ export default class SheetSelection extends Vue {
   selectItem(item: SheetFile): void {
     this.$router.push({
       name: "SheetSelection",
-      params: { path: "/" + item.name + "/" },
+      params: { path: this.folderPath + item.name + "/" },
     });
   }
 
   loadPath(): void {
     let relativePath = this.folderPath;
     let basePath = this.$store.getters.getField("sheetMusicFolder");
-    if (this.loadedBasePath === basePath) {
+    if (this.loadedBasePath === relativePath) {
       return;
     }
-    this.loadedBasePath = basePath;
-    window.ipcRenderer.send(eventNames.FOLDER_SELECTED, {
+    this.loadedBasePath = relativePath;
+    window.ipcRenderer.send(EventNames.FOLDER_SELECTED, {
       basePath: basePath,
       relativePath,
     });
   }
 
-  updated(): void {
-    this.$nextTick(function () {
-      this.loadPath();
-    });
+  @Watch("$route")
+  routeChange(): void {
+    this.loadPath();
   }
 
   mounted() {
     window.ipcRenderer.on(
-      eventNames.FOLDER_LOADED,
+      EventNames.FOLDER_LOADED,
       (filesAndFolders: SheetFile[]) => {
         this.filesAndFolder = filesAndFolders;
       }
@@ -82,12 +90,11 @@ export default class SheetSelection extends Vue {
 
 <style scoped lang="less">
 .container {
+  max-height: calc(100vh - 32px - 64px);
+  width: auto;
   overflow: auto;
-  height: calc(100% - 32px);
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-start;
+  flex-wrap: wrap;
 
   .v-card {
     display: flex;
@@ -96,6 +103,8 @@ export default class SheetSelection extends Vue {
     justify-content: center;
     padding: 16px;
     margin: 16px;
+    width: calc(25% - 32px);
+    max-height: 200px;
   }
 }
 

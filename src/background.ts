@@ -3,7 +3,7 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
 import { createProtocol } from "vue-cli-plugin-electron-builder/lib";
 import installExtension, { VUEJS_DEVTOOLS } from "electron-devtools-installer";
-import { eventNames } from "@/eventNames";
+import { EventNames } from "@/Enums";
 import * as path from "path";
 import * as fs from "fs/promises";
 
@@ -104,17 +104,17 @@ if (isDevelopment) {
   }
 }
 
-ipcMain.on(eventNames.SELECT_FOLDER, (event) => {
+ipcMain.on(EventNames.SELECT_FOLDER, (event) => {
   dialog
     .showOpenDialog({
       properties: ["openDirectory"],
     })
     .then(function (result) {
-      event.reply(eventNames.FOLDER_SELECTED, result.filePaths[0]);
+      event.reply(EventNames.FOLDER_SELECTED, result.filePaths[0]);
     });
 });
 
-ipcMain.on(eventNames.FOLDER_SELECTED, async (event, args) => {
+ipcMain.on(EventNames.FOLDER_SELECTED, async (event, args) => {
   const basePath = args.basePath;
   const relativePath = args.relativePath;
   const folderPath = path.join(basePath, relativePath);
@@ -130,5 +130,5 @@ ipcMain.on(eventNames.FOLDER_SELECTED, async (event, args) => {
     };
   });
 
-  event.reply(eventNames.FOLDER_LOADED, filesAndFolders);
+  event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
 });

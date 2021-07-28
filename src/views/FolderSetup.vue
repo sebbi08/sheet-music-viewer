@@ -11,7 +11,7 @@
 import Vue from "vue";
 import { Component } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
-import { eventNames } from "@/eventNames";
+import { EventNames } from "@/Enums";
 
 declare global {
   interface Window {
@@ -30,7 +30,7 @@ export default class FolderSetup extends Vue {
   mounted(): void {
     if (window.ipcRenderer) {
       window.ipcRenderer.on(
-        eventNames.FOLDER_SELECTED,
+        EventNames.FOLDER_SELECTED,
         (selectedFolder: string) => {
           this.sheetMusicFolder = selectedFolder;
           this.$router.push({ name: "SheetSelection", params: { path: "/" } });
@@ -41,7 +41,7 @@ export default class FolderSetup extends Vue {
 
   selectFolder(): void {
     if (window.ipcRenderer) {
-      window.ipcRenderer.send(eventNames.SELECT_FOLDER);
+      window.ipcRenderer.send(EventNames.SELECT_FOLDER);
     }
   }
 }
