@@ -1,23 +1,22 @@
 import Vue from "vue";
 import VueRouter, { RouteConfig } from "vue-router";
-import Home from "../views/Home.vue";
+import SheetSelection from "@/views/SheetSelection.vue";
+import FolderSetup from "@/views/FolderSetup.vue";
+import store from "@/store";
 
 Vue.use(VueRouter);
 
 const routes: Array<RouteConfig> = [
+  { path: "/", redirect: "/sheetSelection", name: "Root" },
   {
-    path: "/",
-    name: "Home",
-    component: Home,
+    path: "/sheetSelection/:path:",
+    name: "SheetSelection",
+    component: SheetSelection,
   },
   {
-    path: "/about",
-    name: "About",
-    // route level code-splitting
-    // this generates a separate chunk (about.[hash].js) for this route
-    // which is lazy-loaded when the route is visited.
-    component: () =>
-      import(/* webpackChunkName: "about" */ "../views/About.vue"),
+    path: "/folderSetup",
+    name: "FolderSetup",
+    component: FolderSetup,
   },
 ];
 
@@ -25,6 +24,17 @@ const router = new VueRouter({
   mode: "history",
   base: process.env.BASE_URL,
   routes,
+});
+
+router.beforeEach((to, from, next) => {
+  if (to.name === "FolderSetup") {
+    next();
+  }
+  if (store.getters.getField("sheetMusicFolder") && to.name !== "FolderSetup") {
+    next();
+  } else {
+    next({ name: "FolderSetup" });
+  }
 });
 
 export default router;
