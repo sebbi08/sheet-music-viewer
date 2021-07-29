@@ -1,6 +1,6 @@
 <template>
   <vue-pdf-app
-    pdf="local-resource:///Users/sebastian.mahr/Downloads/Bob-Omb Battlefield 8BBB/Bob-Omb Battlefield 8BBB - Trombone 3.pdf"
+    :pdf="'local-resource://' + this.$route.params.path"
   ></vue-pdf-app>
 </template>
 

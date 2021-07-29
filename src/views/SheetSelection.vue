@@ -19,7 +19,7 @@
 <script lang="ts">
 import Vue from "vue";
 import Component from "vue-class-component";
-import { EventNames } from "@/Enums";
+import { EventNames, RouteNames } from "@/Enums";
 import { SheetFile } from "@/models/SheetFile";
 import { mapFields } from "vuex-map-fields";
 import { Watch } from "vue-property-decorator";
@@ -34,7 +34,7 @@ declare global {
 export default class SheetSelection extends Vue {
   filesAndFolder: SheetFile[] = [];
   pdfsAndFolders: SheetFile[] = [];
-  loadedBasePath = "";
+  loadedRelativ = "";
 
   @Watch("filesAndFolder", { immediate: true, deep: true })
   getFolderAndPDFs(newVal: SheetFile[]): void {
@@ -51,19 +51,27 @@ export default class SheetSelection extends Vue {
   }
 
   selectItem(item: SheetFile): void {
-    this.$router.push({
-      name: "SheetSelection",
-      params: { path: this.folderPath + item.name + "/" },
-    });
+    if (item.isFile) {
+      let basePath = this.$store.getters.getField("sheetMusicFolder");
+      this.$router.push({
+        name: RouteNames.SheetViewer,
+        params: { path: basePath + this.folderPath + item.name },
+      });
+    } else {
+      this.$router.push({
+        name: "SheetSelection",
+        params: { path: this.folderPath + item.name + "/" },
+      });
+    }
   }
 
   loadPath(): void {
     let relativePath = this.folderPath;
     let basePath = this.$store.getters.getField("sheetMusicFolder");
-    if (this.loadedBasePath === relativePath) {
+    if (this.loadedRelativ === relativePath) {
       return;
     }
-    this.loadedBasePath = relativePath;
+    this.loadedRelativ = relativePath;
     window.ipcRenderer.send(EventNames.FOLDER_SELECTED, {
       basePath: basePath,
       relativePath,
