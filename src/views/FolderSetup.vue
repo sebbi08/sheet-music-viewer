@@ -27,6 +27,7 @@ export default class FolderSetup extends Vue {
         EventNames.FOLDER_SELECTED,
         (selectedFolder: string) => {
           this.sheetMusicFolder = selectedFolder;
+          localStorage.setItem("sheetMusicFolder", selectedFolder);
           this.$router.push({
             name: "SheetSelection",
             params: { path: window.path.sep },
@@ -51,6 +52,7 @@ export default class FolderSetup extends Vue {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+
   .v-card {
     display: flex;
     flex-direction: column;

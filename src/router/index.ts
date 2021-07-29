@@ -16,7 +16,7 @@ const routes: Array<RouteConfig> = [
   },
   { path: "/", redirect: "/sheetSelection", name: RouteNames.Root },
   {
-    path: "/sheetSelection/:path:",
+    path: "/sheetSelection/:path?",
     name: RouteNames.SheetSelection,
     component: SheetSelection,
   },

@@ -3,6 +3,7 @@
     page-scale="page-fit"
     :pdf="'local-resource://' + this.$route.params.path"
     :config="pdfConfig"
+    @pages-rendered="pageRendered"
   ></my-vue-pdf-component>
 </template>
 
@@ -19,44 +20,36 @@ import MyVuePdfComponent from "@/components/my-vue-pdf-component.vue";
 })
 export default class SheetViewer extends Vue {
   public pdfConfig = {
-    sidebar: {
-      viewThumbnail: true,
-      viewOutline: true,
-      viewAttachments: true,
-    },
     secondaryToolbar: {
-      secondaryPresentationMode: true,
-      secondaryOpenFile: true,
-      secondaryPrint: true,
-      secondaryDownload: true,
-      secondaryViewBookmark: true,
-      firstPage: true,
-      lastPage: true,
+      secondaryPresentationMode: false,
+      secondaryOpenFile: false,
+      secondaryPrint: false,
+      secondaryDownload: false,
+      secondaryViewBookmark: false,
+      firstPage: false,
+      lastPage: false,
       pageRotateCw: true,
       pageRotateCcw: true,
-      cursorSelectTool: true,
-      cursorHandTool: true,
-      scrollVertical: true,
-      scrollHorizontal: true,
-      scrollWrapped: true,
-      spreadNone: true,
-      spreadOdd: true,
-      spreadEven: true,
-      documentProperties: true,
+      cursorSelectTool: false,
+      cursorHandTool: false,
+      scrollVertical: false,
+      scrollHorizontal: false,
+      scrollWrapped: false,
+      spreadNone: false,
+      spreadOdd: false,
+      spreadEven: false,
+      documentProperties: false,
     },
+    sidebar: false,
     toolbar: {
-      toolbarViewerLeft: {
-        findbar: true,
-        previous: true,
-        next: true,
-        pageNumber: true,
-      },
+      sidebar: false,
+      toolbarViewerLeft: false,
       toolbarViewerRight: {
-        presentationMode: true,
-        openFile: true,
-        print: true,
-        download: true,
-        viewBookmark: true,
+        presentationMode: false,
+        openFile: false,
+        print: false,
+        download: false,
+        viewBookmark: false,
       },
       toolbarViewerMiddle: {
         zoomOut: true,
@@ -66,6 +59,12 @@ export default class SheetViewer extends Vue {
     },
     errorWrapper: true,
   };
+
+  public pageRendered(): void {
+    setTimeout(() => {
+      let allPages = document.querySelectorAll(".page[data-loaded='true']");
+    });
+  }
 }
 </script>
 

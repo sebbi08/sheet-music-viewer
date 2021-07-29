@@ -3,9 +3,12 @@ import Vuex from "vuex";
 import { getField, updateField } from "vuex-map-fields";
 Vue.use(Vuex);
 
+let sheetMusicFolder = localStorage.getItem("sheetMusicFolder");
+sheetMusicFolder = sheetMusicFolder || "";
+
 export default new Vuex.Store({
   state: {
-    sheetMusicFolder: "",
+    sheetMusicFolder: sheetMusicFolder,
   },
   getters: {
     // Add the `getField` getter to the
