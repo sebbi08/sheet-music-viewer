@@ -21,14 +21,7 @@ import Vue from "vue";
 import Component from "vue-class-component";
 import { EventNames, RouteNames } from "@/Enums";
 import { SheetFile } from "@/models/SheetFile";
-import { mapFields } from "vuex-map-fields";
 import { Watch } from "vue-property-decorator";
-
-declare global {
-  interface Window {
-    ipcRenderer: any;
-  }
-}
 
 @Component
 export default class SheetSelection extends Vue {
@@ -46,8 +39,10 @@ export default class SheetSelection extends Vue {
     });
   }
 
-  get folderPath() {
-    return this.$route?.params?.path ? this.$route.params.path : "/";
+  get folderPath(): string {
+    return this.$route?.params?.path
+      ? this.$route.params.path
+      : window.path.sep;
   }
 
   selectItem(item: SheetFile): void {
@@ -60,7 +55,7 @@ export default class SheetSelection extends Vue {
     } else {
       this.$router.push({
         name: "SheetSelection",
-        params: { path: this.folderPath + item.name + "/" },
+        params: { path: this.folderPath + item.name + window.path.sep },
       });
     }
   }
@@ -78,12 +73,12 @@ export default class SheetSelection extends Vue {
     });
   }
 
-  @Watch("$route")
+  @Watch("$route", { deep: true, immediate: true })
   routeChange(): void {
     this.loadPath();
   }
 
-  mounted() {
+  mounted(): void {
     window.ipcRenderer.on(
       EventNames.FOLDER_LOADED,
       (filesAndFolders: SheetFile[]) => {

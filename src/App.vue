@@ -30,7 +30,7 @@ export default Vue.extend({
         return true;
       }
       if (currentRoute === RouteNames.SheetSelection) {
-        return this.$route.params.path !== "/";
+        return this.$route.params.path !== window.path.sep;
       }
       return false;
     },
@@ -38,7 +38,7 @@ export default Vue.extend({
 
   methods: {
     navBack: function () {
-      this.$router.back();
+      this.$router.go(-1);
     },
   },
 

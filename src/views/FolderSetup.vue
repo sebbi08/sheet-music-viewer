@@ -13,12 +13,6 @@ import { Component } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { EventNames } from "@/Enums";
 
-declare global {
-  interface Window {
-    ipcRenderer: any;
-  }
-}
-
 @Component({
   computed: {
     ...mapFields(["sheetMusicFolder"]),
@@ -33,7 +27,10 @@ export default class FolderSetup extends Vue {
         EventNames.FOLDER_SELECTED,
         (selectedFolder: string) => {
           this.sheetMusicFolder = selectedFolder;
-          this.$router.push({ name: "SheetSelection", params: { path: "/" } });
+          this.$router.push({
+            name: "SheetSelection",
+            params: { path: window.path.sep },
+          });
         }
       );
     }
