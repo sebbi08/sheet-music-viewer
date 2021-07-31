@@ -70,7 +70,11 @@ export default Vue.extend({
 
   methods: {
     navBack: function () {
-      this.$router.go(-1);
+      if (history.length === 1) {
+        this.$router.push({ name: RouteNames.SheetSelection });
+      } else {
+        this.$router.go(-1);
+      }
     },
     navToSettings: function () {
       this.dialog = false;

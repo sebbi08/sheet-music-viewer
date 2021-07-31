@@ -19,8 +19,6 @@ async function createWindow() {
   const preloadPath = path.join(__dirname, "preload.js");
   // eslint-disable-next-line no-debugger
   const win = new BrowserWindow({
-    width: 800,
-    height: 600,
     webPreferences: {
       // Use pluginOptions.nodeIntegration, leave this alone
       // See nklayman.github.io/vue-cli-plugin-electron-builder/guide/security.html#node-integration for more info
@@ -30,6 +28,7 @@ async function createWindow() {
       preload: preloadPath,
     },
   });
+  win.maximize();
 
   if (process.env.WEBPACK_DEV_SERVER_URL) {
     // Load the url of the dev server if in development mode

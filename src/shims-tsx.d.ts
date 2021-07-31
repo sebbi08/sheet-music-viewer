@@ -16,5 +16,6 @@ declare global {
   interface Window {
     ipcRenderer: any;
     path: any;
+    pdfJs: any;
   }
 }
