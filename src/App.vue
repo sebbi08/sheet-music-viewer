@@ -4,7 +4,7 @@
       <v-btn @click="navBack" icon v-if="showBackButton">
         <v-icon>mdi-arrow-left</v-icon>
       </v-btn>
-      <div>Sheet music viewer</div>
+      <div>Sheet music viewer : {{ appVersion }}</div>
       <v-spacer></v-spacer>
       <v-dialog
         v-model="dialog"
@@ -40,11 +40,17 @@
 
 <script lang="ts">
 import Vue from "vue";
-import { RouteNames } from "@/Enums";
+import { EventNames, RouteNames } from "@/Enums";
 
 export default Vue.extend({
   name: "App",
 
+  mounted() {
+    window.ipcRenderer.on(EventNames.SEND_VERSION, (appVersion: string) => {
+      this.appVersion = appVersion;
+    });
+    window.ipcRenderer.send(EventNames.GET_VERSION);
+  },
   computed: {
     showBackButton: function () {
       let currentRoute = this.$route.name;
@@ -84,6 +90,7 @@ export default Vue.extend({
 
   data: () => ({
     dialog: false,
+    appVersion: (window as any).appVersion,
   }),
 });
 </script>

@@ -3,6 +3,8 @@ export enum EventNames {
   "FOLDER_SELECTED" = "FOLDER_SELECTED",
   "LOAD_FOLDER" = "LOAD_FOLDER",
   "FOLDER_LOADED" = "FOLDER_LOADED",
+  "GET_VERSION" = "GET_VERSION",
+  "SEND_VERSION" = "SEND_VERSION",
 }
 
 export enum RouteNames {

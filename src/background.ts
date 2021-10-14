@@ -1,13 +1,61 @@
 "use strict";
 
-import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
+import {
+  app,
+  autoUpdater,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  protocol,
+} from "electron";
 import { createProtocol } from "vue-cli-plugin-electron-builder/lib";
 import installExtension, { VUEJS_DEVTOOLS } from "electron-devtools-installer";
 import { EventNames } from "@/Enums";
 import * as path from "path";
 import * as fs from "fs/promises";
+import log from "electron-log";
+
+Object.assign(console, log.functions);
 
 const isDevelopment = process.env.NODE_ENV !== "production";
+
+const DOMAIN = "https://updatefile.sebmahr.de";
+const suffix =
+  process.platform === "darwin"
+    ? `/RELEASES.json?method=JSON&version=${app.getVersion()}`
+    : "";
+let updateError = "";
+try {
+  const url = `${DOMAIN}/sheet-viewer/a5ee3785b14c683cf37e2caf9ebb04b1/${process.platform}/${process.arch}${suffix}`;
+  console.log(url);
+  autoUpdater.setFeedURL({
+    url: url,
+    serverType: "json",
+  });
+} catch (e) {
+  updateError = e;
+  console.log(e);
+}
+
+autoUpdater.on("update-downloaded", (event, releaseNotes, releaseName) => {
+  const dialogOpts = {
+    type: "info",
+    buttons: ["Restart", "Later"],
+    title: "Application Update",
+    message: process.platform === "win32" ? releaseNotes : releaseName,
+    detail:
+      "A new version has been downloaded. Restart the application to apply the updates.",
+  };
+
+  dialog.showMessageBox(dialogOpts).then((returnValue) => {
+    if (returnValue.response === 0) autoUpdater.quitAndInstall();
+  });
+});
+
+autoUpdater.on("error", (message) => {
+  console.error("There was a problem updating the application");
+  console.error(message);
+});
 
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([
@@ -38,6 +86,18 @@ async function createWindow() {
     createProtocol("app");
     // Load the index.html when not in development
     win.loadURL("app://./index.html");
+  }
+  if (updateError) {
+    dialog.showMessageBox({
+      message: "error",
+      type: "info",
+      detail: updateError.toString(),
+    });
+  } else {
+    autoUpdater.checkForUpdates();
+    // setInterval(() => {
+    //   autoUpdater.checkForUpdates();
+    // }, 60000);
   }
 }
 
@@ -102,6 +162,10 @@ if (isDevelopment) {
     });
   }
 }
+
+ipcMain.on(EventNames.GET_VERSION, (event) => {
+  event.reply(EventNames.SEND_VERSION, app.getVersion());
+});
 
 ipcMain.on(EventNames.SELECT_FOLDER, (event) => {
   dialog

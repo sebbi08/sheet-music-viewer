@@ -7,7 +7,12 @@
       color="primary"
       class="loader"
       v-if="pagesLoaded !== pageNumbers"
-      >{{ (100 / pageNumbers) * pagesLoaded }}%
+    >
+      {{
+        Number.isInteger((100 / pageNumbers) * pagesLoaded)
+          ? (100 / pageNumbers) * pagesLoaded
+          : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
+      }}%
     </v-progress-circular>
     <div class="overlay" v-if="pagesLoaded !== pageNumbers"></div>
     <div class="canvasWrapper" ref="wrapper">
@@ -45,15 +50,14 @@ export default class SheetViewer extends Vue {
   currentPage = 1;
   pagesLoaded = 0;
 
+  unmounted(): void {
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("click", this.onClick);
+  }
+
   async mounted(): Promise<void> {
-    window.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowRight") {
-        this.currentPage < this.pageNumbers ? (this.currentPage += 0.5) : null;
-      }
-      if (event.key === "ArrowLeft") {
-        this.currentPage > 1 ? (this.currentPage -= 0.5) : null;
-      }
-    });
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("click", this.onClick);
     this.currentPage = 1;
     let pdfLoadingTask = pdfJs.getDocument({
       url: "local-resource://" + this.$route.params.path,
@@ -73,6 +77,34 @@ export default class SheetViewer extends Vue {
         });
       }
     }, 0);
+  }
+
+  onKeyDown(event: KeyboardEvent): void {
+    if (event.key === "ArrowRight") {
+      this.nextPage();
+    }
+    if (event.key === "ArrowLeft") {
+      this.prevPage();
+    }
+  }
+
+  onClick(event: MouseEvent): void {
+    if (this.pagesLoaded !== this.pageNumbers) {
+      return;
+    }
+    if (event.clientX > window.innerWidth / 2) {
+      this.nextPage();
+    } else {
+      this.prevPage();
+    }
+  }
+
+  nextPage(): void {
+    this.currentPage < this.pageNumbers ? (this.currentPage += 0.5) : null;
+  }
+
+  prevPage(): void {
+    this.currentPage > 1 ? (this.currentPage -= 0.5) : null;
   }
 
   isPageVisible(page: number): boolean {
@@ -96,7 +128,7 @@ export default class SheetViewer extends Vue {
     if (!this.pdf) {
       return;
     }
-    let scaling = 0.75;
+    let scaling = 1;
     let page = await this.pdf.getPage(pageNumber);
     let scale1ViewPort = page.getViewport({
       scale: 1,
