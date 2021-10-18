@@ -1,11 +1,22 @@
 <template>
   <v-app>
     <v-app-bar dense app color="primary" dark>
-      <v-btn @click="navBack" icon v-if="showBackButton">
+      <v-btn @click="onNavBack" icon v-if="showBackButton">
         <v-icon>mdi-arrow-left</v-icon>
       </v-btn>
       <div>Sheet music viewer : {{ appVersion }}</div>
       <v-spacer></v-spacer>
+      <div class="searchWrapper" :class="searchVisible ? 'searchVisible' : ''">
+        <v-text-field
+          v-model="searchTerm"
+          label=""
+          hide-details="auto"
+          ref="searchWrapper"
+        ></v-text-field>
+      </div>
+      <v-btn icon dar @click="showSearch">
+        <v-icon>mdi-magnify</v-icon>
+      </v-btn>
       <v-dialog
         v-model="dialog"
         persistent
@@ -41,6 +52,7 @@
 <script lang="ts">
 import Vue from "vue";
 import { EventNames, RouteNames } from "@/Enums";
+import { mapFields } from "vuex-map-fields";
 
 export default Vue.extend({
   name: "App",
@@ -52,6 +64,7 @@ export default Vue.extend({
     window.ipcRenderer.send(EventNames.GET_VERSION);
   },
   computed: {
+    ...mapFields(["searchTerm", "searchVisible"]),
     showBackButton: function () {
       let currentRoute = this.$route.name;
       if (currentRoute === RouteNames.FolderSetup) {
@@ -75,16 +88,36 @@ export default Vue.extend({
   },
 
   methods: {
-    navBack: function () {
+    onNavBack: function () {
+      let clearSearch = !!this.$store.getters.getField("searchTerm");
+      if (this.$route.name === RouteNames.SheetSelection && clearSearch) {
+        this.$store.commit("clearSearch");
+        return;
+      }
+
       if (history.length === 1) {
         this.$router.push({ name: RouteNames.SheetSelection });
       } else {
         this.$router.go(-1);
       }
     },
+
+    clearSearch(): void {
+      this.$store.commit("clearSearch");
+    },
     navToSettings: function () {
       this.dialog = false;
       this.$router.push({ name: RouteNames.FolderSetup });
+    },
+    showSearch: function () {
+      let searchVisible = this.$store.getters.getField("searchVisible");
+      searchVisible = !searchVisible;
+      this.$store.commit("setVisible", searchVisible);
+      if (searchVisible) {
+        (this.$refs["searchWrapper"] as HTMLInputElement)?.focus();
+      } else {
+        (this.$refs["searchWrapper"] as HTMLInputElement)?.blur();
+      }
     },
   },
 
@@ -98,5 +131,19 @@ export default Vue.extend({
 <style lang="less">
 html {
   overflow: hidden !important;
+}
+
+.searchWrapper {
+  overflow: hidden;
+  padding-bottom: 1px;
+
+  > div {
+    transform: translateX(100%);
+    transition: transform 200ms ease-in-out;
+  }
+
+  &.searchVisible > div {
+    transform: translateX(0);
+  }
 }
 </style>

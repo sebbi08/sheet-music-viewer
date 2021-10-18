@@ -14,6 +14,7 @@ import { EventNames } from "@/Enums";
 import * as path from "path";
 import * as fs from "fs/promises";
 import log from "electron-log";
+import { glob } from "glob";
 
 Object.assign(console, log.functions);
 
@@ -190,8 +191,31 @@ ipcMain.on(EventNames.FOLDER_SELECTED, async (event, args) => {
       path: basePath,
       name: item.name,
       isFile: item.isFile(),
+      isSearch: false,
     };
   });
+  console.log(filesAndFolders);
 
   event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
+});
+ipcMain.on(EventNames.SEARCH_FILES, async (event, args) => {
+  const basePath = args.basePath;
+  const searchTerm = args.searchTerm;
+  glob("**/*" + searchTerm + "*.*", { cwd: basePath }, (err, matches) => {
+    if (err) {
+      console.log(err);
+      return;
+    }
+    matches = matches.map((filepath) => filepath.split("/").join(path.sep));
+
+    const filesAndFolders = matches.map((item) => {
+      return {
+        path: basePath + path.sep + path.dirname(item),
+        name: path.basename(item),
+        isFile: true,
+        isSearch: true,
+      };
+    });
+    event.reply(EventNames.SEARCH_RESULTS, filesAndFolders);
+  });
 });
