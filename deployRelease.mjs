@@ -6,22 +6,25 @@ import path from "path";
 import axios from "axios";
 
 
-glob(path.resolve("./") + "/dist_electron/squirrel-windows/*.exe", async (err, files) => {
+glob(path.resolve("./") + "/dist_electron/squirrel-windows/*.*", async (err, files) => {
 
 
     if (err) {
         throw err
     }
-    if (files.length > 1) {
-        throw new Error("Found more than one .exe pls check");
-    }
+
 
     const form = new FormData();
 
-    const file = await fs.readFile(files[0]);
+    for (let i = 0; i < files.length; i++){
+        let file = files[i];
+        const fileContent = await fs.readFile(file);
+        form.append(`file${i}`, fileContent, path.basename(file));
+    }
+
+
     let packageJson = await fs.readJSON("package.json");
     let token = await fs.readJSON("token.json");
-    form.append("file", file, path.basename(files[0]));
     form.append("platform", "win32")
     form.append("arch", "x64")
 
