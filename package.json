@@ -1,6 +1,6 @@
 {
   "name": "sheet-music-viewer",
-  "version": "0.0.0-development",
+  "version": "0.0.2",
   "description": "App for viewing music sheets",
   "author": {
     "email": "sebastian.mahr83@gmail.com",

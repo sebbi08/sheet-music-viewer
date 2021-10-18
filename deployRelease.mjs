@@ -6,7 +6,7 @@ import path from "path";
 import axios from "axios";
 
 
-glob(path.resolve("./") + "/dist_electron/squirrel-windows/*.*", async (err, files) => {
+glob(path.resolve("./") + "/dist_electron/squirrel-windows/*", async (err, files) => {
 
 
     if (err) {
@@ -18,6 +18,7 @@ glob(path.resolve("./") + "/dist_electron/squirrel-windows/*.*", async (err, fil
 
     for (let i = 0; i < files.length; i++){
         let file = files[i];
+        if (path.basename(file).toLowerCase() === 'releases') continue;
         const fileContent = await fs.readFile(file);
         form.append(`file${i}`, fileContent, path.basename(file));
     }
@@ -29,16 +30,18 @@ glob(path.resolve("./") + "/dist_electron/squirrel-windows/*.*", async (err, fil
     form.append("arch", "x64")
 
     form.append("version", packageJson.version);
-    let url = "https://update.sebmahr.de/rest/app/2/channel/a5ee3785b14c683cf37e2caf9ebb04b1/upload";
+    let settings = token;
+    let url = `https://update.sebmahr.de/rest/app/${settings.appId}/channel/${settings.channelId}/upload`;
     try {
         await axios.post(url, form, {
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
             headers: {
                 ...form.getHeaders(),
-                Authorization: token.NUCLEUS_TOKEN
+                Authorization: settings.NUCLEUS_TOKEN
             }
         })
+        console.log("Upload Done");
     } catch (e) {
         console.log(e);
     }

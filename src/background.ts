@@ -26,7 +26,7 @@ const suffix =
     : "";
 let updateError = "";
 try {
-  const url = `${DOMAIN}/sheet-viewer/a5ee3785b14c683cf37e2caf9ebb04b1/${process.platform}/${process.arch}${suffix}`;
+  const url = `${DOMAIN}/sheet-viewer/8cb6264c2ffe3d74c14502443f492c0d/${process.platform}/${process.arch}${suffix}`;
   console.log(url);
   autoUpdater.setFeedURL({
     url: url,
