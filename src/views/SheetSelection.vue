@@ -6,9 +6,9 @@
     <!--    <div class="scroll-container">-->
     <div class="container">
       <v-card
-        @click="selectItem(item)"
         v-for="item in searchOrFolder"
         :key="item.name + item.path"
+        @click="selectItem(item)"
       >
         <v-icon x-large>{{ item.isFile ? "mdi-file" : "mdi-folder" }}</v-icon>
         <h2 v-if="!item.isSearch" class="itemName">
@@ -53,6 +53,12 @@ export default class SheetSelection extends Vue {
       : this.pdfsAndFolders;
   }
 
+  get folderPath(): string {
+    return this.$route?.params?.path
+      ? this.$route.params.path.slice(0, -1)
+      : window.path.sep;
+  }
+
   @Watch("filesAndFolder", { immediate: true, deep: true })
   getFolderAndPDFs(newVal: SheetFile[]): void {
     this.pdfsAndFolders = newVal
@@ -94,12 +100,6 @@ export default class SheetSelection extends Vue {
     let indexOfExtension = fileName.lastIndexOf(".");
     if (indexOfExtension === -1) return fileName;
     return fileName.slice(0, indexOfExtension);
-  }
-
-  get folderPath(): string {
-    return this.$route?.params?.path
-      ? this.$route.params.path.slice(0, -1)
-      : window.path.sep;
   }
 
   selectItem(item: SheetFile): void {
@@ -161,7 +161,7 @@ export default class SheetSelection extends Vue {
 }
 </script>
 
-<style scoped lang="less">
+<style lang="less" scoped>
 .container {
   max-height: calc(100vh - 32px - 64px);
   width: auto;

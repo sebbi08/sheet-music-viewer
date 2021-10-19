@@ -1,30 +1,30 @@
 <template>
   <v-app>
-    <v-app-bar dense app color="primary" dark>
-      <v-btn @click="onNavBack" icon v-if="showBackButton">
+    <v-app-bar app color="primary" dark dense>
+      <v-btn v-if="showBackButton" icon @click="onNavBack">
         <v-icon>mdi-arrow-left</v-icon>
       </v-btn>
       <div>Sheet music viewer : {{ appVersion }}</div>
       <v-spacer></v-spacer>
-      <div class="searchWrapper" :class="searchVisible ? 'searchVisible' : ''">
+      <div :class="searchVisible ? 'searchVisible' : ''" class="searchWrapper">
         <v-text-field
-          v-model="searchTerm"
-          label=""
-          hide-details="auto"
           ref="searchWrapper"
+          v-model="searchTerm"
+          hide-details="auto"
+          label=""
         ></v-text-field>
       </div>
-      <v-btn icon dar @click="showSearch">
+      <v-btn dar icon @click="showSearch">
         <v-icon>mdi-magnify</v-icon>
       </v-btn>
       <v-dialog
-        v-model="dialog"
-        persistent
-        max-width="320"
         v-if="showSettingsButton"
+        v-model="dialog"
+        max-width="320"
+        persistent
       >
         <template v-slot:activator="{ on, attrs }">
-          <v-btn icon dark v-bind="attrs" v-on="on">
+          <v-btn dark icon v-bind="attrs" v-on="on">
             <v-icon>mdi-cog</v-icon>
           </v-btn>
         </template>

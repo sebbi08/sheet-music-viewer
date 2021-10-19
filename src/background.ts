@@ -194,7 +194,6 @@ ipcMain.on(EventNames.FOLDER_SELECTED, async (event, args) => {
       isSearch: false,
     };
   });
-  console.log(filesAndFolders);
 
   event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
 });

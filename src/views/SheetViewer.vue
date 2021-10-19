@@ -1,12 +1,12 @@
 <template>
-  <div class="canvasWrapper">
+  <div ref="wrapper" class="canvasWrapper">
     <v-progress-circular
+      v-if="pagesLoaded !== pageNumbers"
       :size="70"
       :width="7"
-      indeterminate
-      color="primary"
       class="loader"
-      v-if="pagesLoaded !== pageNumbers"
+      color="primary"
+      indeterminate
     >
       {{
         Number.isInteger((100 / pageNumbers) * pagesLoaded)
@@ -14,19 +14,19 @@
           : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
       }}%
     </v-progress-circular>
-    <div class="overlay" v-if="pagesLoaded !== pageNumbers"></div>
-    <div class="canvasWrapper" ref="wrapper">
+    <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
+    <div class="canvasWrapper">
       <div v-for="pageNumber in pageNumbers" :key="pageNumber">
         <canvas
           v-if="pageNumber !== 1"
-          class="pageCanvas"
           :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
           :data-page="pageNumber - 0.5"
+          class="pageCanvas"
         />
         <canvas
-          class="pageCanvas"
           :class="isPageVisible(pageNumber) ? 'pageVisible' : ''"
           :data-page="pageNumber"
+          class="pageCanvas"
         />
       </div>
     </div>
@@ -39,36 +39,50 @@ import Component from "vue-class-component";
 import * as pdfJs from "pdfjs-dist/webpack";
 import {
   PDFDocumentProxy,
+  PDFLoadingTask,
   PDFRenderParams,
   ViewportParameters,
 } from "pdfjs-dist/webpack";
+import _ from "lodash";
 
 @Component({})
 export default class SheetViewer extends Vue {
-  private pdf?: PDFDocumentProxy;
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
+  debouncedResize?: any;
+  pdfLoadingTask?: PDFLoadingTask<any>;
+  private pdf?: PDFDocumentProxy;
 
   unmounted(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("click", this.onClick);
+    window.addEventListener("resize", this.debouncedResize);
   }
 
   async mounted(): Promise<void> {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("click", this.onClick);
+    this.debouncedResize = _.debounce(this.onResize, 200);
+    window.addEventListener("resize", this.debouncedResize);
     this.currentPage = 1;
-    let pdfLoadingTask = pdfJs.getDocument({
+    this.pdfLoadingTask = pdfJs.getDocument({
       url: "local-resource://" + this.$route.params.path,
     });
+    this.renderPdf();
+  }
 
-    this.pdf = await pdfLoadingTask.promise;
-    this.pageNumbers = this.pdf.numPages;
+  async renderPdf(): Promise<void> {
+    if (!this.pdfLoadingTask) {
+      return;
+    }
+    this.pdf = await this.pdfLoadingTask.promise;
+    this.pageNumbers = this.pdf?.numPages || 0;
+    this.pagesLoaded = 0;
 
     setTimeout(() => {
+      let $wrapper = this.$refs["wrapper"] as HTMLDivElement;
       for (let i = 1; i <= this.pageNumbers; i++) {
-        let $wrapper = this.$refs["wrapper"] as HTMLDivElement;
         let $canvas = $wrapper?.querySelector(
           'canvas[data-page="' + i + '"]'
         ) as HTMLCanvasElement;
@@ -99,6 +113,10 @@ export default class SheetViewer extends Vue {
     }
   }
 
+  onResize(): void {
+    this.renderPdf();
+  }
+
   nextPage(): void {
     this.currentPage < this.pageNumbers ? (this.currentPage += 0.5) : null;
   }
@@ -124,30 +142,32 @@ export default class SheetViewer extends Vue {
     pageNumber: number,
     $canvas: HTMLCanvasElement,
     $wrapper: HTMLDivElement
-  ): Promise<void> {
+  ): Promise<any> {
     if (!this.pdf) {
       return;
     }
-    let scaling = 1;
+    let scaling = window.devicePixelRatio;
     let page = await this.pdf.getPage(pageNumber);
     let scale1ViewPort = page.getViewport({
       scale: 1,
     } as ViewportParameters);
-    let wrapper = this.$refs.wrapper as HTMLDivElement;
-    let scale: number;
-    if (scale1ViewPort.height > scale1ViewPort.width) {
-      scale = wrapper.clientHeight / scale1ViewPort.height;
-    } else {
-      scale = wrapper.clientWidth / scale1ViewPort.width;
+
+    let scale = $wrapper.clientHeight / scale1ViewPort.height;
+
+    let windowViewport = page.getViewport({ scale } as ViewportParameters);
+
+    if (windowViewport.width > $wrapper.clientWidth) {
+      scale = $wrapper.clientWidth / scale1ViewPort.width;
+      windowViewport = page.getViewport({ scale } as ViewportParameters);
     }
-    const viewport = page.getViewport({ scale } as ViewportParameters);
+    let viewport = scale1ViewPort;
 
     // Prepare canvas using PDF page dimensions
 
     $canvas.height = viewport.height * scaling;
     $canvas.width = viewport.width * scaling;
-    $canvas.style.height = viewport.height + "px";
-    $canvas.style.width = viewport.width + "px";
+    $canvas.style.height = windowViewport.height + "px";
+    $canvas.style.width = windowViewport.width + "px";
 
     // Render PDF page into canvas context
     const canvasContext = $canvas.getContext("2d");
@@ -175,14 +195,18 @@ export default class SheetViewer extends Vue {
 
       let destCtx = copyCanvas.getContext("2d") as CanvasRenderingContext2D;
       destCtx.drawImage(originalCanvas, 0, 0);
-      setTimeout(() => {
-        let height = parseFloat(originalCanvas.style.height) / 2;
-        let width = parseFloat(originalCanvas.style.width);
-        destCtx.scale(scaling, scaling);
-        destCtx.clearRect(0, height, width, height);
-        destCtx.fillStyle = "#000";
-        destCtx.fillRect(0, height - 25, width, 50);
-      }, 500);
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          let height = originalCanvas.height / scaling / 2;
+          let width = originalCanvas.width / scaling;
+          destCtx.scale(scaling, scaling);
+          destCtx.clearRect(0, height, width, height);
+          destCtx.fillStyle = "#000";
+          destCtx.fillRect(0, height - 5, width, 10);
+          resolve(null);
+        }, 500);
+      });
     });
   }
 }

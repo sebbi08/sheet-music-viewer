@@ -45,7 +45,7 @@ export default class FolderSetup extends Vue {
 }
 </script>
 
-<style scoped lang="less">
+<style lang="less" scoped>
 .container {
   height: 100%;
   display: flex;
