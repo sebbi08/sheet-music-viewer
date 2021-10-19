@@ -14,7 +14,7 @@
     "postinstall": "electron-builder install-app-deps",
     "postuninstall": "electron-builder install-app-deps",
     "semantic-release": "semantic-release",
-    "release": "rimraf dist_electron && yarn semantic-release && git push && yarn build && node deployRelease.mjs"
+    "release": "rimraf dist_electron && yarn semantic-release --no-ci && git push && yarn build && node deployRelease.mjs"
   },
   "main": "background.js",
   "dependencies": {
@@ -109,7 +109,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/sebbi08/sheet-music-viewer.git"
+    "url": "git@github.com:sebbi08/sheet-music-viewer.git"
   },
   "release": {
     "branches": [
