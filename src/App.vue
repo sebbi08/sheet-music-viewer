@@ -14,8 +14,21 @@
           label=""
         ></v-text-field>
       </div>
-      <v-btn dar icon @click="showSearch">
+      <v-btn
+        v-if="$route.name !== sheetViewerRouterName"
+        dar
+        icon
+        @click="showSearch"
+      >
         <v-icon>mdi-magnify</v-icon>
+      </v-btn>
+      <v-btn
+        v-if="$route.name === sheetViewerRouterName"
+        dar
+        icon
+        @click="onSwitchEditMode"
+      >
+        <v-icon>mdi-pencil</v-icon>
       </v-btn>
       <v-dialog
         v-if="showSettingsButton"
@@ -64,7 +77,7 @@ export default Vue.extend({
     window.ipcRenderer.send(EventNames.GET_VERSION);
   },
   computed: {
-    ...mapFields(["searchTerm", "searchVisible"]),
+    ...mapFields(["searchTerm", "searchVisible", "editMode"]),
     showBackButton: function () {
       let currentRoute = this.$route.name;
       if (currentRoute === RouteNames.FolderSetup) {
@@ -109,6 +122,9 @@ export default Vue.extend({
       this.dialog = false;
       this.$router.push({ name: RouteNames.FolderSetup });
     },
+    onSwitchEditMode: function () {
+      this.$store.commit("toggleEditMode");
+    },
     showSearch: function () {
       let searchVisible = this.$store.getters.getField("searchVisible");
       searchVisible = !searchVisible;
@@ -124,6 +140,7 @@ export default Vue.extend({
   data: () => ({
     dialog: false,
     appVersion: (window as any).appVersion,
+    sheetViewerRouterName: RouteNames.SheetViewer,
   }),
 });
 </script>
@@ -131,6 +148,7 @@ export default Vue.extend({
 <style lang="less">
 html {
   overflow: hidden !important;
+  max-height: 100vh;
 }
 
 .searchWrapper {

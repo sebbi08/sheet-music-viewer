@@ -12,6 +12,7 @@ export default new Vuex.Store({
     sheetMusicFolder: sheetMusicFolder,
     searchTerm: "",
     searchVisible: false,
+    editMode: false,
   },
   getters: {
     // Add the `getField` getter to the
@@ -28,6 +29,9 @@ export default new Vuex.Store({
     },
     setVisible: function (state, payload) {
       state.searchVisible = payload;
+    },
+    toggleEditMode: function (state) {
+      state.editMode = !state.editMode;
     },
   },
   actions: {},
