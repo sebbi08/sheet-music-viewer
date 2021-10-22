@@ -1,7 +1,7 @@
 <template>
   <div id="sheetViewerWrapper" class="canvasWrapper">
     <v-progress-circular
-      v-if="pagesLoaded !== pageNumbers"
+      v-if="pagesLoaded === pageNumbers"
       :size="70"
       :width="7"
       class="loader"
@@ -14,12 +14,12 @@
           : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
       }}%
     </v-progress-circular>
-    <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
+    <div v-if="pagesLoaded === pageNumbers" class="overlay"></div>
     <div class="canvasWrapper">
       <div
-        class="pageWrapper"
         v-for="pageNumber in pageNumbers"
         :key="pageNumber"
+        class="pageWrapper"
       >
         <canvas
           v-if="pageNumber !== 1"
@@ -47,12 +47,12 @@
     </div>
 
     <v-speed-dial
-      absolute
       v-if="editMode"
       v-model="editFab"
+      absolute
       bottom
-      right
       direction="left"
+      right
       transition="slide-x-reverse-transition"
     >
       <template v-slot:activator>
@@ -64,31 +64,31 @@
           <v-icon v-else-if="drawingMode"> mdi-pencil</v-icon>
         </v-btn>
       </template>
-      <v-btn @click="startDrawingMode" fab dark small color="green">
+      <v-btn color="green" dark fab small @click="startDrawingMode">
         <v-icon>mdi-pencil</v-icon>
       </v-btn>
-      <v-btn @click="startInteractiveMode" fab dark small color="green">
+      <v-btn color="green" dark fab small @click="startInteractiveMode">
         <v-icon>mdi-hand-back-right-outline</v-icon>
       </v-btn>
     </v-speed-dial>
     <v-btn
-      class="deletion-fab"
       v-if="currentSelection.length > 0"
+      class="deletion-fab"
       color="red darken-2"
-      @click="deleteCurrentSelection"
       dark
       fab
+      @click="deleteCurrentSelection"
     >
       <v-icon>mdi-delete</v-icon>
     </v-btn>
     <v-speed-dial
-      class="deletion-fab"
-      absolute
       v-if="drawingMode"
       v-model="drawingFab"
+      absolute
       bottom
-      right
+      class="deletion-fab"
       direction="left"
+      right
       transition="slide-x-reverse-transition"
     >
       <template v-slot:activator>
@@ -96,10 +96,10 @@
           <v-icon>mdi-gesture</v-icon>
         </v-btn>
       </template>
-      <v-btn fab dark small color="green">
+      <v-btn color="green" dark fab small>
         <v-icon>mdi-marker</v-icon>
       </v-btn>
-      <v-btn fab dark small color="green">
+      <v-btn color="green" dark fab small>
         <v-icon>mdi-pencil</v-icon>
       </v-btn>
     </v-speed-dial>
@@ -134,7 +134,6 @@ export default class SheetViewer extends Vue {
   pagesLoaded = 0;
   debouncedResize?: any;
   pdfLoadingTask?: PDFLoadingTask<any>;
-  private pdf?: PDFDocumentProxy;
   editFabric?: fabric.Canvas;
   sheetViewerWrapperId = "sheetViewerWrapper";
   editCanvasId = "";
@@ -144,6 +143,7 @@ export default class SheetViewer extends Vue {
   interactiveMode = false;
   drawingMode = false;
   currentSelection: any[] = [];
+  private pdf?: PDFDocumentProxy;
 
   unmounted(): void {
     window.removeEventListener("keydown", this.onKeyDown);
@@ -152,6 +152,8 @@ export default class SheetViewer extends Vue {
   }
 
   async mounted(): Promise<void> {
+    fabric.Object.NUM_FRACTION_DIGITS = 99;
+
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("click", this.onClick);
     this.debouncedResize = _.debounce(this.onResize, 500);
@@ -284,6 +286,13 @@ export default class SheetViewer extends Vue {
       return a.page === this.currentPage;
     });
 
+    let heightScale = 1;
+    let widthScale = 1;
+    if (currentPageData) {
+      heightScale = editCanvas.height / currentPageData.drawHeight;
+      widthScale = editCanvas.width / currentPageData.drawWidth;
+    }
+
     this.editFabric = new fabric.Canvas(editCanvas, {
       isDrawingMode: false,
     });
@@ -302,6 +311,14 @@ export default class SheetViewer extends Vue {
     if (!currentPageData) return;
 
     this.editFabric.loadFromJSON(currentPageData.data, () => {
+      this.editFabric?.getObjects().forEach((canvasObject) => {
+        canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
+        canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
+        canvasObject.left = (canvasObject.left || 0) * widthScale;
+        canvasObject.top = (canvasObject.top || 0) * heightScale;
+        canvasObject.dirty = true;
+      });
+      this.editFabric?.renderAll();
       console.log("fabricLoaded");
     });
   }
@@ -558,9 +575,8 @@ export default class SheetViewer extends Vue {
 .loader {
   z-index: 99;
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translateX(-50%) translateY(-50%);
+  left: calc(50% - 35px);
+  top: calc(50% - 35px);
 }
 
 .overlay {
