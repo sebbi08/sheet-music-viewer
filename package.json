@@ -18,7 +18,7 @@
   },
   "main": "background.js",
   "dependencies": {
-    "@mdi/font": "5.9.55",
+    "@mdi/font": "6.3.95",
     "@types/fabric": "^4.5.3",
     "@types/lodash": "^4.14.175",
     "axios": "^0.23.0",

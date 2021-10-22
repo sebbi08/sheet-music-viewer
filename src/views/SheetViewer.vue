@@ -45,6 +45,64 @@
         />
       </div>
     </div>
+
+    <v-speed-dial
+      absolute
+      v-if="editMode"
+      v-model="editFab"
+      bottom
+      right
+      direction="left"
+      transition="slide-x-reverse-transition"
+    >
+      <template v-slot:activator>
+        <v-btn v-model="editFab" color="blue darken-2" dark fab>
+          <v-icon v-if="editFab"> mdi-close</v-icon>
+          <v-icon v-else-if="interactiveMode">
+            mdi-hand-back-right-outline
+          </v-icon>
+          <v-icon v-else-if="drawingMode"> mdi-pencil</v-icon>
+        </v-btn>
+      </template>
+      <v-btn @click="startDrawingMode" fab dark small color="green">
+        <v-icon>mdi-pencil</v-icon>
+      </v-btn>
+      <v-btn @click="startInteractiveMode" fab dark small color="green">
+        <v-icon>mdi-hand-back-right-outline</v-icon>
+      </v-btn>
+    </v-speed-dial>
+    <v-btn
+      class="deletion-fab"
+      v-if="currentSelection.length > 0"
+      color="red darken-2"
+      @click="deleteCurrentSelection"
+      dark
+      fab
+    >
+      <v-icon>mdi-delete</v-icon>
+    </v-btn>
+    <v-speed-dial
+      class="deletion-fab"
+      absolute
+      v-if="drawingMode"
+      v-model="drawingFab"
+      bottom
+      right
+      direction="left"
+      transition="slide-x-reverse-transition"
+    >
+      <template v-slot:activator>
+        <v-btn v-model="drawingFab" color="blue darken-2" dark fab>
+          <v-icon>mdi-gesture</v-icon>
+        </v-btn>
+      </template>
+      <v-btn fab dark small color="green">
+        <v-icon>mdi-marker</v-icon>
+      </v-btn>
+      <v-btn fab dark small color="green">
+        <v-icon>mdi-pencil</v-icon>
+      </v-btn>
+    </v-speed-dial>
   </div>
 </template>
 
@@ -81,6 +139,11 @@ export default class SheetViewer extends Vue {
   sheetViewerWrapperId = "sheetViewerWrapper";
   editCanvasId = "";
   overlayData: OverlayData[] = [];
+  editFab = false;
+  drawingFab = false;
+  interactiveMode = false;
+  drawingMode = false;
+  currentSelection: any[] = [];
 
   unmounted(): void {
     window.removeEventListener("keydown", this.onKeyDown);
@@ -135,21 +198,59 @@ export default class SheetViewer extends Vue {
     }
   }
 
+  startDrawingMode(): void {
+    if (!this.editFabric) {
+      return;
+    }
+    this.interactiveMode = false;
+    this.drawingMode = true;
+
+    this.editFabric.isDrawingMode = true;
+  }
+
+  startInteractiveMode(): void {
+    if (!this.editFabric) {
+      return;
+    }
+    this.interactiveMode = true;
+    this.drawingMode = false;
+    this.editFabric.isDrawingMode = false;
+  }
+
+  deleteCurrentSelection(): void {
+    if (!this.editFabric) {
+      return;
+    }
+    this.editFabric.remove(...this.currentSelection);
+    this.currentSelection = [];
+    this.editFabric.selection = false;
+    this.editFabric.selection = true;
+    this.editFabric.interactive = false;
+    this.editFabric.interactive = true;
+  }
+
   saveDrawnData(): void {
-    let fabricJson = this.editFabric?.toJSON();
-    let fabricDataUrl = this.editFabric?.toDataURL();
+    if (!this.editFabric) return;
+    let fabricJson = this.editFabric.toJSON();
+    let fabricDataUrl = this.editFabric.toSVG();
 
     let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
       return a.page === this.currentPage;
     });
+    let width = this.editFabric.width || 0;
+    let height = this.editFabric.height || 0;
     if (currentPageData) {
       currentPageData.data = fabricJson;
       currentPageData.dataUrl = fabricDataUrl;
+      currentPageData.drawWidth = width;
+      currentPageData.drawHeight = height;
     } else {
       this.overlayData.push({
         page: this.currentPage,
         data: fabricJson,
         dataUrl: fabricDataUrl,
+        drawWidth: width,
+        drawHeight: height,
       });
     }
     window.ipcRenderer.send(EventNames.SAVE_OVERLAY_DATA, {
@@ -178,16 +279,27 @@ export default class SheetViewer extends Vue {
       `#${this.sheetViewerWrapperId} > .canvasWrapper`
     );
     canvasWrapper?.appendChild(editCanvas);
-    this.editFabric = new fabric.Canvas(editCanvas, {
-      isDrawingMode: true,
-    });
 
     let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
       return a.page === this.currentPage;
     });
-    if (!currentPageData) {
-      return;
-    }
+
+    this.editFabric = new fabric.Canvas(editCanvas, {
+      isDrawingMode: false,
+    });
+    this.drawingMode = false;
+    this.interactiveMode = true;
+    this.editFabric.on("selection:created", (event: any) => {
+      this.currentSelection = event.selected;
+    });
+    this.editFabric.on("selection:updated", (event: any) => {
+      this.currentSelection = event.selected;
+    });
+    this.editFabric.on("selection:cleared", () => {
+      this.currentSelection = [];
+    });
+
+    if (!currentPageData) return;
 
     this.editFabric.loadFromJSON(currentPageData.data, () => {
       console.log("fabricLoaded");
@@ -195,6 +307,8 @@ export default class SheetViewer extends Vue {
   }
 
   removeFabricCanvas(): void {
+    this.drawingMode = false;
+    this.interactiveMode = false;
     this.editFabric?.dispose();
 
     let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
@@ -234,12 +348,21 @@ export default class SheetViewer extends Vue {
         'canvas[data-page-overlay="' + pageNumber + '"]'
       ) as HTMLCanvasElement;
       let img = new Image();
-      img.src = overlayJsonData.dataUrl || "";
-      img.onload = function () {
-        let overlayContext = overlayCanvas.getContext(
-          "2d"
-        ) as CanvasRenderingContext2D;
+      let svg64 = window.btoa(overlayJsonData.dataUrl || "");
+      let b64Start = "data:image/svg+xml;base64,";
+      img.src = b64Start + svg64;
+
+      let overlayContext = overlayCanvas.getContext(
+        "2d"
+      ) as CanvasRenderingContext2D;
+      let heightScale = overlayCanvas.height / overlayJsonData.drawHeight;
+      let widthScale = overlayCanvas.width / overlayJsonData.drawWidth;
+      overlayContext.setTransform(1, 0, 0, 1, 0, 0);
+      overlayContext.scale(heightScale, widthScale);
+
+      img.onload = () => {
         overlayContext.drawImage(img, 0, 0);
+        overlayContext.setTransform(1, 0, 0, 1, 0, 0);
       };
     }
   }
@@ -403,6 +526,7 @@ export default class SheetViewer extends Vue {
     halfPageCanvas.width = originalCanvas.width;
     halfPageCanvas.style.height = originalCanvas.style.height;
     halfPageCanvas.style.width = originalCanvas.style.width;
+    halfPageCanvas.getContext("2d")?.scale(scaling, scaling);
 
     let overlayHalfPageCanvas = $wrapper?.querySelector(
       'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
@@ -420,7 +544,6 @@ export default class SheetViewer extends Vue {
       setTimeout(() => {
         let height = originalCanvas.height / scaling / 2;
         let width = originalCanvas.width / scaling;
-        destCtx.scale(scaling, scaling);
         destCtx.clearRect(0, height, width, height);
         destCtx.fillStyle = "#000";
         destCtx.fillRect(0, height - 5, width, 10);
@@ -475,5 +598,11 @@ export default class SheetViewer extends Vue {
 .canvas-container {
   left: 50%;
   transform: translateX(-50%);
+}
+
+.deletion-fab {
+  position: absolute;
+  right: 16px;
+  bottom: 88px !important;
 }
 </style>

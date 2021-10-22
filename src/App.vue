@@ -16,7 +16,7 @@
       </div>
       <v-btn
         v-if="$route.name !== sheetViewerRouterName"
-        dar
+        dark
         icon
         @click="showSearch"
       >
@@ -24,11 +24,11 @@
       </v-btn>
       <v-btn
         v-if="$route.name === sheetViewerRouterName"
-        dar
+        dark
         icon
         @click="onSwitchEditMode"
       >
-        <v-icon>mdi-pencil</v-icon>
+        <v-icon>{{ editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
       </v-btn>
       <v-dialog
         v-if="showSettingsButton"
@@ -71,9 +71,12 @@ export default Vue.extend({
   name: "App",
 
   mounted() {
-    window.ipcRenderer.on(EventNames.SEND_VERSION, (appVersion: string) => {
-      this.appVersion = appVersion;
-    });
+    window.ipcRenderer.on(
+      EventNames.SEND_VERSION,
+      (event, appVersion: string) => {
+        this.appVersion = appVersion;
+      }
+    );
     window.ipcRenderer.send(EventNames.GET_VERSION);
   },
   computed: {
