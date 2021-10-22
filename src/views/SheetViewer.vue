@@ -63,6 +63,7 @@ import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { fabric } from "fabric";
 import { OverlayData } from "@/models/OverlayData";
+import { EventNames } from "@/Enums";
 
 @Component({
   computed: {
@@ -79,7 +80,7 @@ export default class SheetViewer extends Vue {
   editFabric?: fabric.Canvas;
   sheetViewerWrapperId = "sheetViewerWrapper";
   editCanvasId = "";
-  overlayJsons: OverlayData[] = [];
+  overlayData: OverlayData[] = [];
 
   unmounted(): void {
     window.removeEventListener("keydown", this.onKeyDown);
@@ -90,8 +91,28 @@ export default class SheetViewer extends Vue {
   async mounted(): Promise<void> {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("click", this.onClick);
-    this.debouncedResize = _.debounce(this.onResize, 200);
+    this.debouncedResize = _.debounce(this.onResize, 500);
     window.addEventListener("resize", this.debouncedResize);
+
+    window.ipcRenderer.send(EventNames.START_LOAD_OVERLAY_DATA, {
+      path: this.$route.params.path,
+    });
+
+    await new Promise((resolve) => {
+      window.ipcRenderer.on(
+        EventNames.LOAD_OVERLAY_DATA,
+        (overlayData: string) => {
+          if (!overlayData) {
+            this.overlayData = [];
+            resolve(undefined);
+            return;
+          }
+          this.overlayData = JSON.parse(overlayData);
+          resolve(undefined);
+        }
+      );
+    });
+
     this.currentPage = 1;
     this.pdfLoadingTask = pdfJs.getDocument({
       url: "local-resource://" + this.$route.params.path,
@@ -118,19 +139,23 @@ export default class SheetViewer extends Vue {
     let fabricJson = this.editFabric?.toJSON();
     let fabricDataUrl = this.editFabric?.toDataURL();
 
-    let currentPageData = this.overlayJsons.find((a: OverlayData): boolean => {
+    let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
       return a.page === this.currentPage;
     });
     if (currentPageData) {
       currentPageData.data = fabricJson;
       currentPageData.dataUrl = fabricDataUrl;
     } else {
-      this.overlayJsons.push({
+      this.overlayData.push({
         page: this.currentPage,
         data: fabricJson,
         dataUrl: fabricDataUrl,
       });
     }
+    window.ipcRenderer.send(EventNames.SAVE_OVERLAY_DATA, {
+      data: JSON.stringify(this.overlayData),
+      path: this.$route.params.path,
+    });
   }
 
   createFabricCanvas(): void {
@@ -157,7 +182,7 @@ export default class SheetViewer extends Vue {
       isDrawingMode: true,
     });
 
-    let currentPageData = this.overlayJsons.find((a: OverlayData): boolean => {
+    let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
       return a.page === this.currentPage;
     });
     if (!currentPageData) {
@@ -180,8 +205,8 @@ export default class SheetViewer extends Vue {
     let $wrapper = document.getElementById(
       "sheetViewerWrapper"
     ) as HTMLDivElement;
-    for (let i = 0; i < this.overlayJsons.length; i++) {
-      let overlayJsonData = this.overlayJsons[i];
+    for (let i = 0; i < this.overlayData.length; i++) {
+      let overlayJsonData = this.overlayData[i];
       if (!overlayJsonData) continue;
       let pageNumber = overlayJsonData.page;
 
@@ -200,8 +225,8 @@ export default class SheetViewer extends Vue {
     let $wrapper = document.getElementById(
       "sheetViewerWrapper"
     ) as HTMLDivElement;
-    for (let i = 0; i < this.overlayJsons.length; i++) {
-      let overlayJsonData = this.overlayJsons[i];
+    for (let i = 0; i < this.overlayData.length; i++) {
+      let overlayJsonData = this.overlayData[i];
       if (!overlayJsonData) continue;
       let pageNumber = overlayJsonData.page;
 

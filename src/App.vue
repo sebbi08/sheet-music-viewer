@@ -133,6 +133,7 @@ export default Vue.extend({
         (this.$refs["searchWrapper"] as HTMLInputElement)?.focus();
       } else {
         (this.$refs["searchWrapper"] as HTMLInputElement)?.blur();
+        this.$store.commit("clearSearch");
       }
     },
   },

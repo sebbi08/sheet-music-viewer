@@ -218,3 +218,44 @@ ipcMain.on(EventNames.SEARCH_FILES, async (event, args) => {
     event.reply(EventNames.SEARCH_RESULTS, filesAndFolders);
   });
 });
+ipcMain.on(EventNames.START_LOAD_OVERLAY_DATA, async (event, args) => {
+  const sheetPath = args.path;
+
+  const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
+
+  let overlayData;
+
+  try {
+    overlayData = (await fs.readFile(overlayDataPath)).toString();
+  } catch (e) {
+    if (e.code !== "ENOENT") {
+      console.log("Error while loading data file");
+      console.log(e);
+    }
+    overlayData = "";
+  }
+
+  event.reply(EventNames.LOAD_OVERLAY_DATA, overlayData);
+});
+
+ipcMain.on(EventNames.SAVE_OVERLAY_DATA, async (event, args) => {
+  const sheetPath = args.path;
+  const overlayData = args.data;
+  const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
+  try {
+    await fs.writeFile(overlayDataPath, overlayData);
+  } catch (e) {
+    console.log("Error while saving:");
+    console.log(e);
+  }
+});
+
+function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
+  const overlayDataPath = sheetPath.split(path.sep);
+  let fileName = overlayDataPath[overlayDataPath.length - 1];
+  fileName = "." + fileName.replace(path.extname(fileName), ".data");
+
+  overlayDataPath[overlayDataPath.length - 1] = fileName;
+
+  return overlayDataPath.join(path.sep);
+}
