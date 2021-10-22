@@ -101,7 +101,7 @@ export default class SheetViewer extends Vue {
     await new Promise((resolve) => {
       window.ipcRenderer.on(
         EventNames.LOAD_OVERLAY_DATA,
-        (overlayData: string) => {
+        (event, overlayData: string): void => {
           if (!overlayData) {
             this.overlayData = [];
             resolve(undefined);

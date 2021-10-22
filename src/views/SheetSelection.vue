@@ -142,13 +142,13 @@ export default class SheetSelection extends Vue {
   mounted(): void {
     window.ipcRenderer.on(
       EventNames.FOLDER_LOADED,
-      (filesAndFolders: SheetFile[]) => {
+      (event, filesAndFolders: SheetFile[]) => {
         this.filesAndFolder = filesAndFolders;
       }
     );
     window.ipcRenderer.on(
       EventNames.SEARCH_RESULTS,
-      (searchResults: SheetFile[]) => {
+      (event, searchResults: SheetFile[]) => {
         this.searchResults = searchResults;
       }
     );

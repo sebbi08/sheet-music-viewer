@@ -25,7 +25,7 @@ export default class FolderSetup extends Vue {
     if (window.ipcRenderer) {
       window.ipcRenderer.on(
         EventNames.FOLDER_SELECTED,
-        (selectedFolder: string) => {
+        (event, selectedFolder: string) => {
           this.sheetMusicFolder = selectedFolder;
           localStorage.setItem("sheetMusicFolder", selectedFolder);
           this.$router.push({

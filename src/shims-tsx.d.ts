@@ -15,8 +15,10 @@ declare global {
 }
 
 declare global {
+  import IpcRenderer = Electron.IpcRenderer;
+
   interface Window {
-    ipcRenderer: any;
+    ipcRenderer: IpcRenderer;
     path: any;
     pdfJs: any;
   }
