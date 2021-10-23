@@ -523,8 +523,8 @@ export default class SheetViewer extends Vue {
         overlayHalPageContext?.drawImage(img, 0, 0);
         overlayHalPageContext?.setTransform(1, 0, 0, 1, 0, 0);
 
-        let height = overlayHalfPageCanvas.height / heightScale / 2;
-        let width = overlayHalfPageCanvas.width / widthScale;
+        let height = (overlayHalfPageCanvas?.height || 0) / heightScale / 2;
+        let width = (overlayHalfPageCanvas?.width || 0) / widthScale;
         overlayHalPageContext?.clearRect(0, height - 2.5, width, height);
       };
     }
