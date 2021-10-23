@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.1.0...v1.1.1) (2021-10-23)
+
+
+### Bug Fixes
+
+* scaling of half page ([32901a6](https://github.com/sebbi08/sheet-music-viewer/commit/32901a698454bbc2e525758f3aa29aa24e9ee835))
+
 # [1.1.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.0.0...v1.1.0) (2021-10-23)
 
 
