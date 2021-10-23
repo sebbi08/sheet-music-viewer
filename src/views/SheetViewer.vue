@@ -1,7 +1,7 @@
 <template>
   <div id="sheetViewerWrapper" class="canvasWrapper">
     <v-progress-circular
-      v-if="pagesLoaded === pageNumbers"
+      v-if="pagesLoaded !== pageNumbers"
       :size="70"
       :width="7"
       class="loader"
@@ -14,7 +14,7 @@
           : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
       }}%
     </v-progress-circular>
-    <div v-if="pagesLoaded === pageNumbers" class="overlay"></div>
+    <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
     <div class="canvasWrapper">
       <div
         v-for="pageNumber in pageNumbers"
@@ -58,10 +58,10 @@
       <template v-slot:activator>
         <v-btn v-model="editFab" color="blue darken-2" dark fab>
           <v-icon v-if="editFab"> mdi-close</v-icon>
-          <v-icon v-else-if="interactiveMode">
+          <v-icon v-else-if="editState.interactiveMode">
             mdi-hand-back-right-outline
           </v-icon>
-          <v-icon v-else-if="drawingMode"> mdi-pencil</v-icon>
+          <v-icon v-else-if="editState.drawingMode"> mdi-pencil</v-icon>
         </v-btn>
       </template>
       <v-btn color="green" dark fab small @click="startDrawingMode">
@@ -82,7 +82,7 @@
       <v-icon>mdi-delete</v-icon>
     </v-btn>
     <v-speed-dial
-      v-if="drawingMode"
+      v-if="editState.drawingMode"
       v-model="drawingFab"
       absolute
       bottom
@@ -92,15 +92,45 @@
       transition="slide-x-reverse-transition"
     >
       <template v-slot:activator>
-        <v-btn v-model="drawingFab" color="blue darken-2" dark fab>
-          <v-icon>mdi-gesture</v-icon>
+        <v-btn v-model="drawingFab" color="green darken-1" dark fab>
+          <v-icon v-if="editState.pencilMode">mdi-pencil</v-icon>
+          <v-icon v-else>mdi-marker</v-icon>
         </v-btn>
       </template>
-      <v-btn color="green" dark fab small>
+      <v-btn color="green" dark fab small @click="setMarkerMode">
         <v-icon>mdi-marker</v-icon>
       </v-btn>
-      <v-btn color="green" dark fab small>
+      <v-btn color="green" dark fab small @click="setPencilMode">
         <v-icon>mdi-pencil</v-icon>
+      </v-btn>
+    </v-speed-dial>
+
+    <v-speed-dial
+      v-if="editState.drawingMode"
+      v-model="colorFab"
+      absolute
+      bottom
+      class="color-fab"
+      direction="left"
+      right
+      transition="slide-x-reverse-transition"
+    >
+      <template v-slot:activator>
+        <v-btn v-model="colorFab" color="white" dark fab>
+          <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
+        </v-btn>
+      </template>
+      <v-btn color="white" dark fab small @click="setRedColor">
+        <v-icon class="square-red">mdi-square-rounded</v-icon>
+      </v-btn>
+      <v-btn color="white" dark fab small @click="setGreenColor">
+        <v-icon class="square-green">mdi-square-rounded</v-icon>
+      </v-btn>
+      <v-btn color="white" dark fab small @click="setBlueColor">
+        <v-icon class="square-blue">mdi-square-rounded</v-icon>
+      </v-btn>
+      <v-btn color="white" dark fab small @click="setBlackColor">
+        <v-icon class="square-black">mdi-square-rounded</v-icon>
       </v-btn>
     </v-speed-dial>
   </div>
@@ -121,7 +151,8 @@ import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { fabric } from "fabric";
 import { OverlayData } from "@/models/OverlayData";
-import { EventNames } from "@/Enums";
+import { BRUSH_COLORS, EventNames } from "@/Enums";
+import { EditState } from "@/models/EditState";
 
 @Component({
   computed: {
@@ -140,8 +171,14 @@ export default class SheetViewer extends Vue {
   overlayData: OverlayData[] = [];
   editFab = false;
   drawingFab = false;
-  interactiveMode = false;
-  drawingMode = false;
+  colorFab = false;
+  editState: EditState = {
+    thickness: 0,
+    drawingMode: false,
+    interactiveMode: false,
+    color: { r: 0, g: 0, b: 0 },
+    pencilMode: false,
+  };
   currentSelection: any[] = [];
   private pdf?: PDFDocumentProxy;
 
@@ -185,6 +222,63 @@ export default class SheetViewer extends Vue {
     await this.renderPdf();
   }
 
+  setGreenColor(): void {
+    this.setEditMode({
+      color: BRUSH_COLORS.GREEN.getColor(),
+    });
+  }
+
+  setRedColor(): void {
+    this.setEditMode({
+      color: BRUSH_COLORS.RED.getColor(),
+    });
+  }
+
+  setBlueColor(): void {
+    this.setEditMode({
+      color: BRUSH_COLORS.BLUE.getColor(),
+    });
+  }
+
+  setBlackColor(): void {
+    this.setEditMode({
+      color: BRUSH_COLORS.BLACK.getColor(),
+    });
+  }
+
+  setMarkerMode(): void {
+    this.setEditMode({
+      pencilMode: false,
+      thickness: 10,
+      color: BRUSH_COLORS.RED.getColor(),
+    });
+  }
+
+  setPencilMode(): void {
+    this.setEditMode({
+      pencilMode: true,
+      thickness: 2,
+      color: BRUSH_COLORS.BLACK.getColor(),
+    });
+  }
+
+  getCurrentBrushClass(): string {
+    if (!this.editState.color) return "";
+    if (BRUSH_COLORS.RED.equals(this.editState.color)) {
+      return "square-red";
+    }
+    if (BRUSH_COLORS.BLUE.equals(this.editState.color)) {
+      return "square-blue";
+    }
+    if (BRUSH_COLORS.GREEN.equals(this.editState.color)) {
+      return "square-green";
+    }
+    if (BRUSH_COLORS.BLACK.equals(this.editState.color)) {
+      return "square-black";
+    }
+    return "";
+  }
+
   @Watch("editMode", { immediate: true })
   onEditChange(editMode: boolean): void {
     if (editMode) {
@@ -204,19 +298,23 @@ export default class SheetViewer extends Vue {
     if (!this.editFabric) {
       return;
     }
-    this.interactiveMode = false;
-    this.drawingMode = true;
-
-    this.editFabric.isDrawingMode = true;
+    this.setEditMode({
+      interactiveMode: false,
+      drawingMode: true,
+      pencilMode: false,
+      color: { r: 255, g: 0, b: 0 },
+      thickness: 10,
+    });
   }
 
   startInteractiveMode(): void {
     if (!this.editFabric) {
       return;
     }
-    this.interactiveMode = true;
-    this.drawingMode = false;
-    this.editFabric.isDrawingMode = false;
+    this.setEditMode({
+      interactiveMode: true,
+      drawingMode: false,
+    });
   }
 
   deleteCurrentSelection(): void {
@@ -261,6 +359,41 @@ export default class SheetViewer extends Vue {
     });
   }
 
+  setEditMode(editState: EditState): void {
+    let currentEditState = this.getEditMode();
+    let newEditState = Object.assign(currentEditState, editState);
+
+    if (!this.editFabric) {
+      this.editState.drawingMode = false;
+      this.editState.interactiveMode = false;
+      this.editState.pencilMode = false;
+      this.editState.color = { r: 0, g: 0, b: 0 };
+      this.editState.thickness = 0;
+      return;
+    }
+    this.editState.drawingMode = newEditState.drawingMode;
+    this.editFabric.isDrawingMode = newEditState.drawingMode;
+    this.editState.interactiveMode = newEditState.interactiveMode;
+    this.editFabric.interactive = newEditState.interactiveMode;
+
+    let cssColor: string;
+    if (newEditState.color) {
+      cssColor = `rgba(${newEditState.color.r},${newEditState.color.g},${
+        newEditState.color.b
+      },${newEditState.pencilMode ? 1 : 0.5})`;
+    } else {
+      cssColor = "rgba(0,0,0,0)";
+    }
+    this.editState.color = newEditState.color;
+    this.editFabric.freeDrawingBrush.color = cssColor;
+    this.editState.thickness = newEditState.thickness;
+    this.editFabric.freeDrawingBrush.width = newEditState.thickness || 0;
+  }
+
+  getEditMode(): EditState {
+    return this.editState;
+  }
+
   createFabricCanvas(): void {
     let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
 
@@ -296,8 +429,7 @@ export default class SheetViewer extends Vue {
     this.editFabric = new fabric.Canvas(editCanvas, {
       isDrawingMode: false,
     });
-    this.drawingMode = false;
-    this.interactiveMode = true;
+    this.startInteractiveMode();
     this.editFabric.on("selection:created", (event: any) => {
       this.currentSelection = event.selected;
     });
@@ -324,12 +456,12 @@ export default class SheetViewer extends Vue {
   }
 
   removeFabricCanvas(): void {
-    this.drawingMode = false;
-    this.interactiveMode = false;
     this.editFabric?.dispose();
+    this.editFabric = undefined;
 
     let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
     sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
+    this.setEditMode({});
   }
 
   clearOverlayCanvas(): void {
@@ -620,5 +752,27 @@ export default class SheetViewer extends Vue {
   position: absolute;
   right: 16px;
   bottom: 88px !important;
+}
+
+.color-fab {
+  position: absolute;
+  right: 16px;
+  bottom: calc(88px + 56px + 16px) !important;
+}
+
+.square-red {
+  color: #ff0000 !important;
+}
+
+.square-green {
+  color: #00ff00 !important;
+}
+
+.square-blue {
+  color: #0000ff !important;
+}
+
+.square-black {
+  color: #000000 !important;
 }
 </style>
