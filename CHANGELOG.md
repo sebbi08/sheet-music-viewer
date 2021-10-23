@@ -1,3 +1,17 @@
+# [1.1.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.0.0...v1.1.0) (2021-10-23)
+
+
+### Bug Fixes
+
+* scaling of drawing canvas on resolution change ([4506427](https://github.com/sebbi08/sheet-music-viewer/commit/45064279e495826c81687063537ec93ef22784ae))
+
+
+### Features
+
+* added brushes and colors ([110410c](https://github.com/sebbi08/sheet-music-viewer/commit/110410ced1ee154ea01cf226151df11aa8e5bb13))
+* initial setup for drawing ([6edfb8b](https://github.com/sebbi08/sheet-music-viewer/commit/6edfb8b58df40c78cb803e0ae29a678bb4593048))
+* saving of overlay data ([111e629](https://github.com/sebbi08/sheet-music-viewer/commit/111e62987c57177951d656dd9bbd4d1df459bfc9))
+
 # 1.0.0 (2021-10-19)
 
 
