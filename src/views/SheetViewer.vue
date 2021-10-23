@@ -496,6 +496,9 @@ export default class SheetViewer extends Vue {
       let overlayCanvas = $wrapper?.querySelector(
         'canvas[data-page-overlay="' + pageNumber + '"]'
       ) as HTMLCanvasElement;
+      let overlayHalfPageCanvas = $wrapper?.querySelector(
+        'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
+      ) as HTMLCanvasElement;
       let img = new Image();
       let svg64 = window.btoa(overlayJsonData.dataUrl || "");
       let b64Start = "data:image/svg+xml;base64,";
@@ -504,14 +507,25 @@ export default class SheetViewer extends Vue {
       let overlayContext = overlayCanvas.getContext(
         "2d"
       ) as CanvasRenderingContext2D;
+      let overlayHalPageContext = overlayHalfPageCanvas?.getContext(
+        "2d"
+      ) as CanvasRenderingContext2D;
       let heightScale = overlayCanvas.height / overlayJsonData.drawHeight;
       let widthScale = overlayCanvas.width / overlayJsonData.drawWidth;
       overlayContext.setTransform(1, 0, 0, 1, 0, 0);
       overlayContext.scale(heightScale, widthScale);
+      overlayHalPageContext?.setTransform(1, 0, 0, 1, 0, 0);
+      overlayHalPageContext?.scale(heightScale, widthScale);
 
       img.onload = () => {
         overlayContext.drawImage(img, 0, 0);
         overlayContext.setTransform(1, 0, 0, 1, 0, 0);
+        overlayHalPageContext?.drawImage(img, 0, 0);
+        overlayHalPageContext?.setTransform(1, 0, 0, 1, 0, 0);
+
+        let height = overlayHalfPageCanvas.height / heightScale / 2;
+        let width = overlayHalfPageCanvas.width / widthScale;
+        overlayHalPageContext?.clearRect(0, height - 2.5, width, height);
       };
     }
   }
@@ -675,7 +689,6 @@ export default class SheetViewer extends Vue {
     halfPageCanvas.width = originalCanvas.width;
     halfPageCanvas.style.height = originalCanvas.style.height;
     halfPageCanvas.style.width = originalCanvas.style.width;
-    halfPageCanvas.getContext("2d")?.scale(scaling, scaling);
 
     let overlayHalfPageCanvas = $wrapper?.querySelector(
       'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
@@ -686,16 +699,20 @@ export default class SheetViewer extends Vue {
     overlayHalfPageCanvas.style.height = originalCanvas.style.height;
     overlayHalfPageCanvas.style.width = originalCanvas.style.width;
 
-    let destCtx = halfPageCanvas.getContext("2d") as CanvasRenderingContext2D;
-    destCtx.drawImage(originalCanvas, 0, 0);
+    let halfPageContext = halfPageCanvas.getContext("2d");
+    halfPageContext?.drawImage(originalCanvas, 0, 0);
 
     return new Promise((resolve) => {
       setTimeout(() => {
-        let height = originalCanvas.height / scaling / 2;
-        let width = originalCanvas.width / scaling;
-        destCtx.clearRect(0, height, width, height);
-        destCtx.fillStyle = "#000";
-        destCtx.fillRect(0, height - 5, width, 10);
+        if (!halfPageContext) {
+          resolve(pageNumber);
+          return;
+        }
+        let height = originalCanvas.height / 2;
+        let width = originalCanvas.width;
+        halfPageContext.clearRect(0, height, width, height);
+        halfPageContext.fillStyle = "#000";
+        halfPageContext.fillRect(0, height - 5, width, 10);
         resolve(pageNumber);
       }, 500);
     });
