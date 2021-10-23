@@ -26,22 +26,26 @@
           :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
           :data-page="pageNumber - 0.5"
           class="pageCanvas"
+          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
         />
         <canvas
           v-if="pageNumber !== 1"
           :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
           :data-page-overlay="pageNumber - 0.5"
           class="pageCanvas overlayCanvas"
+          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
         />
         <canvas
           :class="isPageVisible(pageNumber) ? 'pageVisible' : ''"
           :data-page="pageNumber"
           class="pageCanvas"
+          v-bind:style="{ zIndex: pageNumber * 2 }"
         />
         <canvas
           :class="isPageVisible(pageNumber) ? 'pageVisible' : ''"
           :data-page-overlay="pageNumber"
           class="pageCanvas overlayCanvas"
+          v-bind:style="{ zIndex: pageNumber * 2 }"
         />
       </div>
     </div>
@@ -443,7 +447,13 @@ export default class SheetViewer extends Vue {
     if (!currentPageData) return;
 
     this.editFabric.loadFromJSON(currentPageData.data, () => {
-      this.editFabric?.getObjects().forEach((canvasObject) => {
+      this.editFabric?.getObjects().forEach((canvasObject, index) => {
+        if (index === 0) {
+          // canvasObject.stroke = "rgba(0,255,0,0,5)";
+          // canvasObject.aCoords
+        }
+
+        console.log(canvasObject);
         canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
         canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
         canvasObject.left = (canvasObject.left || 0) * widthScale;
@@ -476,10 +486,22 @@ export default class SheetViewer extends Vue {
       let overlayCanvas = $wrapper?.querySelector(
         'canvas[data-page-overlay="' + pageNumber + '"]'
       ) as HTMLCanvasElement;
+      let overlayHalfPageCanvas = $wrapper?.querySelector(
+        'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
+      ) as HTMLCanvasElement;
       let overlayContext = overlayCanvas.getContext(
         "2d"
       ) as CanvasRenderingContext2D;
+      let overlayHalfPageContext = overlayHalfPageCanvas?.getContext(
+        "2d"
+      ) as CanvasRenderingContext2D;
       overlayContext.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      overlayHalfPageContext?.clearRect(
+        0,
+        0,
+        overlayCanvas.width,
+        overlayCanvas.height
+      );
     }
   }
 
@@ -763,6 +785,7 @@ export default class SheetViewer extends Vue {
 .canvas-container {
   left: 50%;
   transform: translateX(-50%);
+  z-index: 97;
 }
 
 .deletion-fab {
