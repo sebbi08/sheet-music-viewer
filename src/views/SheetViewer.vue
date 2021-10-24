@@ -81,22 +81,35 @@
         <v-icon>mdi-hand-back-right-outline</v-icon>
       </v-btn>
     </v-speed-dial>
-    <v-btn
-      v-if="currentSelection.length > 0"
-      class="deletion-fab"
-      color="red darken-2"
-      dark
-      fab
-      @click="deleteCurrentSelection"
+
+    <v-speed-dial
+      v-if="editState.interactiveMode"
+      v-model="objectFab"
+      absolute
+      bottom
+      class="first-level-fab"
+      direction="left"
+      right
+      transition="slide-x-reverse-transition"
     >
-      <v-icon>mdi-delete</v-icon>
-    </v-btn>
+      <template v-slot:activator>
+        <v-btn v-model="drawingFab" color="green darken-1" dark fab>
+          <v-icon>mdi-plus</v-icon>
+        </v-btn>
+      </template>
+      <v-btn color="green" dark fab small @click="addSquare">
+        <v-icon>mdi-square</v-icon>
+      </v-btn>
+      <v-btn color="green" dark fab small @click="openMusicIconPopover">
+        <v-icon>mdi-note</v-icon>
+      </v-btn>
+    </v-speed-dial>
     <v-speed-dial
       v-if="editState.drawingMode"
       v-model="drawingFab"
       absolute
       bottom
-      class="deletion-fab"
+      class="first-level-fab"
       direction="left"
       right
       transition="slide-x-reverse-transition"
@@ -120,7 +133,7 @@
       v-model="colorFab"
       absolute
       bottom
-      class="color-fab"
+      class="second-level-fab"
       direction="left"
       right
       transition="slide-x-reverse-transition"
@@ -163,6 +176,7 @@ import { fabric } from "fabric";
 import { OverlayData } from "@/models/OverlayData";
 import { BRUSH_COLORS, EventNames } from "@/Enums";
 import { EditState } from "@/models/EditState";
+import { enhanceFabricPrototype } from "@/utils";
 
 @Component({
   computed: {
@@ -182,6 +196,7 @@ export default class SheetViewer extends Vue {
   editFab = false;
   drawingFab = false;
   colorFab = false;
+  objectFab = false;
   editState: EditState = {
     thickness: 0,
     drawingMode: false,
@@ -199,7 +214,7 @@ export default class SheetViewer extends Vue {
   }
 
   async mounted(): Promise<void> {
-    fabric.Object.NUM_FRACTION_DIGITS = 99;
+    enhanceFabricPrototype();
 
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("click", this.onClick);
@@ -289,6 +304,26 @@ export default class SheetViewer extends Vue {
     return "";
   }
 
+  addSquare(): void {
+    if (!this.editFabric) {
+      return;
+    }
+
+    this.editFabric.add(
+      new fabric.Rect({
+        fill: "rgba(255,0,0,0.25)",
+        width: 50,
+        height: 50,
+        left: (this.editFabric.width || 0) / 2,
+        top: (this.editFabric.height || 0) / 2,
+      })
+    );
+  }
+
+  openMusicIconPopover(): void {
+    console.log("Open");
+  }
+
   @Watch("editMode", { immediate: true })
   async onEditChange(editMode: boolean): Promise<void> {
     if (editMode) {
@@ -328,18 +363,6 @@ export default class SheetViewer extends Vue {
       interactiveMode: true,
       drawingMode: false,
     });
-  }
-
-  deleteCurrentSelection(): void {
-    if (!this.editFabric) {
-      return;
-    }
-    this.editFabric.remove(...this.currentSelection);
-    this.currentSelection = [];
-    this.editFabric.selection = false;
-    this.editFabric.selection = true;
-    this.editFabric.interactive = false;
-    this.editFabric.interactive = true;
   }
 
   saveDrawnData(): void {
@@ -443,12 +466,16 @@ export default class SheetViewer extends Vue {
       isDrawingMode: false,
     });
     this.startInteractiveMode();
-    this.editFabric.on("selection:created", (event: any) => {
+    let handleSelection = (event: any) => {
       this.currentSelection = event.selected;
-    });
-    this.editFabric.on("selection:updated", (event: any) => {
-      this.currentSelection = event.selected;
-    });
+      event.target.controls.mtr = new fabric.Control({ visible: false });
+      event.target.controls.tl = new fabric.Control({ visible: false });
+      event.target.controls.tr = new fabric.Control({ visible: false });
+      event.target.controls.bl = new fabric.Control({ visible: false });
+      event.target.controls.br = new fabric.Control({ visible: false });
+    };
+    this.editFabric.on("selection:created", handleSelection);
+    this.editFabric.on("selection:updated", handleSelection);
     this.editFabric.on("selection:cleared", () => {
       this.currentSelection = [];
     });
@@ -478,6 +505,7 @@ export default class SheetViewer extends Vue {
     let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
     sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
     this.setEditMode({});
+    this.currentSelection = [];
   }
 
   clearOverlayCanvas(): void {
@@ -804,16 +832,23 @@ export default class SheetViewer extends Vue {
   z-index: 97;
 }
 
-.deletion-fab {
+.first-level-fab {
   position: absolute;
   right: 16px;
-  bottom: 88px !important;
+
+  bottom: calc(1 * (56px + 16px) + 16px) !important;
 }
 
-.color-fab {
+.second-level-fab {
   position: absolute;
   right: 16px;
-  bottom: calc(88px + 56px + 16px) !important;
+  bottom: calc(2 * (56px + 16px) + 16px) !important;
+}
+
+.third-level-fab {
+  position: absolute;
+  right: 16px;
+  bottom: calc(3 * (56px + 16px) + 16px) !important;
 }
 
 .square-red {
