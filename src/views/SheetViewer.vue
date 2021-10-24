@@ -284,13 +284,16 @@ export default class SheetViewer extends Vue {
   }
 
   @Watch("editMode", { immediate: true })
-  onEditChange(editMode: boolean): void {
+  async onEditChange(editMode: boolean): Promise<void> {
     if (editMode) {
       if (!Number.isInteger(this.currentPage)) {
         this.currentPage += 0.5;
       }
       this.clearOverlayCanvas();
-      this.createFabricCanvas();
+      await this.createFabricCanvas();
+      this.saveDrawnData();
+      this.removeFabricCanvas();
+      await this.createFabricCanvas();
     } else if (this.editFabric) {
       this.saveDrawnData();
       this.populateOverlayCanvas();
@@ -398,7 +401,7 @@ export default class SheetViewer extends Vue {
     return this.editState;
   }
 
-  createFabricCanvas(): void {
+  async createFabricCanvas(): Promise<void> {
     let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
 
     let currentPageCanvas =
@@ -446,22 +449,19 @@ export default class SheetViewer extends Vue {
 
     if (!currentPageData) return;
 
-    this.editFabric.loadFromJSON(currentPageData.data, () => {
-      this.editFabric?.getObjects().forEach((canvasObject, index) => {
-        if (index === 0) {
-          // canvasObject.stroke = "rgba(0,255,0,0,5)";
-          // canvasObject.aCoords
-        }
-
-        console.log(canvasObject);
-        canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
-        canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
-        canvasObject.left = (canvasObject.left || 0) * widthScale;
-        canvasObject.top = (canvasObject.top || 0) * heightScale;
-        canvasObject.dirty = true;
+    return new Promise((resolve) => {
+      this.editFabric?.loadFromJSON(currentPageData?.data, () => {
+        this.editFabric?.getObjects().forEach((canvasObject, index) => {
+          canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
+          canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
+          canvasObject.left = (canvasObject.left || 0) * widthScale;
+          canvasObject.top = (canvasObject.top || 0) * heightScale;
+          canvasObject.dirty = true;
+        });
+        this.editFabric?.renderAll();
+        console.log("fabricLoaded");
+        resolve();
       });
-      this.editFabric?.renderAll();
-      console.log("fabricLoaded");
     });
   }
 
