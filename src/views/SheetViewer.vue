@@ -274,7 +274,7 @@ export default class SheetViewer extends Vue {
   setMarkerMode(): void {
     this.setEditMode({
       pencilMode: false,
-      thickness: 10,
+      thickness: 20,
       color: BRUSH_COLORS.RED.getColor(),
     });
   }
@@ -350,9 +350,8 @@ export default class SheetViewer extends Vue {
       interactiveMode: false,
       drawingMode: true,
       pencilMode: false,
-      color: { r: 255, g: 0, b: 0 },
-      thickness: 10,
     });
+    this.setMarkerMode();
   }
 
   startInteractiveMode(): void {
@@ -416,7 +415,7 @@ export default class SheetViewer extends Vue {
     if (newEditState.color) {
       cssColor = `rgba(${newEditState.color.r},${newEditState.color.g},${
         newEditState.color.b
-      },${newEditState.pencilMode ? 1 : 0.5})`;
+      },${newEditState.pencilMode ? 1 : 0.25})`;
     } else {
       cssColor = "rgba(0,0,0,0)";
     }
@@ -829,7 +828,12 @@ export default class SheetViewer extends Vue {
 .canvas-container {
   left: 50%;
   transform: translateX(-50%);
-  z-index: 97;
+  z-index: 96;
+}
+
+.v-btn--fab,
+.v-speed-dial {
+  z-index: 97 !important;
 }
 
 .first-level-fab {
