@@ -1,6 +1,6 @@
 import { fabric } from "fabric";
 import { Transform } from "fabric/fabric-impl";
-import { ICONS } from "@/Enums";
+import { ACTION_ICONS } from "@/Enums";
 
 export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.transparentCorners = false;
@@ -12,10 +12,10 @@ export function enhanceFabricPrototype(): void {
   fabric.Object.NUM_FRACTION_DIGITS = 99;
 
   const deleteImg = document.createElement("img");
-  deleteImg.src = ICONS.deleteIcon;
+  deleteImg.src = ACTION_ICONS.deleteIcon;
 
   const cloneImg = document.createElement("img");
-  cloneImg.src = ICONS.cloneIcon;
+  cloneImg.src = ACTION_ICONS.cloneIcon;
 
   fabric.Object.prototype.controls.deleteControl = new fabric.Control({
     x: 0.5,

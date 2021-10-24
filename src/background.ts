@@ -195,8 +195,6 @@ ipcMain.on(EventNames.FOLDER_SELECTED, async (event, args) => {
     };
   });
 
-  console.dir(filesAndFolders);
-
   event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
 });
 ipcMain.on(EventNames.SEARCH_FILES, async (event, args) => {

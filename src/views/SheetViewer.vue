@@ -156,6 +156,30 @@
         <v-icon class="square-black">mdi-square-rounded</v-icon>
       </v-btn>
     </v-speed-dial>
+
+    <v-dialog v-model="musicSymbolDialog" max-width="466px">
+      <v-card>
+        <v-card-title>
+          <span>Add Symbol</span>
+        </v-card-title>
+        <div class="music-icons-wrapper">
+          <img
+            v-for="icon in allMusicIcons"
+            v-bind:key="icon"
+            :src="getImgUrl(icon)"
+            alt="MusicIcon"
+            class="music-icon"
+            style="width: 40px; height: 40px"
+            @click="addMusicIcon(icon)"
+          />
+        </div>
+        <v-card-actions>
+          <v-btn color="primary" text @click="musicSymbolDialog = false"
+            >Close
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -174,7 +198,7 @@ import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { fabric } from "fabric";
 import { OverlayData } from "@/models/OverlayData";
-import { BRUSH_COLORS, EventNames } from "@/Enums";
+import { BRUSH_COLORS, EventNames, MUSIC_ICONS } from "@/Enums";
 import { EditState } from "@/models/EditState";
 import { enhanceFabricPrototype } from "@/utils";
 
@@ -184,6 +208,7 @@ import { enhanceFabricPrototype } from "@/utils";
   },
 })
 export default class SheetViewer extends Vue {
+  allMusicIcons = MUSIC_ICONS.ALL_ICONS;
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
@@ -197,6 +222,7 @@ export default class SheetViewer extends Vue {
   drawingFab = false;
   colorFab = false;
   objectFab = false;
+  musicSymbolDialog = false;
   editState: EditState = {
     thickness: 0,
     drawingMode: false,
@@ -211,6 +237,11 @@ export default class SheetViewer extends Vue {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("click", this.onClick);
     window.addEventListener("resize", this.debouncedResize);
+  }
+
+  getImgUrl(url) {
+    let images = require.context("../assets/", true, /\.svg$/);
+    return images(url);
   }
 
   async mounted(): Promise<void> {
@@ -309,19 +340,38 @@ export default class SheetViewer extends Vue {
       return;
     }
 
-    this.editFabric.add(
-      new fabric.Rect({
-        fill: "rgba(255,0,0,0.25)",
-        width: 50,
-        height: 50,
+    let rect = new fabric.Rect({
+      fill: "rgba(255,0,0,0.25)",
+      width: 50,
+      height: 50,
+      left: (this.editFabric.width || 0) / 2,
+      top: (this.editFabric.height || 0) / 2,
+    });
+    this.editFabric.add(rect);
+    this.editFabric.setActiveObject(rect);
+  }
+
+  addMusicIcon(url): void {
+    if (!this.editFabric) return;
+
+    fabric.loadSVGFromURL(this.getImgUrl(url), (results, options) => {
+      // eslint-disable-next-line no-debugger
+      debugger;
+      let svg = fabric.util.groupSVGElements(results, options);
+      svg.set({
+        width: 5,
+        height: 5,
         left: (this.editFabric.width || 0) / 2,
         top: (this.editFabric.height || 0) / 2,
-      })
-    );
+      });
+      this.editFabric.add(svg);
+      this.editFabric.setActiveObject(svg);
+      this.musicSymbolDialog = false;
+    });
   }
 
   openMusicIconPopover(): void {
-    console.log("Open");
+    this.musicSymbolDialog = true;
   }
 
   @Watch("editMode", { immediate: true })
@@ -467,11 +517,11 @@ export default class SheetViewer extends Vue {
     this.startInteractiveMode();
     let handleSelection = (event: any) => {
       this.currentSelection = event.selected;
-      event.target.controls.mtr = new fabric.Control({ visible: false });
-      event.target.controls.tl = new fabric.Control({ visible: false });
-      event.target.controls.tr = new fabric.Control({ visible: false });
-      event.target.controls.bl = new fabric.Control({ visible: false });
-      event.target.controls.br = new fabric.Control({ visible: false });
+      // event.target.controls.mtr = new fabric.Control({ visible: false });
+      // event.target.controls.tl = new fabric.Control({ visible: false });
+      // event.target.controls.tr = new fabric.Control({ visible: false });
+      // event.target.controls.bl = new fabric.Control({ visible: false });
+      // event.target.controls.br = new fabric.Control({ visible: false });
     };
     this.editFabric.on("selection:created", handleSelection);
     this.editFabric.on("selection:updated", handleSelection);
@@ -786,6 +836,22 @@ export default class SheetViewer extends Vue {
 </script>
 
 <style lang="less">
+.music-icon {
+  width: 40px;
+  height: 40px;
+  padding: 16px;
+  box-sizing: content-box;
+  border: 1px solid;
+
+  &:not(:last-child) {
+    margin-right: 16px;
+  }
+}
+
+.music-icons-wrapper {
+  padding-left: 16px;
+}
+
 .loader {
   z-index: 99;
   position: absolute;

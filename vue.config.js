@@ -12,4 +12,11 @@ module.exports = {
     plugins: [new WorkerPlugin()],
     devtool: "source-map",
   },
+  chainWebpack: (config) => {
+    config.module
+      .rule("images")
+      .use("url-loader")
+      .loader("url-loader")
+      .tap((options) => Object.assign(options, { limit: 2097152 }));
+  },
 };
