@@ -47,6 +47,12 @@
           class="pageCanvas overlayCanvas"
           v-bind:style="{ zIndex: pageNumber * 2 }"
         />
+        <div
+          :class="isPageVisible(pageNumber + 0.5) ? 'pageVisible' : ''"
+          :data-page-backdrop="pageNumber"
+          class="pageCanvas pageBackdrop"
+          v-bind:style="{ zIndex: pageNumber * 2 }"
+        ></div>
       </div>
     </div>
 
@@ -701,6 +707,16 @@ export default class SheetViewer extends Vue {
     overlayCanvas.width = parseFloat(originalCanvas.style.width);
     overlayCanvas.style.height = originalCanvas.style.height;
     overlayCanvas.style.width = originalCanvas.style.width;
+
+    let backdrop = $wrapper?.querySelector(
+      'div[data-page-backdrop="' + pageNumber + '"]'
+    ) as HTMLDivElement;
+    if (backdrop) {
+      backdrop.style.width =
+        parseFloat(originalCanvas.style.width) + 100 + "px";
+      backdrop.style.height =
+        parseFloat(originalCanvas.style.height) / 2 + 5 + "px";
+    }
     if (pageNumber === 1) {
       return Promise.resolve(pageNumber);
     }
@@ -814,5 +830,9 @@ export default class SheetViewer extends Vue {
 
 .square-black {
   color: #000000 !important;
+}
+
+.pageBackdrop {
+  background: black;
 }
 </style>
