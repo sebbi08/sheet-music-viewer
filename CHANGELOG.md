@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.2.0...v1.2.1) (2021-10-25)
+
+
+### Bug Fixes
+
+* use png instead of svg for overlay ([4cebea6](https://github.com/sebbi08/sheet-music-viewer/commit/4cebea634d9b8663c440f6494f9a017d15c1c2da))
+
 # [1.2.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.1.1...v1.2.0) (2021-10-25)
 
 
