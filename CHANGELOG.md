@@ -1,3 +1,20 @@
+# [1.2.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.1.1...v1.2.0) (2021-10-25)
+
+
+### Bug Fixes
+
+* half page canvas not beeing cleard ([7f4e107](https://github.com/sebbi08/sheet-music-viewer/commit/7f4e107813a7dd38cdd3a6c90ee7c85edb29d9ab))
+* some overlay data not loaded in edit mode when image resolution changed ([270947d](https://github.com/sebbi08/sheet-music-viewer/commit/270947d4a729ddfa94596d47dfd34a0d2a2a0227))
+
+
+### Features
+
+* added backdrop for half pages ([6fe2009](https://github.com/sebbi08/sheet-music-viewer/commit/6fe20090464d55bcb6c7d6073f424142b9ceae48))
+* added copy past and delete actions ([7e1ca45](https://github.com/sebbi08/sheet-music-viewer/commit/7e1ca450c96f3f0bf1dd7f0de4ea7bab046b6e2a))
+* added music icons ([5b2bead](https://github.com/sebbi08/sheet-music-viewer/commit/5b2bead367765960b3adb4f9a328e4c924c91e03))
+* added posibility to insert icons and text ([80012c7](https://github.com/sebbi08/sheet-music-viewer/commit/80012c71bb88a292963fb5be2c743b13c5e6ff71))
+* enhanced market thickness nad reduced alpha value ([11fbeb2](https://github.com/sebbi08/sheet-music-viewer/commit/11fbeb2d3f82ab3e6ef330bc15d8cf5c54236ad9))
+
 ## [1.1.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.1.0...v1.1.1) (2021-10-23)
 
 
