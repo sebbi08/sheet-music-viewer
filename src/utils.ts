@@ -8,8 +8,17 @@ export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.cornerStyle = "circle";
   fabric.Object.prototype.lockRotation = true;
   fabric.Object.prototype.lockRotation = true;
-  fabric.Object.prototype.padding = 20;
+  fabric.Object.prototype.padding = 5;
+
   fabric.Object.NUM_FRACTION_DIGITS = 99;
+
+  enhanceCustomControlsOnPrototype(fabric.Object.prototype);
+  enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
+}
+
+function enhanceCustomControlsOnPrototype(proto: any) {
+  proto.controls.tlr = new fabric.Control({ visible: false });
+  proto.controls.mtr = new fabric.Control({ visible: false });
 
   const deleteImg = document.createElement("img");
   deleteImg.src = ACTION_ICONS.deleteIcon;
@@ -17,27 +26,50 @@ export function enhanceFabricPrototype(): void {
   const cloneImg = document.createElement("img");
   cloneImg.src = ACTION_ICONS.cloneIcon;
 
-  fabric.Object.prototype.controls.deleteControl = new fabric.Control({
+  proto.controls.deleteControl = new fabric.Control({
     x: 0.5,
     y: -0.5,
-    offsetY: -16,
-    offsetX: 16,
+    offsetY: -32,
+    offsetX: 32,
     cursorStyle: "pointer",
     mouseUpHandler: deleteObject,
     render: renderIcon(deleteImg),
     // cornerSize: 24,
   });
 
-  fabric.Object.prototype.controls.clone = new fabric.Control({
+  proto.controls.clone = new fabric.Control({
     x: -0.5,
     y: -0.5,
-    offsetY: -16,
-    offsetX: -16,
+    offsetY: -32,
+    offsetX: -32,
     cursorStyle: "pointer",
     mouseUpHandler: cloneObject,
     render: renderIcon(cloneImg),
     // cornerSize: 24,
   });
+
+  proto.controls.customMove = new fabric.Control({
+    x: 0,
+    y: 0.5,
+    offsetY: 32,
+    cursorStyle: "pointer",
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    render: fabric.controlsUtils.renderCircleControl,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    actionHandler: fabric.controlsUtils.dragHandler,
+    actionName: "drag",
+  });
+
+  proto.controls.tl.offsetX = -16;
+  proto.controls.tl.offsetY = -16;
+  proto.controls.tr.offsetX = 16;
+  proto.controls.tr.offsetY = -16;
+  proto.controls.bl.offsetX = -16;
+  proto.controls.bl.offsetY = 16;
+  proto.controls.br.offsetX = 16;
+  proto.controls.br.offsetY = 16;
 }
 
 function renderIcon(icon: HTMLImageElement) {
@@ -58,9 +90,17 @@ function renderIcon(icon: HTMLImageElement) {
 }
 
 function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
-  const target = transform.target;
+  const target = transform.target as any;
   const canvas = target.canvas;
-  canvas?.remove(target);
+
+  let toDelete;
+  if (target.getObjects) {
+    toDelete = target.getObjects();
+  } else {
+    toDelete = [target];
+  }
+
+  canvas?.remove(...toDelete);
   canvas?.requestRenderAll();
   return true;
 }

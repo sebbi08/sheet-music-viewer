@@ -56,6 +56,7 @@
       </div>
     </div>
 
+    <!--  Mode Selection  -->
     <v-speed-dial
       v-if="editMode"
       v-model="editFab"
@@ -82,6 +83,7 @@
       </v-btn>
     </v-speed-dial>
 
+    <!--  Add Item Selection  -->
     <v-speed-dial
       v-if="editState.interactiveMode"
       v-model="objectFab"
@@ -101,9 +103,13 @@
         <v-icon>mdi-square</v-icon>
       </v-btn>
       <v-btn color="green" dark fab small @click="openMusicIconPopover">
-        <v-icon>mdi-note</v-icon>
+        <v-icon>mdi-music</v-icon>
+      </v-btn>
+      <v-btn color="green" dark fab small @click="addTextToCanvas">
+        <v-icon>mdi-format-text</v-icon>
       </v-btn>
     </v-speed-dial>
+    <!--  Drawing Mode Selection  -->
     <v-speed-dial
       v-if="editState.drawingMode"
       v-model="drawingFab"
@@ -128,6 +134,7 @@
       </v-btn>
     </v-speed-dial>
 
+    <!--  Color Selection  -->
     <v-speed-dial
       v-if="editState.drawingMode"
       v-model="colorFab"
@@ -163,13 +170,12 @@
           <span>Add Symbol</span>
         </v-card-title>
         <div class="music-icons-wrapper">
-          <img
+          <div
             v-for="icon in allMusicIcons"
-            v-bind:key="icon"
-            :src="getImgUrl(icon)"
-            alt="MusicIcon"
+            v-bind:key="icon.name"
+            :data-icon-code="icon.code"
             class="music-icon"
-            style="width: 40px; height: 40px"
+            :class="'icon-' + icon.name"
             @click="addMusicIcon(icon)"
           />
         </div>
@@ -198,7 +204,7 @@ import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { fabric } from "fabric";
 import { OverlayData } from "@/models/OverlayData";
-import { BRUSH_COLORS, EventNames, MUSIC_ICONS } from "@/Enums";
+import { BRUSH_COLORS, EventNames, Icon, MUSIC_ICONS } from "@/Enums";
 import { EditState } from "@/models/EditState";
 import { enhanceFabricPrototype } from "@/utils";
 
@@ -237,11 +243,6 @@ export default class SheetViewer extends Vue {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("click", this.onClick);
     window.addEventListener("resize", this.debouncedResize);
-  }
-
-  getImgUrl(url) {
-    let images = require.context("../assets/", true, /\.svg$/);
-    return images(url);
   }
 
   async mounted(): Promise<void> {
@@ -351,23 +352,45 @@ export default class SheetViewer extends Vue {
     this.editFabric.setActiveObject(rect);
   }
 
-  addMusicIcon(url): void {
+  addTextToCanvas(): void {
+    if (!this.editFabric) {
+      return;
+    }
+
+    let textbox = new fabric.Textbox("edit here", {
+      width: 100,
+      height: 20,
+      fontSize: 16,
+      selectable: true,
+    });
+    this.editFabric.add(textbox);
+
+    textbox.set({
+      left: (this.editFabric?.width || 0) / 2,
+      top: (this.editFabric?.height || 0) / 2,
+    });
+    this.editFabric.setActiveObject(textbox);
+  }
+
+  addMusicIcon(icon: Icon): void {
     if (!this.editFabric) return;
 
-    fabric.loadSVGFromURL(this.getImgUrl(url), (results, options) => {
-      // eslint-disable-next-line no-debugger
-      debugger;
-      let svg = fabric.util.groupSVGElements(results, options);
-      svg.set({
-        width: 5,
-        height: 5,
-        left: (this.editFabric.width || 0) / 2,
-        top: (this.editFabric.height || 0) / 2,
-      });
-      this.editFabric.add(svg);
-      this.editFabric.setActiveObject(svg);
-      this.musicSymbolDialog = false;
+    let iconObject = new fabric.Text(icon.code, {
+      fill: "black",
+      fontSize: 1,
+      fontFamily: "noto-icons",
+      selectable: true,
+      scaleX: 50,
+      scaleY: 50,
     });
+    this.editFabric?.add(iconObject);
+    iconObject.set({
+      left: (this.editFabric?.width || 0) / 2,
+      top: (this.editFabric?.height || 0) / 2,
+    });
+    this.editFabric.setActiveObject(iconObject);
+
+    this.musicSymbolDialog = false;
   }
 
   openMusicIconPopover(): void {
@@ -492,8 +515,8 @@ export default class SheetViewer extends Vue {
 
     editCanvas.height = parseFloat(currentPageCanvas?.style.height || "") || 0;
     editCanvas.width = parseFloat(currentPageCanvas?.style.width || "") || 0;
-    editCanvas.style.height = currentPageCanvas?.style.height || "";
-    editCanvas.style.width = currentPageCanvas?.style.width || "";
+    editCanvas.style.height = currentPageCanvas?.style.height || "0px";
+    editCanvas.style.width = currentPageCanvas?.style.width || "0px";
 
     let canvasWrapper = document.querySelector<HTMLDivElement>(
       `#${this.sheetViewerWrapperId} > .canvasWrapper`
@@ -517,7 +540,9 @@ export default class SheetViewer extends Vue {
     this.startInteractiveMode();
     let handleSelection = (event: any) => {
       this.currentSelection = event.selected;
-      // event.target.controls.mtr = new fabric.Control({ visible: false });
+      if (event.selected.length > 1) {
+        event.target.controls.clone = new fabric.Control({ visible: false });
+      }
       // event.target.controls.tl = new fabric.Control({ visible: false });
       // event.target.controls.tr = new fabric.Control({ visible: false });
       // event.target.controls.bl = new fabric.Control({ visible: false });
@@ -533,7 +558,7 @@ export default class SheetViewer extends Vue {
 
     return new Promise((resolve) => {
       this.editFabric?.loadFromJSON(currentPageData?.data, () => {
-        this.editFabric?.getObjects().forEach((canvasObject, index) => {
+        this.editFabric?.getObjects().forEach((canvasObject) => {
           canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
           canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
           canvasObject.left = (canvasObject.left || 0) * widthScale;
@@ -717,10 +742,7 @@ export default class SheetViewer extends Vue {
     if (page === this.currentPage) {
       return true;
     }
-    if (page + 0.5 === this.currentPage) {
-      return true;
-    }
-    return false;
+    return page + 0.5 === this.currentPage;
   }
 
   async renderPage(
@@ -764,15 +786,14 @@ export default class SheetViewer extends Vue {
     } as PDFRenderParams;
 
     await page.render(renderContext).promise.then(() => {
-      return this.copyPageToHalfPage(pageNumber, $canvas, $wrapper, scaling);
+      return this.copyPageToHalfPage(pageNumber, $canvas, $wrapper);
     });
   }
 
   copyPageToHalfPage(
     pageNumber: number,
     $canvas: HTMLCanvasElement,
-    $wrapper: HTMLDivElement,
-    scaling: number
+    $wrapper: HTMLDivElement
   ): Promise<number> {
     let originalCanvas = $wrapper?.querySelector(
       'canvas[data-page="' + pageNumber + '"]'
@@ -836,12 +857,30 @@ export default class SheetViewer extends Vue {
 </script>
 
 <style lang="less">
+@font-face {
+  font-family: noto-icons;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../assets/musicIcons/NotoMusic-Regular.ttf) format("truetype");
+}
+
 .music-icon {
-  width: 40px;
+  width: 25px;
   height: 40px;
   padding: 16px;
   box-sizing: content-box;
   border: 1px solid;
+  font-size: 24px;
+  line-height: 24px;
+  position: relative;
+
+  &:before {
+    font-family: noto-icons;
+    font-style: normal;
+    font-weight: 400;
+    content: attr(data-icon-code);
+  }
 
   &:not(:last-child) {
     margin-right: 16px;
@@ -850,6 +889,8 @@ export default class SheetViewer extends Vue {
 
 .music-icons-wrapper {
   padding-left: 16px;
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .loader {

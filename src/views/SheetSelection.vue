@@ -45,7 +45,7 @@ export default class SheetSelection extends Vue {
   filesAndFolder: SheetFile[] = [];
   pdfsAndFolders: SheetFile[] = [];
   searchResults: SheetFile[] = [];
-  loadedRelative = "";
+  loadedRelative: string | null = "";
 
   get searchOrFolder(): SheetFile[] {
     return this.searchResults.length > 0
@@ -140,6 +140,7 @@ export default class SheetSelection extends Vue {
   }
 
   mounted(): void {
+    this.loadedRelative = null;
     window.ipcRenderer.on(
       EventNames.FOLDER_LOADED,
       (event, filesAndFolders: SheetFile[]) => {
