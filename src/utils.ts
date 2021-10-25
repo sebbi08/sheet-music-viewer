@@ -8,7 +8,8 @@ export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.cornerStyle = "circle";
   fabric.Object.prototype.lockRotation = true;
   fabric.Object.prototype.lockRotation = true;
-  fabric.Object.prototype.padding = 5;
+  fabric.Object.prototype.cornerSize = 20;
+  fabric.Object.prototype.padding = 0;
 
   fabric.Object.NUM_FRACTION_DIGITS = 99;
 

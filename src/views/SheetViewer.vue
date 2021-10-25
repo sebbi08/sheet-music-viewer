@@ -440,7 +440,7 @@ export default class SheetViewer extends Vue {
   saveDrawnData(): void {
     if (!this.editFabric) return;
     let fabricJson = this.editFabric.toJSON();
-    let fabricDataUrl = this.editFabric.toSVG();
+    let fabricDataUrl = this.editFabric.toDataURL();
 
     let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
       return a.page === this.currentPage;
@@ -630,9 +630,7 @@ export default class SheetViewer extends Vue {
         'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
       ) as HTMLCanvasElement;
       let img = new Image();
-      let svg64 = window.btoa(overlayJsonData.dataUrl || "");
-      let b64Start = "data:image/svg+xml;base64,";
-      img.src = b64Start + svg64;
+      img.src = overlayJsonData.dataUrl || "";
 
       let overlayContext = overlayCanvas.getContext(
         "2d"
