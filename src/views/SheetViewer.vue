@@ -21,6 +21,13 @@
         :key="pageNumber"
         class="pageWrapper"
       >
+        <div
+          v-if="pageNumber !== 1"
+          :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
+          :data-page-backdrop="pageNumber - 0.5"
+          class="pageCanvas pageBackdrop"
+          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
+        ></div>
         <canvas
           v-if="pageNumber !== 1"
           :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
@@ -29,30 +36,11 @@
           v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
         />
         <canvas
-          v-if="pageNumber !== 1"
-          :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
-          :data-page-overlay="pageNumber - 0.5"
-          class="pageCanvas overlayCanvas"
-          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
-        />
-        <canvas
           :class="isPageVisible(pageNumber) ? 'pageVisible' : ''"
           :data-page="pageNumber"
           class="pageCanvas"
           v-bind:style="{ zIndex: pageNumber * 2 }"
         />
-        <canvas
-          :class="isPageVisible(pageNumber) ? 'pageVisible' : ''"
-          :data-page-overlay="pageNumber"
-          class="pageCanvas overlayCanvas"
-          v-bind:style="{ zIndex: pageNumber * 2 }"
-        />
-        <div
-          :class="isPageVisible(pageNumber + 0.5) ? 'pageVisible' : ''"
-          :data-page-backdrop="pageNumber"
-          class="pageCanvas pageBackdrop"
-          v-bind:style="{ zIndex: pageNumber * 2 }"
-        ></div>
       </div>
     </div>
 
@@ -229,6 +217,7 @@ export default class SheetViewer extends Vue {
   colorFab = false;
   objectFab = false;
   musicSymbolDialog = false;
+  overlayFabrics: fabric.StaticCanvas[] = [];
   editState: EditState = {
     thickness: 0,
     drawingMode: false,
@@ -439,8 +428,11 @@ export default class SheetViewer extends Vue {
 
   saveDrawnData(): void {
     if (!this.editFabric) return;
-    let fabricJson = this.editFabric.toJSON();
+    let fabricJson = this.editFabric.toJSON() as any;
     let fabricDataUrl = this.editFabric.toDataURL();
+    if (fabricJson.objects.length === 0) {
+      fabricDataUrl = "";
+    }
 
     let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
       return a.page === this.currentPage;
@@ -543,10 +535,6 @@ export default class SheetViewer extends Vue {
       if (event.selected.length > 1) {
         event.target.controls.clone = new fabric.Control({ visible: false });
       }
-      // event.target.controls.tl = new fabric.Control({ visible: false });
-      // event.target.controls.tr = new fabric.Control({ visible: false });
-      // event.target.controls.bl = new fabric.Control({ visible: false });
-      // event.target.controls.br = new fabric.Control({ visible: false });
     };
     this.editFabric.on("selection:created", handleSelection);
     this.editFabric.on("selection:updated", handleSelection);
@@ -566,7 +554,6 @@ export default class SheetViewer extends Vue {
           canvasObject.dirty = true;
         });
         this.editFabric?.renderAll();
-        console.log("fabricLoaded");
         resolve();
       });
     });
@@ -583,79 +570,89 @@ export default class SheetViewer extends Vue {
   }
 
   clearOverlayCanvas(): void {
-    let $wrapper = document.getElementById(
-      "sheetViewerWrapper"
-    ) as HTMLDivElement;
-    for (let i = 0; i < this.overlayData.length; i++) {
-      let overlayJsonData = this.overlayData[i];
-      if (!overlayJsonData) continue;
-      let pageNumber = overlayJsonData.page;
-
-      let overlayCanvas = $wrapper?.querySelector(
-        'canvas[data-page-overlay="' + pageNumber + '"]'
-      ) as HTMLCanvasElement;
-      let overlayHalfPageCanvas = $wrapper?.querySelector(
-        'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
-      ) as HTMLCanvasElement;
-      let overlayContext = overlayCanvas.getContext(
-        "2d"
-      ) as CanvasRenderingContext2D;
-      let overlayHalfPageContext = overlayHalfPageCanvas?.getContext(
-        "2d"
-      ) as CanvasRenderingContext2D;
-      overlayContext.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-      overlayHalfPageContext?.clearRect(
-        0,
-        0,
-        overlayCanvas.width,
-        overlayCanvas.height
-      );
-    }
+    this.overlayFabrics.forEach((fabric) => {
+      fabric.dispose();
+    });
+    this.overlayFabrics = [];
+    document
+      .querySelectorAll<HTMLCanvasElement>(".overlayCanvas")
+      .forEach((canvas) => canvas.remove());
   }
 
   populateOverlayCanvas(): void {
     this.clearOverlayCanvas();
+
     let $wrapper = document.getElementById(
       "sheetViewerWrapper"
     ) as HTMLDivElement;
+
     for (let i = 0; i < this.overlayData.length; i++) {
       let overlayJsonData = this.overlayData[i];
       if (!overlayJsonData) continue;
       let pageNumber = overlayJsonData.page;
 
-      let overlayCanvas = $wrapper?.querySelector(
-        'canvas[data-page-overlay="' + pageNumber + '"]'
+      let canvas = $wrapper?.querySelector(
+        'canvas[data-page="' + pageNumber + '"]'
       ) as HTMLCanvasElement;
-      let overlayHalfPageCanvas = $wrapper?.querySelector(
-        'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
+      let halfPageCanvas = $wrapper?.querySelector(
+        'canvas[data-page="' + (pageNumber - 0.5) + '"]'
       ) as HTMLCanvasElement;
-      let img = new Image();
-      img.src = overlayJsonData.dataUrl || "";
 
-      let overlayContext = overlayCanvas.getContext(
-        "2d"
-      ) as CanvasRenderingContext2D;
-      let overlayHalPageContext = overlayHalfPageCanvas?.getContext(
-        "2d"
-      ) as CanvasRenderingContext2D;
-      let heightScale = overlayCanvas.height / overlayJsonData.drawHeight;
-      let widthScale = overlayCanvas.width / overlayJsonData.drawWidth;
-      overlayContext.setTransform(1, 0, 0, 1, 0, 0);
-      overlayContext.scale(heightScale, widthScale);
-      overlayHalPageContext?.setTransform(1, 0, 0, 1, 0, 0);
-      overlayHalPageContext?.scale(heightScale, widthScale);
-
-      img.onload = () => {
-        overlayContext.drawImage(img, 0, 0);
-        overlayContext.setTransform(1, 0, 0, 1, 0, 0);
-        overlayHalPageContext?.drawImage(img, 0, 0);
-        overlayHalPageContext?.setTransform(1, 0, 0, 1, 0, 0);
-
-        let height = (overlayHalfPageCanvas?.height || 0) / heightScale / 2;
-        let width = (overlayHalfPageCanvas?.width || 0) / widthScale;
-        overlayHalPageContext?.clearRect(0, height - 2.5, width, height);
-      };
+      this.createOverlay(canvas, overlayJsonData, false);
+      if (halfPageCanvas) {
+        this.createOverlay(halfPageCanvas, overlayJsonData, true);
+      }
+      this.setOverlayVisible();
     }
+  }
+
+  createOverlay(
+    canvas: HTMLCanvasElement,
+    overlayData: OverlayData,
+    isHalfPage: boolean
+  ): void {
+    let zIndex = canvas.style.zIndex;
+    let width = parseFloat(canvas.style.width);
+    let height = parseFloat(canvas.style.height);
+    let pageNumber = canvas.getAttribute("data-page");
+
+    let overlayCanvas = document.createElement("canvas");
+
+    overlayCanvas.style.zIndex = zIndex;
+    overlayCanvas.style.width = width + "px";
+    overlayCanvas.style.height = height + "px";
+    overlayCanvas.height = height;
+    overlayCanvas.width = width;
+
+    overlayCanvas.setAttribute("data-page-overlay", pageNumber || "");
+
+    overlayCanvas.classList.add("pageCanvas", "overlayCanvas");
+
+    canvas.insertAdjacentElement("afterend", overlayCanvas);
+
+    let widthScale = width / overlayData.drawWidth;
+    let heightScale = height / overlayData.drawHeight;
+    widthScale = parseFloat(widthScale.toFixed(2));
+    heightScale = parseFloat(heightScale.toFixed(2));
+
+    let overlayFabric = new fabric.StaticCanvas(overlayCanvas);
+    overlayFabric.loadFromJSON(overlayData.data, () => {
+      overlayFabric.getObjects().forEach((canvasObject) => {
+        canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
+        canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
+        canvasObject.left = (canvasObject.left || 0) * widthScale;
+        canvasObject.top = (canvasObject.top || 0) * heightScale;
+        canvasObject.dirty = true;
+      });
+      overlayFabric.renderAll();
+      if (isHalfPage) {
+        let height = overlayFabric.getHeight() / 2;
+        let width = overlayFabric.getWidth();
+        overlayFabric.getContext().clearRect(0, height, width, height);
+      }
+    });
+
+    this.overlayFabrics.push(overlayFabric);
   }
 
   async renderPdf(): Promise<void> {
@@ -727,10 +724,30 @@ export default class SheetViewer extends Vue {
 
   nextPage(): void {
     this.currentPage < this.pageNumbers ? (this.currentPage += 0.5) : null;
+    this.setOverlayVisible();
   }
 
   prevPage(): void {
     this.currentPage > 1 ? (this.currentPage -= 0.5) : null;
+    this.setOverlayVisible();
+  }
+
+  setOverlayVisible(): void {
+    document
+      .querySelectorAll<HTMLCanvasElement>("canvas.overlayCanvas")
+      .forEach((canvas) => {
+        let pageNumber = parseFloat(
+          canvas.getAttribute("data-page-overlay") || ""
+        );
+        if (
+          this.currentPage === pageNumber ||
+          this.currentPage - 0.5 === pageNumber
+        ) {
+          canvas.classList.add("pageVisible");
+        } else {
+          canvas.classList.remove("pageVisible");
+        }
+      });
   }
 
   isPageVisible(page: number): boolean {
@@ -784,11 +801,11 @@ export default class SheetViewer extends Vue {
     } as PDFRenderParams;
 
     await page.render(renderContext).promise.then(() => {
-      return this.copyPageToHalfPage(pageNumber, $canvas, $wrapper);
+      return this.copyPageToHalfPageAndBackdrop(pageNumber, $canvas, $wrapper);
     });
   }
 
-  copyPageToHalfPage(
+  copyPageToHalfPageAndBackdrop(
     pageNumber: number,
     $canvas: HTMLCanvasElement,
     $wrapper: HTMLDivElement
@@ -796,23 +813,6 @@ export default class SheetViewer extends Vue {
     let originalCanvas = $wrapper?.querySelector(
       'canvas[data-page="' + pageNumber + '"]'
     ) as HTMLCanvasElement;
-    let overlayCanvas = $wrapper?.querySelector(
-      'canvas[data-page-overlay="' + pageNumber + '"]'
-    ) as HTMLCanvasElement;
-    overlayCanvas.height = parseFloat(originalCanvas.style.height);
-    overlayCanvas.width = parseFloat(originalCanvas.style.width);
-    overlayCanvas.style.height = originalCanvas.style.height;
-    overlayCanvas.style.width = originalCanvas.style.width;
-
-    let backdrop = $wrapper?.querySelector(
-      'div[data-page-backdrop="' + pageNumber + '"]'
-    ) as HTMLDivElement;
-    if (backdrop) {
-      backdrop.style.width =
-        parseFloat(originalCanvas.style.width) + 100 + "px";
-      backdrop.style.height =
-        parseFloat(originalCanvas.style.height) / 2 + 5 + "px";
-    }
     if (pageNumber === 1) {
       return Promise.resolve(pageNumber);
     }
@@ -824,17 +824,21 @@ export default class SheetViewer extends Vue {
     halfPageCanvas.style.height = originalCanvas.style.height;
     halfPageCanvas.style.width = originalCanvas.style.width;
 
-    let overlayHalfPageCanvas = $wrapper?.querySelector(
-      'canvas[data-page-overlay="' + (pageNumber - 0.5) + '"]'
-    ) as HTMLCanvasElement;
-
-    overlayHalfPageCanvas.height = parseFloat(originalCanvas.style.height);
-    overlayHalfPageCanvas.width = parseFloat(originalCanvas.style.width);
-    overlayHalfPageCanvas.style.height = originalCanvas.style.height;
-    overlayHalfPageCanvas.style.width = originalCanvas.style.width;
-
     let halfPageContext = halfPageCanvas.getContext("2d");
     halfPageContext?.drawImage(originalCanvas, 0, 0);
+
+    let backdrop = $wrapper?.querySelector(
+      'div[data-page-backdrop="' + (pageNumber - 0.5) + '"]'
+    ) as HTMLDivElement;
+    if (backdrop) {
+      let width = parseFloat(halfPageCanvas.style.width) + 100;
+      if (width > window.outerWidth) {
+        width = window.outerWidth;
+      }
+      backdrop.style.width = width + "px";
+      backdrop.style.height =
+        parseFloat(halfPageCanvas.style.height) / 2 + 5 + "px";
+    }
 
     return new Promise((resolve) => {
       setTimeout(() => {
@@ -845,8 +849,6 @@ export default class SheetViewer extends Vue {
         let height = originalCanvas.height / 2;
         let width = originalCanvas.width;
         halfPageContext.clearRect(0, height, width, height);
-        halfPageContext.fillStyle = "#000";
-        halfPageContext.fillRect(0, height - 5, width, 10);
         resolve(pageNumber);
       }, 500);
     });
