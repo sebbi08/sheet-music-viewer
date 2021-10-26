@@ -1,3 +1,5 @@
 {
-  "NUCLEUS_TOKEN": "TOKEN"
+  "NUCLEUS_TOKEN": "TOKEN",
+  "appId":"appId",
+  "channelId":"channelId"
 }
