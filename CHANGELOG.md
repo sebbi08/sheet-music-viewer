@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.2.1...v1.3.0) (2021-10-26)
+
+
+### Features
+
+* render overlays with fabric to ensure quality ([207411e](https://github.com/sebbi08/sheet-music-viewer/commit/207411ed677cdeec627c8d0ab6a3808093bf7863))
+
 ## [1.2.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.2.0...v1.2.1) (2021-10-25)
 
 
