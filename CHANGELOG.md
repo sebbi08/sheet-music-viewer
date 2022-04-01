@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.1...v1.4.2) (2022-04-01)
+
+
+### Bug Fixes
+
+* dpi issue ([193cde8](https://github.com/sebbi08/sheet-music-viewer/commit/193cde8b4b296c7fdb5cdf131f6166a7d3a566e2))
+
 ## [1.4.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.0...v1.4.1) (2022-04-01)
 
 
