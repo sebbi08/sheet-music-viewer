@@ -877,7 +877,7 @@ export default class SheetViewer extends Vue {
     if (!this.pdf) {
       return;
     }
-    let scaling = 10;
+    let scaling = 4;
     let page = await this.pdf.getPage(pageNumber);
     let scale1ViewPort = page.getViewport({
       scale: 1,

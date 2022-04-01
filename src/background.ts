@@ -271,11 +271,13 @@ ipcMain.on(EventNames.SAVE_SET_LISTS, async (event, args) => {
 });
 
 function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
-  const overlayDataPath = sheetPath.split(path.sep);
-  let fileName = overlayDataPath[overlayDataPath.length - 1];
-  fileName = "." + fileName.replace(path.extname(fileName), ".data");
+  let overlayDataPath = path.basename(sheetPath);
+  overlayDataPath =
+    "." + overlayDataPath.replace(path.extname(overlayDataPath), ".data");
+  overlayDataPath = sheetPath.replace(
+    path.basename(sheetPath),
+    overlayDataPath
+  );
 
-  overlayDataPath[overlayDataPath.length - 1] = fileName;
-
-  return overlayDataPath.join(path.sep);
+  return overlayDataPath;
 }
