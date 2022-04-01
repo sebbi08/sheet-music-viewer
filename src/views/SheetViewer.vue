@@ -173,6 +173,7 @@
           <img
             v-for="icon in allMusicSVGs"
             v-bind:key="icon.name"
+            :alt="icon.name"
             class="music-icon"
             v-bind:src="getImgUrl(icon.file)"
             @click="addMusicSvg(icon)"
@@ -876,7 +877,7 @@ export default class SheetViewer extends Vue {
     if (!this.pdf) {
       return;
     }
-    let scaling = 1;
+    let scaling = 10;
     let page = await this.pdf.getPage(pageNumber);
     let scale1ViewPort = page.getViewport({
       scale: 1,
