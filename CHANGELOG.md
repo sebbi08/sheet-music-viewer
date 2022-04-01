@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.3...v1.4.4) (2022-04-01)
+
+
+### Bug Fixes
+
+* overlay data path creation ([5fa9698](https://github.com/sebbi08/sheet-music-viewer/commit/5fa9698463b62f560bdc1310250f1233f8ddbe35))
+
 ## [1.4.3](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.2...v1.4.3) (2022-04-01)
 
 
