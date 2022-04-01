@@ -20,5 +20,5 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 });
 
 contextBridge.exposeInMainWorld("path", {
-  sep: path.sep,
+  sep: "/",
 });
