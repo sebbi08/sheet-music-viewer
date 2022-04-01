@@ -38,13 +38,13 @@ import { mapFields } from "vuex-map-fields";
 
 @Component({
   computed: {
-    ...mapFields(["searchTerm"]),
+    ...mapFields(["searchTerm", "filesAndFolder", "searchResults"]),
   },
 })
 export default class SheetSelection extends Vue {
-  filesAndFolder: SheetFile[] = [];
+  filesAndFolder!: SheetFile[];
   pdfsAndFolders: SheetFile[] = [];
-  searchResults: SheetFile[] = [];
+  searchResults!: SheetFile[];
   loadedRelative: string | null = "";
 
   get searchOrFolder(): SheetFile[] {
@@ -59,24 +59,25 @@ export default class SheetSelection extends Vue {
       : window.path.sep;
   }
 
-  @Watch("filesAndFolder", { immediate: true, deep: true })
+  @Watch("filesAndFolder", { immediate: false, deep: true })
   getFolderAndPDFs(newVal: SheetFile[]): void {
-    this.pdfsAndFolders = newVal
-      .filter((item) => {
-        if (item.isFile) {
-          return item.name.toLowerCase().endsWith(".pdf");
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (a.isFile && !b.isFile) {
-          return 1;
-        }
-        if (!a.isFile && b.isFile) {
-          return -1;
-        }
-        return a.name.localeCompare(b.name);
-      });
+    this.pdfsAndFolders =
+      newVal
+        ?.filter((item) => {
+          if (item.isFile) {
+            return item.name.toLowerCase().endsWith(".pdf");
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          if (a.isFile && !b.isFile) {
+            return 1;
+          }
+          if (!a.isFile && b.isFile) {
+            return -1;
+          }
+          return a.name.localeCompare(b.name);
+        }) || [];
   }
 
   @Watch("searchTerm")
@@ -115,7 +116,7 @@ export default class SheetSelection extends Vue {
       });
     } else {
       this.$router.push({
-        name: "SheetSelection",
+        name: RouteNames.SheetSelection,
         params: { path: this.folderPath + item.name + window.path.sep },
       });
     }
@@ -141,18 +142,6 @@ export default class SheetSelection extends Vue {
 
   mounted(): void {
     this.loadedRelative = null;
-    window.ipcRenderer.on(
-      EventNames.FOLDER_LOADED,
-      (event, filesAndFolders: SheetFile[]) => {
-        this.filesAndFolder = filesAndFolders;
-      }
-    );
-    window.ipcRenderer.on(
-      EventNames.SEARCH_RESULTS,
-      (event, searchResults: SheetFile[]) => {
-        this.searchResults = searchResults;
-      }
-    );
     let searchTerm = this.$store.getters.getField("searchTerm");
     if (searchTerm) {
       this.searchFiles(searchTerm);

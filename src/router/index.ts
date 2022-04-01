@@ -5,6 +5,9 @@ import FolderSetup from "@/views/FolderSetup.vue";
 import store from "@/store";
 import SheetViewer from "@/views/SheetViewer.vue";
 import { RouteNames } from "@/Enums";
+import Overview from "@/views/Overview.vue";
+import SetListList from "@/views/SetListList.vue";
+import SetListVue from "@/views/SetList.vue";
 
 Vue.use(VueRouter);
 
@@ -14,7 +17,7 @@ const routes: Array<RouteConfig> = [
     component: SheetViewer,
     name: RouteNames.SheetViewer,
   },
-  { path: "/", redirect: "/sheetSelection", name: RouteNames.Root },
+  { path: "/", redirect: "/overview", name: RouteNames.Root },
   {
     path: "/sheetSelection/:path?",
     name: RouteNames.SheetSelection,
@@ -24,6 +27,21 @@ const routes: Array<RouteConfig> = [
     path: "/folderSetup",
     name: RouteNames.FolderSetup,
     component: FolderSetup,
+  },
+  {
+    path: "/overview",
+    name: RouteNames.Overview,
+    component: Overview,
+  },
+  {
+    path: "/SetListList",
+    name: RouteNames.SetListList,
+    component: SetListList,
+  },
+  {
+    path: "/SetList/:id:",
+    name: RouteNames.SetList,
+    component: SetListVue,
   },
 ];
 

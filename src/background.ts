@@ -250,6 +250,26 @@ ipcMain.on(EventNames.SAVE_OVERLAY_DATA, async (event, args) => {
   }
 });
 
+ipcMain.on(EventNames.LOAD_SET_LISTS, async (event, args) => {
+  const basePath = args.basePath;
+  let setListsJson: any;
+  try {
+    const setListJsonPath = path.join(basePath, ".set-lists.json");
+    setListsJson = await fs.readFile(setListJsonPath);
+  } catch (e) {
+    setListsJson = "[]";
+  }
+  event.reply(EventNames.LOAD_SET_LISTS_RESULT, JSON.parse(setListsJson));
+});
+ipcMain.on(EventNames.SAVE_SET_LISTS, async (event, args) => {
+  const setLists = args.setLists;
+  const basePath = args.basePath;
+  await fs.writeFile(
+    path.join(basePath, ".set-lists.json"),
+    JSON.stringify(setLists)
+  );
+});
+
 function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
   const overlayDataPath = sheetPath.split(path.sep);
   let fileName = overlayDataPath[overlayDataPath.length - 1];

@@ -1,6 +1,8 @@
 import Vue from "vue";
 import Vuex from "vuex";
 import { getField, updateField } from "vuex-map-fields";
+import { SetList } from "@/models/SetList";
+import { SheetFile } from "@/models/SheetFile";
 
 Vue.use(Vuex);
 
@@ -13,6 +15,10 @@ export default new Vuex.Store({
     searchTerm: "",
     searchVisible: false,
     editMode: false,
+    setLists: new Array<SetList>(),
+    showEditSetListDialog: false,
+    filesAndFolder: new Array<SheetFile>(),
+    searchResults: new Array<SheetFile>(),
   },
   getters: {
     // Add the `getField` getter to the
@@ -32,6 +38,9 @@ export default new Vuex.Store({
     },
     toggleEditMode: function (state) {
       state.editMode = !state.editMode;
+    },
+    startSetListEditMode: function (state) {
+      state.showEditSetListDialog = true;
     },
   },
   actions: {},

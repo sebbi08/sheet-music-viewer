@@ -7,8 +7,7 @@ export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.cornerColor = "blue";
   fabric.Object.prototype.cornerStyle = "circle";
   fabric.Object.prototype.lockRotation = true;
-  fabric.Object.prototype.lockRotation = true;
-  fabric.Object.prototype.cornerSize = 20;
+  fabric.Object.prototype.cornerSize = 30;
   fabric.Object.prototype.padding = 0;
 
   fabric.Object.NUM_FRACTION_DIGITS = 99;
@@ -30,29 +29,27 @@ function enhanceCustomControlsOnPrototype(proto: any) {
   proto.controls.deleteControl = new fabric.Control({
     x: 0.5,
     y: -0.5,
-    offsetY: -32,
-    offsetX: 32,
+    offsetY: -50,
+    offsetX: 50,
     cursorStyle: "pointer",
     mouseUpHandler: deleteObject,
     render: renderIcon(deleteImg),
-    // cornerSize: 24,
   });
 
   proto.controls.clone = new fabric.Control({
     x: -0.5,
     y: -0.5,
-    offsetY: -32,
-    offsetX: -32,
+    offsetY: -50,
+    offsetX: -50,
     cursorStyle: "pointer",
     mouseUpHandler: cloneObject,
     render: renderIcon(cloneImg),
-    // cornerSize: 24,
   });
 
   proto.controls.customMove = new fabric.Control({
     x: 0,
     y: 0.5,
-    offsetY: 32,
+    offsetY: 40,
     cursorStyle: "pointer",
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
@@ -63,14 +60,18 @@ function enhanceCustomControlsOnPrototype(proto: any) {
     actionName: "drag",
   });
 
-  proto.controls.tl.offsetX = -16;
-  proto.controls.tl.offsetY = -16;
-  proto.controls.tr.offsetX = 16;
-  proto.controls.tr.offsetY = -16;
-  proto.controls.bl.offsetX = -16;
-  proto.controls.bl.offsetY = 16;
-  proto.controls.br.offsetX = 16;
-  proto.controls.br.offsetY = 16;
+  proto.controls.tl.offsetX = -24;
+  proto.controls.tl.offsetY = -24;
+  proto.controls.tr.offsetX = 24;
+  proto.controls.tr.offsetY = -24;
+  proto.controls.bl.offsetX = -24;
+  proto.controls.bl.offsetY = 24;
+  proto.controls.br.offsetX = 24;
+  proto.controls.br.offsetY = 24;
+  proto.controls.mr = new fabric.Control({ visible: false });
+  proto.controls.mt = new fabric.Control({ visible: false });
+  proto.controls.ml = new fabric.Control({ visible: false });
+  proto.controls.mb = new fabric.Control({ visible: false });
 }
 
 function renderIcon(icon: HTMLImageElement) {
@@ -95,7 +96,7 @@ function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
   const canvas = target.canvas;
 
   let toDelete;
-  if (target.getObjects) {
+  if (target.type === "activeSelection") {
     toDelete = target.getObjects();
   } else {
     toDelete = [target];
@@ -103,6 +104,10 @@ function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
 
   canvas?.remove(...toDelete);
   canvas?.requestRenderAll();
+  canvas.selection = false;
+  setTimeout(() => {
+    canvas.selection = true;
+  });
   return true;
 }
 

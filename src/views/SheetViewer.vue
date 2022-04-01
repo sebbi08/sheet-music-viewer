@@ -90,6 +90,9 @@
       <v-btn color="green" dark fab small @click="addSquare">
         <v-icon>mdi-square</v-icon>
       </v-btn>
+      <v-btn color="green" dark fab small @click="addBlackSquare">
+        <v-icon color="black">mdi-square</v-icon>
+      </v-btn>
       <v-btn color="green" dark fab small @click="openMusicIconPopover">
         <v-icon>mdi-music</v-icon>
       </v-btn>
@@ -161,10 +164,18 @@
           <div
             v-for="icon in allMusicIcons"
             v-bind:key="icon.name"
+            :class="'icon-' + icon.name"
             :data-icon-code="icon.code"
             class="music-icon"
-            :class="'icon-' + icon.name"
             @click="addMusicIcon(icon)"
+          />
+
+          <img
+            v-for="icon in allMusicSVGs"
+            v-bind:key="icon.name"
+            class="music-icon"
+            v-bind:src="getImgUrl(icon.file)"
+            @click="addMusicSvg(icon)"
           />
         </div>
         <v-card-actions>
@@ -192,7 +203,14 @@ import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { fabric } from "fabric";
 import { OverlayData } from "@/models/OverlayData";
-import { BRUSH_COLORS, EventNames, Icon, MUSIC_ICONS } from "@/Enums";
+import {
+  BRUSH_COLORS,
+  EventNames,
+  Icon,
+  MUSIC_ICONS,
+  MUSIC_SVG,
+  Svg,
+} from "@/Enums";
 import { EditState } from "@/models/EditState";
 import { enhanceFabricPrototype } from "@/utils";
 
@@ -203,6 +221,7 @@ import { enhanceFabricPrototype } from "@/utils";
 })
 export default class SheetViewer extends Vue {
   allMusicIcons = MUSIC_ICONS.ALL_ICONS;
+  allMusicSVGs = MUSIC_SVG.ALL_SGVS;
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
@@ -228,6 +247,11 @@ export default class SheetViewer extends Vue {
   currentSelection: any[] = [];
   private pdf?: PDFDocumentProxy;
 
+  getImgUrl(icon: string): string {
+    let images = require.context("../assets/", false, /\.svg$/);
+    return images("./" + icon);
+  }
+
   unmounted(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("click", this.onClick);
@@ -242,12 +266,8 @@ export default class SheetViewer extends Vue {
     this.debouncedResize = _.debounce(this.onResize, 500);
     window.addEventListener("resize", this.debouncedResize);
 
-    window.ipcRenderer.send(EventNames.START_LOAD_OVERLAY_DATA, {
-      path: this.$route.params.path,
-    });
-
     await new Promise((resolve) => {
-      window.ipcRenderer.on(
+      window.ipcRenderer.once(
         EventNames.LOAD_OVERLAY_DATA,
         (event, overlayData: string): void => {
           if (!overlayData) {
@@ -259,6 +279,9 @@ export default class SheetViewer extends Vue {
           resolve(undefined);
         }
       );
+      window.ipcRenderer.send(EventNames.START_LOAD_OVERLAY_DATA, {
+        path: this.$route.params.path,
+      });
     });
 
     this.currentPage = 1;
@@ -341,6 +364,22 @@ export default class SheetViewer extends Vue {
     this.editFabric.setActiveObject(rect);
   }
 
+  addBlackSquare(): void {
+    if (!this.editFabric) {
+      return;
+    }
+
+    let rect = new fabric.Rect({
+      fill: "rgba(0,0,0,1)",
+      width: 50,
+      height: 50,
+      left: (this.editFabric.width || 0) / 2,
+      top: (this.editFabric.height || 0) / 2,
+    });
+    this.editFabric.add(rect);
+    this.editFabric.setActiveObject(rect);
+  }
+
   addTextToCanvas(): void {
     if (!this.editFabric) {
       return;
@@ -372,6 +411,7 @@ export default class SheetViewer extends Vue {
       scaleX: 50,
       scaleY: 50,
     });
+
     this.editFabric?.add(iconObject);
     iconObject.set({
       left: (this.editFabric?.width || 0) / 2,
@@ -380,6 +420,74 @@ export default class SheetViewer extends Vue {
     this.editFabric.setActiveObject(iconObject);
 
     this.musicSymbolDialog = false;
+  }
+
+  addMusicSvg(svg: Svg): void {
+    if (!this.editFabric) return;
+    let group: any[] = [];
+
+    fabric.loadSVGFromURL(
+      this.getImgUrl(svg.file),
+      () => {
+        let loadedObjects = new fabric.Group(group);
+
+        loadedObjects.set({
+          left: (this.editFabric?.width || 0) / 2,
+          top: (this.editFabric?.height || 0) / 2,
+          width: 250,
+          height: 70,
+          scaleX: 0.75,
+          scaleY: 0.75,
+        });
+        if (svg.file === MUSIC_SVG.CRESCENDO) {
+          loadedObjects.controls.ml = new fabric.Control({
+            x: -0.5,
+            y: 0,
+            cursorStyleHandler: (fabric as any).controlsUtils
+              .scaleSkewCursorStyleHandler,
+            actionHandler: (fabric as any).controlsUtils.scalingXOrSkewingY,
+            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
+          });
+
+          loadedObjects.controls.mr = new fabric.Control({
+            x: 0.5,
+            y: 0,
+            cursorStyleHandler: (fabric as any).controlsUtils
+              .scaleSkewCursorStyleHandler,
+            actionHandler: (fabric as any).controlsUtils.scalingXOrSkewingY,
+            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
+          });
+
+          loadedObjects.controls.mb = new fabric.Control({
+            x: 0,
+            y: 0.5,
+            cursorStyleHandler: (fabric as any).controlsUtils
+              .scaleSkewCursorStyleHandler,
+            actionHandler: (fabric as any).controlsUtils.scalingYOrSkewingX,
+            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
+          });
+
+          loadedObjects.controls.mt = new fabric.Control({
+            x: 0,
+            y: -0.5,
+            cursorStyleHandler: (fabric as any).controlsUtils
+              .scaleSkewCursorStyleHandler,
+            actionHandler: (fabric as any).controlsUtils.scalingYOrSkewingX,
+            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
+          });
+        }
+
+        this.editFabric?.add(loadedObjects);
+
+        this.musicSymbolDialog = false;
+        this.editFabric?.setActiveObject(loadedObjects);
+        this.editFabric?.renderAll();
+      },
+      function (item: any, object: any) {
+        object.set("id", item.getAttribute("id"));
+        group.push(object);
+      }
+    );
   }
 
   openMusicIconPopover(): void {
@@ -768,7 +876,7 @@ export default class SheetViewer extends Vue {
     if (!this.pdf) {
       return;
     }
-    let scaling = window.devicePixelRatio;
+    let scaling = 1;
     let page = await this.pdf.getPage(pageNumber);
     let scale1ViewPort = page.getViewport({
       scale: 1,

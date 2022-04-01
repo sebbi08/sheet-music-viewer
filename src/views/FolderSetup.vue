@@ -21,22 +21,6 @@ import { EventNames } from "@/Enums";
 export default class FolderSetup extends Vue {
   public sheetMusicFolder!: string;
 
-  mounted(): void {
-    if (window.ipcRenderer) {
-      window.ipcRenderer.on(
-        EventNames.FOLDER_SELECTED,
-        (event, selectedFolder: string) => {
-          this.sheetMusicFolder = selectedFolder;
-          localStorage.setItem("sheetMusicFolder", selectedFolder);
-          this.$router.push({
-            name: "SheetSelection",
-            params: { path: window.path.sep },
-          });
-        }
-      );
-    }
-  }
-
   selectFolder(): void {
     if (window.ipcRenderer) {
       window.ipcRenderer.send(EventNames.SELECT_FOLDER);

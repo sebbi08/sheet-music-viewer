@@ -1,6 +1,6 @@
 <template>
   <v-app>
-    <v-app-bar app color="primary" dark dense>
+    <v-app-bar app dark dense v-bind:color="editMode ? 'red' : 'primary'">
       <v-btn v-if="showBackButton" icon @click="onNavBack">
         <v-icon>mdi-arrow-left</v-icon>
       </v-btn>
@@ -15,7 +15,7 @@
         ></v-text-field>
       </div>
       <v-btn
-        v-if="$route.name !== sheetViewerRouterName"
+        v-if="$route.name === sheetSelectionRouteName"
         dark
         icon
         @click="showSearch"
@@ -29,6 +29,14 @@
         @click="onSwitchEditMode"
       >
         <v-icon>{{ editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
+      </v-btn>
+      <v-btn
+        v-if="$route.name === setListRouteName && !setListEditMode"
+        dark
+        icon
+        @click="startSetListEditMode"
+      >
+        <v-icon>mdi-pencil</v-icon>
       </v-btn>
       <v-dialog
         v-if="showSettingsButton"
@@ -66,7 +74,10 @@
 import Vue from "vue";
 import { EventNames, RouteNames } from "@/Enums";
 import { mapFields } from "vuex-map-fields";
+import { SheetFile } from "@/models/SheetFile";
+import { SetList } from "@/models/SetList";
 
+// noinspection JSVoidFunctionReturnValueUsed
 export default Vue.extend({
   name: "App",
 
@@ -78,28 +89,93 @@ export default Vue.extend({
       }
     );
     window.ipcRenderer.send(EventNames.GET_VERSION);
+
+    window.ipcRenderer.on(
+      EventNames.FOLDER_SELECTED,
+      (event, selectedFolder: string) => {
+        this.$store.commit("updateField", {
+          path: "sheetMusicFolder",
+          value: selectedFolder,
+        });
+        localStorage.setItem("sheetMusicFolder", selectedFolder);
+        this.$router.push({
+          name: "SheetSelection",
+          params: { path: window.path.sep },
+        });
+      }
+    );
+
+    window.ipcRenderer.on(
+      EventNames.FOLDER_LOADED,
+      (event: any, filesAndFolder: SheetFile[]): void => {
+        this.$store.commit("updateField", {
+          path: "filesAndFolder",
+          value: filesAndFolder,
+        });
+      }
+    );
+    window.ipcRenderer.on(
+      EventNames.LOAD_SET_LISTS_RESULT,
+      (event: any, setLists: SetList[]): void => {
+        this.$store.commit("updateField", {
+          path: "setLists",
+          value: setLists,
+        });
+      }
+    );
+
+    window.ipcRenderer.on(
+      EventNames.SEARCH_RESULTS,
+      (event, searchResults: SheetFile[]) => {
+        this.$store.commit("updateField", {
+          path: "searchResults",
+          value: searchResults,
+        });
+      }
+    );
   },
   computed: {
-    ...mapFields(["searchTerm", "searchVisible", "editMode"]),
+    ...mapFields([
+      "searchTerm",
+      "searchVisible",
+      "editMode",
+      "setLists",
+      "setListEditMode",
+    ]),
     showBackButton: function () {
       let currentRoute = this.$route.name;
-      if (currentRoute === RouteNames.FolderSetup) {
-        return false;
+      switch (currentRoute) {
+        case RouteNames.SheetSelection:
+        case RouteNames.SheetViewer:
+        case RouteNames.SetListList:
+        case RouteNames.SetList:
+          return true;
+        case RouteNames.Root:
+        case RouteNames.Overview:
+        case RouteNames.FolderSetup:
+          return false;
+        default:
+          console.log("Unspecified route found");
+          return true;
       }
-      if (currentRoute === RouteNames.SheetViewer) {
-        return true;
-      }
-      if (currentRoute === RouteNames.SheetSelection) {
-        return this.$route.params.path !== window.path.sep;
-      }
-      return false;
     },
     showSettingsButton: function () {
       let currentRoute = this.$route.name;
-      if (currentRoute === RouteNames.FolderSetup) {
-        return false;
-      }
-      return true;
+      return currentRoute !== RouteNames.FolderSetup;
+    },
+  },
+
+  watch: {
+    setLists: {
+      deep: true,
+      handler: function (newValue) {
+        let basePath = this.$store.getters.getField("sheetMusicFolder");
+        console.log("save new set lists", newValue);
+        window.ipcRenderer.send(EventNames.SAVE_SET_LISTS, {
+          basePath,
+          setLists: newValue,
+        });
+      },
     },
   },
 
@@ -110,9 +186,12 @@ export default Vue.extend({
         this.$store.commit("clearSearch");
         return;
       }
+      if (this.$store.getters.getField("editMode")) {
+        this.$store.commit("toggleEditMode");
+      }
 
       if (history.length === 1) {
-        this.$router.push({ name: RouteNames.SheetSelection });
+        this.$router.push({ name: RouteNames.Root });
       } else {
         this.$router.go(-1);
       }
@@ -127,6 +206,9 @@ export default Vue.extend({
     },
     onSwitchEditMode: function () {
       this.$store.commit("toggleEditMode");
+    },
+    startSetListEditMode: function () {
+      this.$store.commit("startSetListEditMode");
     },
     showSearch: function () {
       let searchVisible = this.$store.getters.getField("searchVisible");
@@ -145,6 +227,8 @@ export default Vue.extend({
     dialog: false,
     appVersion: (window as any).appVersion,
     sheetViewerRouterName: RouteNames.SheetViewer,
+    sheetSelectionRouteName: RouteNames.SheetSelection,
+    setListRouteName: RouteNames.SetList,
   }),
 });
 </script>

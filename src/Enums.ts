@@ -3,7 +3,6 @@ import { Color } from "@/models/EditState";
 export enum EventNames {
   "SELECT_FOLDER" = "SELECT_FOLDER",
   "FOLDER_SELECTED" = "FOLDER_SELECTED",
-  "LOAD_FOLDER" = "LOAD_FOLDER",
   "FOLDER_LOADED" = "FOLDER_LOADED",
   "GET_VERSION" = "GET_VERSION",
   "SEND_VERSION" = "SEND_VERSION",
@@ -12,13 +11,19 @@ export enum EventNames {
   "START_LOAD_OVERLAY_DATA" = "START_LOAD_OVERLAY_DATA",
   "LOAD_OVERLAY_DATA" = "LOAD_OVERLAY_DATA",
   "SAVE_OVERLAY_DATA" = "SAVE_OVERLAY_DATA",
+  LOAD_SET_LISTS = "LOAD_SET_LISTS",
+  SAVE_SET_LISTS = "SAVE_SET_LISTS",
+  LOAD_SET_LISTS_RESULT = "LOAD_SET_LISTS_RESULT",
 }
 
 export enum RouteNames {
   "Root" = "Root",
   "SheetSelection" = "SheetSelection",
   "FolderSetup" = "FolderSetup",
+  "Overview" = "Overview",
   "SheetViewer" = "SheetViewer",
+  SetListList = "SetListList",
+  SetList = "SetList",
 }
 
 export class BRUSH_COLORS {
@@ -55,6 +60,11 @@ export interface Icon {
   code: string;
 }
 
+export interface Svg {
+  name: string;
+  file: string;
+}
+
 export class MUSIC_ICONS {
   static readonly FLAT: string = "\u{266D}";
   static readonly NATURAL: string = "\u{266E}";
@@ -87,5 +97,111 @@ export class MUSIC_ICONS {
     { name: "PIANO", code: MUSIC_ICONS.PIANO },
     { name: "MEZO", code: MUSIC_ICONS.MEZO },
     { name: "FORTE", code: MUSIC_ICONS.FORTE },
+  ];
+}
+
+export class MUSIC_SVG {
+  static readonly STAFF: string = "Staff.svg";
+  static readonly DOWN_BOW: string = "Down Bow.svg";
+  static readonly QUARTER_NOTE: string = "Quarter Note.svg";
+  static readonly NATURAL: string = "Natural.svg";
+  static readonly TURN: string = "Turn.svg";
+  static readonly REPEAT_SIGN: string = "Repeat Sign.svg";
+  static readonly EIGHTH_NOTES: string = "Eighth Notes.svg";
+  static readonly EIGHTH_NOTE: string = "Eighth Note.svg";
+  static readonly FLAT: string = "Flat.svg";
+  static readonly MORDENT: string = "Mordent.svg";
+  static readonly SEGNO: string = "Segno.svg";
+  static readonly WHOLE_REST: string = "Whole Rest.svg";
+  static readonly COMMON_TIME: string = "Common Time.svg";
+  static readonly FORTE: string = "Forte.svg";
+  static readonly TREMOLO: string = "Tremolo.svg";
+  static readonly DOUBLE_FLAT: string = "Double Flat.svg";
+  static readonly FERMATA: string = "Fermata.svg";
+  static readonly DOTTED_HALF_NOTE: string = "Dotted Half Note.svg";
+  static readonly SHARP: string = "Sharp.svg";
+  static readonly DOUBLE_SHARP: string = "Double Sharp.svg";
+  static readonly WHOLE_NOTE: string = "Whole Note.svg";
+  static readonly UP_BOW: string = "Up Bow.svg";
+  static readonly RELEASE_PEDAL: string = "Release Pedal.svg";
+  static readonly MARCATO: string = "Marcato.svg";
+  static readonly SIXTEENTH_NOTE: string = "Sixteenth Note.svg";
+  static readonly G_CLEF: string = "G Clef.svg";
+  static readonly GLISSANDO: string = "Glissando.svg";
+  static readonly HALF_REST: string = "Half Rest.svg";
+  static readonly MEZZO_FORTE: string = "Mezzo Forte.svg";
+  static readonly ENGAGE_PEDAL: string = "Engage Pedal.svg";
+  static readonly PIANISSIMO: string = "Pianissimo.svg";
+  static readonly QUARTER_REST: string = "Quarter Rest.svg";
+  static readonly F_CLEF: string = "F Clef.svg";
+  static readonly SIXTEENTH_REST: string = "Sixteenth Rest.svg";
+  static readonly MEZZO_PIANO: string = "Mezzo Piano.svg";
+  static readonly EIGHTH_REST: string = "Eighth Rest.svg";
+  static readonly DIMINUENDO: string = "Diminuendo.svg";
+  static readonly DOTTED_QUARTER_NOTE: string = "Dotted Quarter Note.svg";
+  static readonly TRIPLETS: string = "Triplets.svg";
+  static readonly PIANO: string = "Piano.svg";
+  static readonly HALF_NOTE: string = "Half Note.svg";
+  static readonly CUT_TIME: string = "Cut Time.svg";
+  static readonly CAESURA: string = "Caesura.svg";
+  static readonly THIRTY_SECOND_NOTE: string = "Thirty second note.svg";
+  static readonly GRAND_STAFF: string = "Grand Staff.svg";
+  static readonly FORTISSIMO: string = "Fortissimo.svg";
+  static readonly C_CLEF: string = "C Clef.svg";
+  static readonly SIXTEENTH_NOTES: string = "Sixteenth Notes.svg";
+  static readonly CODA: string = "Coda.svg";
+  static readonly CRESCENDO: string = "Crescendo.svg";
+  static readonly ALL_SGVS: Svg[] = [
+    // { name: "STAFF", file: MUSIC_SVG.STAFF },
+    // { name: "DOWN_BOW", file: MUSIC_SVG.DOWN_BOW },
+    // { name: "QUARTER_NOTE", file: MUSIC_SVG.QUARTER_NOTE },
+    // { name: "NATURAL", file: MUSIC_SVG.NATURAL },
+    // { name: "TURN", file: MUSIC_SVG.TURN },
+    // { name: "REPEAT_SIGN", file: MUSIC_SVG.REPEAT_SIGN },
+    // { name: "EIGHTH_NOTES", file: MUSIC_SVG.EIGHTH_NOTES },
+    // { name: "EIGHTH_NOTE", file: MUSIC_SVG.EIGHTH_NOTE },
+    // { name: "FLAT", file: MUSIC_SVG.FLAT },
+    // { name: "MORDENT", file: MUSIC_SVG.MORDENT },
+    // { name: "SEGNO", file: MUSIC_SVG.SEGNO },
+    // { name: "WHOLE_REST", file: MUSIC_SVG.WHOLE_REST },
+    // { name: "COMMON_TIME", file: MUSIC_SVG.COMMON_TIME },
+    // { name: "FORTE", file: MUSIC_SVG.FORTE },
+    // { name: "TREMOLO", file: MUSIC_SVG.TREMOLO },
+    // { name: "DOUBLE_FLAT", file: MUSIC_SVG.DOUBLE_FLAT },
+    // { name: "FERMATA", file: MUSIC_SVG.FERMATA },
+    // { name: "DOTTED_HALF_NOTE", file: MUSIC_SVG.DOTTED_HALF_NOTE },
+    // { name: "SHARP", file: MUSIC_SVG.SHARP },
+    // { name: "DOUBLE_SHARP", file: MUSIC_SVG.DOUBLE_SHARP },
+    // { name: "WHOLE_NOTE", file: MUSIC_SVG.WHOLE_NOTE },
+    // { name: "UP_BOW", file: MUSIC_SVG.UP_BOW },
+    // { name: "RELEASE_PEDAL", file: MUSIC_SVG.RELEASE_PEDAL },
+    // { name: "MARCATO", file: MUSIC_SVG.MARCATO },
+    // { name: "SIXTEENTH_NOTE", file: MUSIC_SVG.SIXTEENTH_NOTE },
+    // { name: "G_CLEF", file: MUSIC_SVG.G_CLEF },
+    // { name: "GLISSANDO", file: MUSIC_SVG.GLISSANDO },
+    // { name: "HALF_REST", file: MUSIC_SVG.HALF_REST },
+    // { name: "CRESCENDO", file: MUSIC_SVG.CRESCENDO },
+    // { name: "MEZZO_FORTE", file: MUSIC_SVG.MEZZO_FORTE },
+    // { name: "ENGAGE_PEDAL", file: MUSIC_SVG.ENGAGE_PEDAL },
+    // { name: "PIANISSIMO", file: MUSIC_SVG.PIANISSIMO },
+    // { name: "QUARTER_REST", file: MUSIC_SVG.QUARTER_REST },
+    // { name: "F_CLEF", file: MUSIC_SVG.F_CLEF },
+    // { name: "SIXTEENTH_REST", file: MUSIC_SVG.SIXTEENTH_REST },
+    // { name: "MEZZO_PIANO", file: MUSIC_SVG.MEZZO_PIANO },
+    // { name: "EIGHTH_REST", file: MUSIC_SVG.EIGHTH_REST },
+    // { name: "DIMINUENDO", file: MUSIC_SVG.DIMINUENDO },
+    // { name: "DOTTED_QUARTER_NOTE", file: MUSIC_SVG.DOTTED_QUARTER_NOTE },
+    // { name: "TRIPLETS", file: MUSIC_SVG.TRIPLETS },
+    // { name: "PIANO", file: MUSIC_SVG.PIANO },
+    // { name: "HALF_NOTE", file: MUSIC_SVG.HALF_NOTE },
+    // { name: "CUT_TIME", file: MUSIC_SVG.CUT_TIME },
+    // { name: "CAESURA", file: MUSIC_SVG.CAESURA },
+    // { name: "THIRTY_SECOND_NOTE", file: MUSIC_SVG.THIRTY_SECOND_NOTE },
+    // { name: "GRAND_STAFF", file: MUSIC_SVG.GRAND_STAFF },
+    // { name: "FORTISSIMO", file: MUSIC_SVG.FORTISSIMO },
+    // { name: "C_CLEF", file: MUSIC_SVG.C_CLEF },
+    // { name: "SIXTEENTH_NOTES", file: MUSIC_SVG.SIXTEENTH_NOTES },
+    // { name: "CODA", file: MUSIC_SVG.CODA },
+    { name: "CRESCENDO", file: MUSIC_SVG.CRESCENDO },
   ];
 }
