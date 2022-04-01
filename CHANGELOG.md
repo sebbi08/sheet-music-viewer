@@ -1,3 +1,10 @@
+## [1.4.3](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.2...v1.4.3) (2022-04-01)
+
+
+### Bug Fixes
+
+* path sep ([bb0cbd5](https://github.com/sebbi08/sheet-music-viewer/commit/bb0cbd526b5dfb6d6e69d30ed8290cca38bd3b8f))
+
 ## [1.4.2](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.1...v1.4.2) (2022-04-01)
 
 
