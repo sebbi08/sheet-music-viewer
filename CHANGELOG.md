@@ -1,3 +1,11 @@
+# [1.4.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.3.0...v1.4.0) (2022-04-01)
+
+
+### Features
+
+* added sorting of set list and set list deletion ([7d82102](https://github.com/sebbi08/sheet-music-viewer/commit/7d821027d0487f74c78856763a68b3f01bd385a8))
+* improved edit mode and new set list feature ([0f49a3d](https://github.com/sebbi08/sheet-music-viewer/commit/0f49a3d2dd4ec3c1f4a821b7480841281b1b9edf))
+
 # [1.3.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.2.1...v1.3.0) (2021-10-26)
 
 
