@@ -34,6 +34,13 @@
         <v-divider></v-divider>
         <v-card-text>
           <div class="folderView">
+            <v-list-item @click="moveFolderUp()">
+              <v-list-item-content>
+                <v-list-item-title class="listRow">
+                  <div class="text">..</div>
+                </v-list-item-title>
+              </v-list-item-content>
+            </v-list-item>
             <v-list-item
               v-for="item in pdfsAndFolders"
               :key="item.path + item.name"
@@ -126,17 +133,22 @@ export default class SetListVue extends Vue {
     });
   }
 
+  moveFolderUp(): void {
+    if (this.currentPath === "" || this.currentPath === "/") {
+      return;
+    }
+    let split = this.currentPath.split(window.path.sep);
+    split.pop();
+    this.currentPath = split.join(window.path.sep);
+  }
+
   selectItem(item: SheetFile): void {
     if (item.isFile) {
       if (!this.isFileInSetList(item)) {
         this.setList?.sheets.push(item);
       } else if (this.setList) {
         this.setList.sheets = this.setList.sheets.filter((sheet) => {
-          if (sheet.path === item.path && sheet.name === item.name) {
-            return false;
-          } else {
-            return true;
-          }
+          return !(sheet.path === item.path && sheet.name === item.name);
         });
       }
     } else {
