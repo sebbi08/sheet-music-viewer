@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="container">
-      <draggable v-model="setList.sheets" :move="!sortSetListEnabled">
+      <draggable v-model="setList.sheets" :disabled="!sortSetListEnabled">
         <v-card
           v-for="item in setList.sheets"
           :key="item.name + item.path"
@@ -123,10 +123,7 @@ export default class SetListVue extends Vue {
 
   openSheet(item: SheetFile): void {
     let basePath = this.$store.getters.getField("sheetMusicFolder");
-    let path = basePath + this.folderPath + window.path.sep + item.name;
-    if (item.isSearch) {
-      path = item.path + window.path.sep + item.name;
-    }
+    let path = basePath + item.path + window.path.sep + item.name;
     this.$router.push({
       name: RouteNames.SheetViewer,
       params: { path: path },
@@ -145,10 +142,15 @@ export default class SetListVue extends Vue {
   selectItem(item: SheetFile): void {
     if (item.isFile) {
       if (!this.isFileInSetList(item)) {
-        this.setList?.sheets.push(item);
+        this.setList?.sheets.push({
+          name: item.name,
+          path: this.currentPath,
+          isFile: true,
+          isSearch: false,
+        });
       } else if (this.setList) {
         this.setList.sheets = this.setList.sheets.filter((sheet) => {
-          return !(sheet.path === item.path && sheet.name === item.name);
+          return !(sheet.path === this.currentPath && sheet.name === item.name);
         });
       }
     } else {
@@ -163,7 +165,9 @@ export default class SetListVue extends Vue {
   isFileInSetList(sheet: SheetFile): boolean {
     return (
       this.setList?.sheets.some((sheetInSet) => {
-        return sheetInSet.name === sheet.name && sheetInSet.path === sheet.path;
+        return (
+          sheetInSet.name === sheet.name && sheetInSet.path === this.currentPath
+        );
       }) || false
     );
   }

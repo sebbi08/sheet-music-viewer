@@ -252,10 +252,10 @@ export default class SheetViewer extends Vue {
     return images("./" + icon);
   }
 
-  unmounted(): void {
+  beforeDestroy(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("click", this.onClick);
-    window.addEventListener("resize", this.debouncedResize);
+    window.removeEventListener("resize", this.debouncedResize);
   }
 
   async mounted(): Promise<void> {
