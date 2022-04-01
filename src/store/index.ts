@@ -19,6 +19,8 @@ export default new Vuex.Store({
     showEditSetListDialog: false,
     filesAndFolder: new Array<SheetFile>(),
     searchResults: new Array<SheetFile>(),
+    sortSetListEnabled: false,
+    setListDeletionMode: false,
   },
   getters: {
     // Add the `getField` getter to the
@@ -41,6 +43,12 @@ export default new Vuex.Store({
     },
     startSetListEditMode: function (state) {
       state.showEditSetListDialog = true;
+    },
+    toggleSetListDeletionMode: function (state) {
+      state.setListDeletionMode = !state.setListDeletionMode;
+    },
+    toggleSetListSortMode: function (state) {
+      state.sortSetListEnabled = !state.sortSetListEnabled;
     },
   },
   actions: {},

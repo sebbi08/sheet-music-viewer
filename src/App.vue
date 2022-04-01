@@ -31,12 +31,30 @@
         <v-icon>{{ editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
       </v-btn>
       <v-btn
+        v-if="$route.name === setListRouteName"
+        dark
+        icon
+        @click="toggleSetListSortMode"
+      >
+        <v-icon>
+          {{ sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
+        </v-icon>
+      </v-btn>
+      <v-btn
         v-if="$route.name === setListRouteName && !setListEditMode"
         dark
         icon
         @click="startSetListEditMode"
       >
         <v-icon>mdi-pencil</v-icon>
+      </v-btn>
+      <v-btn
+        v-if="$route.name === setListListRouteName"
+        dark
+        icon
+        @click="toggleSetListDeletionMode"
+      >
+        <v-icon>{{ setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
       </v-btn>
       <v-dialog
         v-if="showSettingsButton"
@@ -80,6 +98,15 @@ import { SetList } from "@/models/SetList";
 // noinspection JSVoidFunctionReturnValueUsed
 export default Vue.extend({
   name: "App",
+
+  data: () => ({
+    dialog: false,
+    appVersion: (window as any).appVersion,
+    sheetViewerRouterName: RouteNames.SheetViewer,
+    sheetSelectionRouteName: RouteNames.SheetSelection,
+    setListRouteName: RouteNames.SetList,
+    setListListRouteName: RouteNames.SetListList,
+  }),
 
   mounted() {
     window.ipcRenderer.on(
@@ -141,6 +168,8 @@ export default Vue.extend({
       "editMode",
       "setLists",
       "setListEditMode",
+      "sortSetListEnabled",
+      "setListDeletionMode",
     ]),
     showBackButton: function () {
       let currentRoute = this.$route.name;
@@ -170,7 +199,6 @@ export default Vue.extend({
       deep: true,
       handler: function (newValue) {
         let basePath = this.$store.getters.getField("sheetMusicFolder");
-        console.log("save new set lists", newValue);
         window.ipcRenderer.send(EventNames.SAVE_SET_LISTS, {
           basePath,
           setLists: newValue,
@@ -210,6 +238,12 @@ export default Vue.extend({
     startSetListEditMode: function () {
       this.$store.commit("startSetListEditMode");
     },
+    toggleSetListDeletionMode: function () {
+      this.$store.commit("toggleSetListDeletionMode");
+    },
+    toggleSetListSortMode: function () {
+      this.$store.commit("toggleSetListSortMode");
+    },
     showSearch: function () {
       let searchVisible = this.$store.getters.getField("searchVisible");
       searchVisible = !searchVisible;
@@ -222,14 +256,6 @@ export default Vue.extend({
       }
     },
   },
-
-  data: () => ({
-    dialog: false,
-    appVersion: (window as any).appVersion,
-    sheetViewerRouterName: RouteNames.SheetViewer,
-    sheetSelectionRouteName: RouteNames.SheetSelection,
-    setListRouteName: RouteNames.SetList,
-  }),
 });
 </script>
 
@@ -251,5 +277,9 @@ html {
   &.searchVisible > div {
     transform: translateX(0);
   }
+}
+
+.v-card {
+  user-select: none;
 }
 </style>

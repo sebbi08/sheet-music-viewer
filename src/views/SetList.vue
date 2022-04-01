@@ -1,21 +1,23 @@
 <template>
   <div>
     <div class="container">
-      <v-card
-        v-for="item in setList.sheets"
-        :key="item.name + item.path"
-        @click="openSheet(item)"
-      >
-        <v-icon x-large>mdi-file</v-icon>
-        <div>
-          <h4 class="itemName">
-            {{ fileNameWithoutExtension(item.name) }}
-          </h4>
-          <h5 class="itemName">
-            {{ item.path }}
-          </h5>
-        </div>
-      </v-card>
+      <draggable v-model="setList.sheets" :move="!sortSetListEnabled">
+        <v-card
+          v-for="item in setList.sheets"
+          :key="item.name + item.path"
+          @click="openSheet(item)"
+        >
+          <v-icon x-large>mdi-file</v-icon>
+          <div>
+            <h4 class="itemName">
+              {{ fileNameWithoutExtension(item.name) }}
+            </h4>
+            <h5 class="itemName">
+              {{ item.path }}
+            </h5>
+          </div>
+        </v-card>
+      </draggable>
     </div>
 
     <v-dialog
@@ -77,12 +79,7 @@ import { EventNames, RouteNames } from "@/Enums";
 import { SetList } from "@/models/SetList";
 import { mapFields } from "vuex-map-fields";
 import { SheetFile } from "@/models/SheetFile";
-
-class SetListVueWithMapFields extends Vue {
-  public setLists!: SetList[];
-  public showEditSetListDialog!: boolean;
-  public filesAndFolder!: SheetFile[];
-}
+import draggable from "vuedraggable";
 
 @Component({
   computed: {
@@ -91,14 +88,22 @@ class SetListVueWithMapFields extends Vue {
       "showEditSetListDialog",
       "sheetMusicFolder",
       "filesAndFolder",
+      "sortSetListEnabled",
     ]),
   },
+  components: {
+    draggable,
+  },
 })
-export default class SetListVue extends SetListVueWithMapFields {
+export default class SetListVue extends Vue {
   setList: SetList;
   currentPath = "";
   pdfsAndFolders: SheetFile[] = [];
   loadedRelative: string | null = null;
+  setLists!: SetList[];
+  showEditSetListDialog!: boolean;
+  filesAndFolder!: SheetFile[];
+  sortSetListEnabled!: boolean;
 
   constructor(props: any) {
     super(props);
@@ -220,6 +225,7 @@ export default class SetListVue extends SetListVueWithMapFields {
   }
 
   mounted(): void {
+    this.sortSetListEnabled = false;
     this.loadedRelative = null;
     let basePath = this.$store.getters.getField("sheetMusicFolder");
     window.ipcRenderer.send(EventNames.LOAD_SET_LISTS, {
@@ -260,11 +266,13 @@ export default class SetListVue extends SetListVueWithMapFields {
 }
 
 .container {
-  max-height: calc(100vh - 32px - 64px);
-  width: auto;
-  overflow: auto;
-  display: flex;
-  flex-wrap: wrap;
+  > div {
+    max-height: calc(100vh - 32px - 64px);
+    width: auto;
+    overflow: auto;
+    display: flex;
+    flex-wrap: wrap;
+  }
 
   .v-card {
     display: flex;

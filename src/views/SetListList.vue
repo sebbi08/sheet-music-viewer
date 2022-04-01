@@ -1,6 +1,6 @@
 <template>
-  <div class="container">
-    <v-card @click="addSetList()">
+  <div :class="setListDeletionMode ? 'deletionMode' : ''" class="container">
+    <v-card class="addSetListCard" @click="addSetList()">
       <v-icon x-large>mdi-plus</v-icon>
       <h2 class="itemName">Add Set List</h2>
     </v-card>
@@ -11,6 +11,17 @@
     >
       <v-icon x-large>mdi-playlist-music</v-icon>
       <h2 class="itemName">{{ setList.name }}</h2>
+      <v-btn
+        v-if="setListDeletionMode"
+        class="deletionButton"
+        color="primary"
+        elevation="2"
+        icon
+        small
+        @click="removeSetList(setList)"
+      >
+        <v-icon color="red"> mdi-close</v-icon>
+      </v-btn>
     </v-card>
 
     <v-dialog v-model="showSetListDialog" max-width="466px">
@@ -43,20 +54,19 @@ import { SetList } from "@/models/SetList";
 import { EventNames, RouteNames } from "@/Enums";
 import { mapFields } from "vuex-map-fields";
 
-class SetListListWithMapFields extends Vue {
-  public setLists!: SetList[];
-}
-
 @Component({
   computed: {
-    ...mapFields(["setLists"]),
+    ...mapFields(["setLists", "setListDeletionMode"]),
   },
 })
-export default class SetListList extends SetListListWithMapFields {
+export default class SetListList extends Vue {
   showSetListDialog = false;
   newSetListName = "";
+  setListDeletionMode!: boolean;
+  setLists!: SetList[];
 
   mounted(): void {
+    this.setListDeletionMode = false;
     let basePath = this.$store.getters.getField("sheetMusicFolder");
     window.ipcRenderer.send(EventNames.LOAD_SET_LISTS, {
       basePath,
@@ -84,11 +94,29 @@ export default class SetListList extends SetListListWithMapFields {
   }
 
   addSetList(): void {
+    if (this.setListDeletionMode) {
+      return;
+    }
     this.newSetListName = "";
     this.showSetListDialog = true;
   }
 
+  removeSetList(setListToRemove: SetList): void {
+    if (!this.setListDeletionMode) {
+      return;
+    }
+    this.setLists = this.setLists.filter((setList) => {
+      return setList.id !== setListToRemove.id;
+    });
+    if (this.setLists.length === 0) {
+      this.setListDeletionMode = false;
+    }
+  }
+
   showSetList(setList: SetList): void {
+    if (this.setListDeletionMode) {
+      return;
+    }
     this.$router.push({
       name: RouteNames.SetList,
       params: { id: setList.id + "" },
@@ -97,6 +125,25 @@ export default class SetListList extends SetListListWithMapFields {
 }
 </script>
 <style lang="less" scoped>
+.deletionMode {
+  .v-card {
+    pointer-events: none;
+  }
+
+  .addSetListCard {
+    opacity: 0.5;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+
+  .deletionButton {
+    pointer-events: all;
+    position: absolute;
+    top: -14px;
+    right: -14px;
+    background-color: white;
+  }
+}
+
 .addSetListDialogContent {
   padding-left: 24px;
   padding-right: 24px;
