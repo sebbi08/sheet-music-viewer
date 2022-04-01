@@ -1,3 +1,11 @@
+## [1.4.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.0...v1.4.1) (2022-04-01)
+
+
+### Bug Fixes
+
+* added option to move one folder up in set list edit window ([2f93fa5](https://github.com/sebbi08/sheet-music-viewer/commit/2f93fa5dfdac0fc95af2f08c63bcb0155b66090d))
+* set list ([9d6eadb](https://github.com/sebbi08/sheet-music-viewer/commit/9d6eadb55b28471ef62ae45984765f78b2281321))
+
 # [1.4.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.3.0...v1.4.0) (2022-04-01)
 
 
