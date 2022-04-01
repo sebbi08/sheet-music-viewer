@@ -16,6 +16,7 @@
     "semantic-release": "semantic-release",
     "release": "rimraf dist_electron && yarn semantic-release --no-ci && git push && yarn build && node deployRelease.mjs"
   },
+  "main": "background.js",
   "dependencies": {
     "@mdi/font": "6.3.95",
     "@types/fabric": "^4.5.3",
