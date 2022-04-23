@@ -178,6 +178,15 @@
             v-bind:src="getImgUrl(icon.file)"
             @click="addMusicSvg(icon)"
           />
+
+          <div
+            v-for="icon in allNOTES"
+            v-bind:key="icon.name"
+            :class="'icon-' + icon.name"
+            :data-icon-code="icon.code"
+            class="music-icon note"
+            @click="addMusicIcon(icon)"
+          />
         </div>
         <v-card-actions>
           <v-btn color="primary" text @click="musicSymbolDialog = false"
@@ -223,6 +232,7 @@ import { enhanceFabricPrototype } from "@/utils";
 export default class SheetViewer extends Vue {
   allMusicIcons = MUSIC_ICONS.ALL_ICONS;
   allMusicSVGs = MUSIC_SVG.ALL_SGVS;
+  allNOTES = MUSIC_ICONS.NOTES;
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
@@ -405,13 +415,19 @@ export default class SheetViewer extends Vue {
     if (!this.editFabric) return;
 
     let iconObject = new fabric.Text(icon.code, {
-      fill: "black",
+      fill: "red",
       fontSize: 1,
+      fontWeight: 700,
       fontFamily: "noto-icons",
       selectable: true,
       scaleX: 50,
       scaleY: 50,
     });
+
+    iconObject.controls.mr = new fabric.Control({ visible: false });
+    iconObject.controls.mt = new fabric.Control({ visible: false });
+    iconObject.controls.ml = new fabric.Control({ visible: false });
+    iconObject.controls.mb = new fabric.Control({ visible: false });
 
     this.editFabric?.add(iconObject);
     iconObject.set({
@@ -435,48 +451,11 @@ export default class SheetViewer extends Vue {
         loadedObjects.set({
           left: (this.editFabric?.width || 0) / 2,
           top: (this.editFabric?.height || 0) / 2,
-          width: 250,
-          height: 70,
-          scaleX: 0.75,
-          scaleY: 0.75,
+          width: svg.width,
+          height: svg.height,
+          scaleX: svg.scaleX,
+          scaleY: svg.scaleY,
         });
-        if (svg.file === MUSIC_SVG.CRESCENDO) {
-          loadedObjects.controls.ml = new fabric.Control({
-            x: -0.5,
-            y: 0,
-            cursorStyleHandler: (fabric as any).controlsUtils
-              .scaleSkewCursorStyleHandler,
-            actionHandler: (fabric as any).controlsUtils.scalingXOrSkewingY,
-            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
-          });
-
-          loadedObjects.controls.mr = new fabric.Control({
-            x: 0.5,
-            y: 0,
-            cursorStyleHandler: (fabric as any).controlsUtils
-              .scaleSkewCursorStyleHandler,
-            actionHandler: (fabric as any).controlsUtils.scalingXOrSkewingY,
-            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
-          });
-
-          loadedObjects.controls.mb = new fabric.Control({
-            x: 0,
-            y: 0.5,
-            cursorStyleHandler: (fabric as any).controlsUtils
-              .scaleSkewCursorStyleHandler,
-            actionHandler: (fabric as any).controlsUtils.scalingYOrSkewingX,
-            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
-          });
-
-          loadedObjects.controls.mt = new fabric.Control({
-            x: 0,
-            y: -0.5,
-            cursorStyleHandler: (fabric as any).controlsUtils
-              .scaleSkewCursorStyleHandler,
-            actionHandler: (fabric as any).controlsUtils.scalingYOrSkewingX,
-            getActionName: (fabric as any).controlsUtils.scaleOrSkewActionName,
-          });
-        }
 
         this.editFabric?.add(loadedObjects);
 
@@ -994,6 +973,10 @@ export default class SheetViewer extends Vue {
   &:not(:last-child) {
     margin-right: 16px;
   }
+}
+
+.note {
+  font-size: 13px;
 }
 
 .music-icons-wrapper {

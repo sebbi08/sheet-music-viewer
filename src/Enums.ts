@@ -63,6 +63,10 @@ export interface Icon {
 export interface Svg {
   name: string;
   file: string;
+  width: number;
+  height: number;
+  scaleX: number;
+  scaleY: number;
 }
 
 export class MUSIC_ICONS {
@@ -76,11 +80,33 @@ export class MUSIC_ICONS {
   static readonly ACCENT: string = "\u{01D17B}";
   static readonly STACCATO: string = "\u{01D17C}";
   static readonly TENUTO: string = "\u{01D17D}";
-  static readonly S: string = "\u{01D18D}";
-  static readonly Z: string = "\u{01D18E}";
   static readonly PIANO: string = "\u{01D18F}";
   static readonly MEZO: string = "\u{01D190}";
   static readonly FORTE: string = "\u{01D191}";
+  static readonly MEZO_FORTE: string = "\u{01D190}\u{01D191}";
+  static readonly MEZO_PIANO: string = "\u{01D190}\u{01D18F}";
+  static readonly S_F_Z: string = "\u{01D18D}\u{01D191}\u{01D18E}";
+  static readonly CIS: string = "CIS";
+  static readonly C: string = "C";
+  static readonly CES: string = "CES";
+  static readonly DIS: string = "DIS";
+  static readonly D: string = "D";
+  static readonly DES: string = "DES";
+  static readonly EIS: string = "EIS";
+  static readonly E: string = "E";
+  static readonly ES: string = "ES";
+  static readonly FIS: string = "FIS";
+  static readonly F: string = "F";
+  static readonly FES: string = "FES";
+  static readonly GIS: string = "GIS";
+  static readonly G: string = "G";
+  static readonly GES: string = "GES";
+  static readonly AIS: string = "AIS";
+  static readonly A: string = "A";
+  static readonly AS: string = "AS";
+  static readonly HIS: string = "HIS";
+  static readonly H: string = "H";
+  static readonly B: string = "B";
   static readonly ALL_ICONS: Icon[] = [
     { name: "NATURAL", code: MUSIC_ICONS.NATURAL },
     { name: "FLAT", code: MUSIC_ICONS.FLAT },
@@ -92,11 +118,35 @@ export class MUSIC_ICONS {
     { name: "ACCENT", code: MUSIC_ICONS.ACCENT },
     { name: "STACCATO", code: MUSIC_ICONS.STACCATO },
     { name: "TENUTO", code: MUSIC_ICONS.TENUTO },
-    { name: "S", code: MUSIC_ICONS.S },
-    { name: "Z", code: MUSIC_ICONS.Z },
     { name: "PIANO", code: MUSIC_ICONS.PIANO },
     { name: "MEZO", code: MUSIC_ICONS.MEZO },
     { name: "FORTE", code: MUSIC_ICONS.FORTE },
+    { name: "MEZO_FORTE", code: MUSIC_ICONS.MEZO_FORTE },
+    { name: "MEZO_PIANO", code: MUSIC_ICONS.MEZO_PIANO },
+    { name: "S_F_Z", code: MUSIC_ICONS.S_F_Z },
+  ];
+  static readonly NOTES: Icon[] = [
+    { name: "CIS", code: MUSIC_ICONS.CIS },
+    { name: "C", code: MUSIC_ICONS.C },
+    { name: "CES", code: MUSIC_ICONS.CES },
+    { name: "DIS", code: MUSIC_ICONS.DIS },
+    { name: "D", code: MUSIC_ICONS.D },
+    { name: "DES", code: MUSIC_ICONS.DES },
+    { name: "EIS", code: MUSIC_ICONS.EIS },
+    { name: "E", code: MUSIC_ICONS.E },
+    { name: "ES", code: MUSIC_ICONS.ES },
+    { name: "FIS", code: MUSIC_ICONS.FIS },
+    { name: "F", code: MUSIC_ICONS.F },
+    { name: "FES", code: MUSIC_ICONS.FES },
+    { name: "GIS", code: MUSIC_ICONS.GIS },
+    { name: "G", code: MUSIC_ICONS.G },
+    { name: "GES", code: MUSIC_ICONS.GES },
+    { name: "AIS", code: MUSIC_ICONS.AIS },
+    { name: "A", code: MUSIC_ICONS.A },
+    { name: "AS", code: MUSIC_ICONS.AS },
+    { name: "HIS", code: MUSIC_ICONS.HIS },
+    { name: "H", code: MUSIC_ICONS.H },
+    { name: "B", code: MUSIC_ICONS.B },
   ];
 }
 
@@ -151,6 +201,7 @@ export class MUSIC_SVG {
   static readonly SIXTEENTH_NOTES: string = "Sixteenth Notes.svg";
   static readonly CODA: string = "Coda.svg";
   static readonly CRESCENDO: string = "Crescendo.svg";
+  static readonly DE_CRESCENDO: string = "De Crescendo.svg";
   static readonly ALL_SGVS: Svg[] = [
     // { name: "STAFF", file: MUSIC_SVG.STAFF },
     // { name: "DOWN_BOW", file: MUSIC_SVG.DOWN_BOW },
@@ -202,6 +253,21 @@ export class MUSIC_SVG {
     // { name: "C_CLEF", file: MUSIC_SVG.C_CLEF },
     // { name: "SIXTEENTH_NOTES", file: MUSIC_SVG.SIXTEENTH_NOTES },
     // { name: "CODA", file: MUSIC_SVG.CODA },
-    { name: "CRESCENDO", file: MUSIC_SVG.CRESCENDO },
+    {
+      name: "CRESCENDO",
+      file: MUSIC_SVG.CRESCENDO,
+      scaleY: 0.75,
+      scaleX: 0.75,
+      width: 250,
+      height: 70,
+    },
+    {
+      name: "DE_CRESCENDO",
+      file: MUSIC_SVG.DE_CRESCENDO,
+      scaleY: 0.75,
+      scaleX: 0.75,
+      width: 250,
+      height: 70,
+    },
   ];
 }

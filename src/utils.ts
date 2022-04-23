@@ -7,7 +7,7 @@ export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.cornerColor = "blue";
   fabric.Object.prototype.cornerStyle = "circle";
   fabric.Object.prototype.lockRotation = true;
-  fabric.Object.prototype.cornerSize = 30;
+  fabric.Object.prototype.cornerSize = 25;
   fabric.Object.prototype.padding = 0;
 
   fabric.Object.NUM_FRACTION_DIGITS = 99;
@@ -68,10 +68,6 @@ function enhanceCustomControlsOnPrototype(proto: any) {
   proto.controls.bl.offsetY = 24;
   proto.controls.br.offsetX = 24;
   proto.controls.br.offsetY = 24;
-  proto.controls.mr = new fabric.Control({ visible: false });
-  proto.controls.mt = new fabric.Control({ visible: false });
-  proto.controls.ml = new fabric.Control({ visible: false });
-  proto.controls.mb = new fabric.Control({ visible: false });
 }
 
 function renderIcon(icon: HTMLImageElement) {
