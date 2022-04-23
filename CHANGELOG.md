@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.4...v1.5.0) (2022-04-23)
+
+
+### Features
+
+* added more icons ([ec03e8d](https://github.com/sebbi08/sheet-music-viewer/commit/ec03e8dd5ec58ffe51a638588e034865025bcca6))
+
 ## [1.4.4](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.3...v1.4.4) (2022-04-01)
 
 
