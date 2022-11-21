@@ -70,6 +70,15 @@ function enhanceCustomControlsOnPrototype(proto: any) {
   proto.controls.br.offsetY = 24;
 }
 
+export function removeStretchControls(object: any) {
+  object.controls = Object.assign({}, object.controls, {
+    mr: new fabric.Control({ visible: false }),
+    mt: new fabric.Control({ visible: false }),
+    ml: new fabric.Control({ visible: false }),
+    mb: new fabric.Control({ visible: false }),
+  });
+}
+
 function renderIcon(icon: HTMLImageElement) {
   return function renderIcon(
     ctx: CanvasRenderingContext2D,

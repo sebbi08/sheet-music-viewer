@@ -15,6 +15,13 @@
       }}%
     </v-progress-circular>
     <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
+    <div
+      class="splitIndicator"
+      v-bind:style="{ width: pdfWidth + 'px', height: pdfHeight + 'px' }"
+    >
+      <div class="indicatorLeft"></div>
+      <div class="indicatorRight"></div>
+    </div>
     <div class="canvasWrapper">
       <div
         v-for="pageNumber in pageNumbers"
@@ -222,7 +229,7 @@ import {
   Svg,
 } from "@/Enums";
 import { EditState } from "@/models/EditState";
-import { enhanceFabricPrototype } from "@/utils";
+import { enhanceFabricPrototype, removeStretchControls } from "@/utils";
 
 @Component({
   computed: {
@@ -236,6 +243,8 @@ export default class SheetViewer extends Vue {
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
+  pdfWidth = 0;
+  pdfHeight = 0;
   debouncedResize?: any;
   pdfLoadingTask?: PDFLoadingTask<any>;
   editFabric?: fabric.Canvas;
@@ -424,10 +433,9 @@ export default class SheetViewer extends Vue {
       scaleY: 50,
     });
 
-    iconObject.controls.mr = new fabric.Control({ visible: false });
-    iconObject.controls.mt = new fabric.Control({ visible: false });
-    iconObject.controls.ml = new fabric.Control({ visible: false });
-    iconObject.controls.mb = new fabric.Control({ visible: false });
+    removeStretchControls(iconObject);
+
+    iconObject.data = { isIcon: true };
 
     this.editFabric?.add(iconObject);
     iconObject.set({
@@ -622,6 +630,13 @@ export default class SheetViewer extends Vue {
       this.currentSelection = event.selected;
       if (event.selected.length > 1) {
         event.target.controls.clone = new fabric.Control({ visible: false });
+      }
+      if (
+        event.selected.length === 1 &&
+        event.selected[0].data &&
+        event.selected[0].data.isIcon
+      ) {
+        removeStretchControls(event.selected[0]);
       }
     };
     this.editFabric.on("selection:created", handleSelection);
@@ -878,6 +893,8 @@ export default class SheetViewer extends Vue {
     $canvas.width = viewport.width * scaling;
     $canvas.style.height = windowViewport.height + "px";
     $canvas.style.width = windowViewport.width + "px";
+    this.pdfWidth = windowViewport.width;
+    this.pdfHeight = windowViewport.height;
 
     // Render PDF page into canvas context
     const canvasContext = $canvas.getContext("2d");
@@ -945,6 +962,31 @@ export default class SheetViewer extends Vue {
 </script>
 
 <style lang="less">
+.splitIndicator {
+  position: absolute;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  align-content: center;
+  transform: translateX(-50%);
+  left: 50%;
+  z-index: 99;
+
+  > div {
+    width: 10px;
+    transform: translateY(2px);
+    height: 5px;
+    background-color: black;
+  }
+
+  .indicatorLeft {
+  }
+
+  .indicatorRight {
+  }
+}
+
 @font-face {
   font-family: noto-icons;
   font-style: normal;
