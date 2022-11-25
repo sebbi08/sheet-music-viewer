@@ -17,7 +17,11 @@
     <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
     <div
       class="splitIndicator"
-      v-bind:style="{ width: pdfWidth + 'px', height: pdfHeight + 'px' }"
+      v-if="currentPage !== pageNumbers"
+      v-bind:style="{
+        width: getCurrentWidth() + 'px',
+        height: getCurrentHeight() + 'px',
+      }"
     >
       <div class="indicatorLeft"></div>
       <div class="indicatorRight"></div>
@@ -196,8 +200,8 @@
           />
         </div>
         <v-card-actions>
-          <v-btn color="primary" text @click="musicSymbolDialog = false"
-            >Close
+          <v-btn color="primary" text @click="musicSymbolDialog = false">
+            Close
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -243,8 +247,6 @@ export default class SheetViewer extends Vue {
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
-  pdfWidth = 0;
-  pdfHeight = 0;
   debouncedResize?: any;
   pdfLoadingTask?: PDFLoadingTask<any>;
   editFabric?: fabric.Canvas;
@@ -257,6 +259,7 @@ export default class SheetViewer extends Vue {
   objectFab = false;
   musicSymbolDialog = false;
   overlayFabrics: fabric.StaticCanvas[] = [];
+  pageSizes: Array<{ width: number; height: number }> = [];
   editState: EditState = {
     thickness: 0,
     drawingMode: false,
@@ -266,6 +269,14 @@ export default class SheetViewer extends Vue {
   };
   currentSelection: any[] = [];
   private pdf?: PDFDocumentProxy;
+
+  getCurrentWidth(): number {
+    return this.pageSizes[this.currentPage + 1]?.width ?? 0;
+  }
+
+  getCurrentHeight(): number {
+    return this.pageSizes[this.currentPage + 1]?.height ?? 0;
+  }
 
   getImgUrl(icon: string): string {
     let images = require.context("../assets/", false, /\.svg$/);
@@ -893,8 +904,11 @@ export default class SheetViewer extends Vue {
     $canvas.width = viewport.width * scaling;
     $canvas.style.height = windowViewport.height + "px";
     $canvas.style.width = windowViewport.width + "px";
-    this.pdfWidth = windowViewport.width;
-    this.pdfHeight = windowViewport.height;
+
+    this.pageSizes[pageNumber] = {
+      width: windowViewport.width,
+      height: windowViewport.height,
+    };
 
     // Render PDF page into canvas context
     const canvasContext = $canvas.getContext("2d");
