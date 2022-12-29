@@ -11,7 +11,8 @@
     "make": "electron-forge make --arch ia32",
     "publish": "electron-forge publish --arch ia32",
     "semantic-release": "semantic-release --no-ci",
-    "lint": "eslint --ext .ts,.tsx ."
+    "lint": "eslint --ext .ts,.tsx .",
+    "release": "rimraf out .webpack && yarn semantic-release --no-ci && git push && npm run publish"
   },
   "keywords": [],
   "author": {
