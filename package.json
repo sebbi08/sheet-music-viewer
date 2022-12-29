@@ -10,7 +10,7 @@
     "package": "electron-forge package --arch ia32",
     "make": "electron-forge make --arch ia32",
     "publish": "electron-forge publish --arch ia32",
-    "semantic-release": "semantic-release",
+    "semantic-release": "semantic-release --no-ci",
     "lint": "eslint --ext .ts,.tsx ."
   },
   "keywords": [],
@@ -79,6 +79,11 @@
     "semantic-release": "^18.0.0"
   },
   "dependencies": {
+    "@semantic-release/changelog": "^6.0.2",
+    "@semantic-release/commit-analyzer": "^9.0.2",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/npm": "^9.0.1",
+    "@semantic-release/release-notes-generator": "^10.0.3",
     "@types/worker-plugin": "^5.0.1",
     "dotenv": "^16.0.3",
     "electron-devtools-installer": "^3.2.0",

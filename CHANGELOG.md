@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.5.0...v1.6.0) (2022-12-29)
+
+
+### Bug Fixes
+
+* page turning indicator top position ([5c99e98](https://github.com/sebbi08/sheet-music-viewer/commit/5c99e98a5f08bf7e50971b66b14ce87a4ce466c5))
+
+
+### Features
+
+* added indicator for page split ([a6b6825](https://github.com/sebbi08/sheet-music-viewer/commit/a6b682539476183b4dc66e95045a4a1036953a83))
+
 # [1.5.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.4.4...v1.5.0) (2022-04-23)
 
 
