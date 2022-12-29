@@ -1,4 +1,4 @@
-import { SheetFile } from "@/models/SheetFile";
+import { SheetFile } from "./SheetFile";
 
 export interface SetList {
   id: number;

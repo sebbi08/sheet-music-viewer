@@ -31,8 +31,8 @@
 <script lang="ts">
 import Vue from "vue";
 import Component from "vue-class-component";
-import { EventNames, RouteNames } from "@/Enums";
-import { SheetFile } from "@/models/SheetFile";
+import { EventNames, RouteNames } from "../Enums";
+import { SheetFile } from "../models/SheetFile";
 import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 

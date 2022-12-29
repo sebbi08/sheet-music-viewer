@@ -50,8 +50,8 @@
 <script lang="ts">
 import Vue from "vue";
 import Component from "vue-class-component";
-import { SetList } from "@/models/SetList";
-import { EventNames, RouteNames } from "@/Enums";
+import { SetList } from "../models/SetList";
+import { EventNames, RouteNames } from "../Enums";
 import { mapFields } from "vuex-map-fields";
 
 @Component({

@@ -1,13 +1,13 @@
 import Vue from "vue";
 import VueRouter, { RouteConfig } from "vue-router";
-import SheetSelection from "@/views/SheetSelection.vue";
-import FolderSetup from "@/views/FolderSetup.vue";
-import store from "@/store";
-import SheetViewer from "@/views/SheetViewer.vue";
-import { RouteNames } from "@/Enums";
-import Overview from "@/views/Overview.vue";
-import SetListList from "@/views/SetListList.vue";
-import SetListVue from "@/views/SetList.vue";
+import SheetSelection from "../views/SheetSelection.vue";
+import FolderSetup from "../views/FolderSetup.vue";
+import store from "../store";
+import SheetViewer from "../views/SheetViewer.vue";
+import { RouteNames } from "../Enums";
+import Overview from "../views/Overview.vue";
+import SetListList from "../views/SetListList.vue";
+import SetListVue from "../views/SetList.vue";
 
 Vue.use(VueRouter);
 
@@ -45,9 +45,9 @@ const routes: Array<RouteConfig> = [
   },
 ];
 
+
 const router = new VueRouter({
-  // mode: "history",
-  base: process.env.BASE_URL,
+  base: "/main_window",
   routes,
 });
 

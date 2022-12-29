@@ -223,7 +223,7 @@ import _ from "lodash";
 import { Watch } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
 import { fabric } from "fabric";
-import { OverlayData } from "@/models/OverlayData";
+import { OverlayData } from "../models/OverlayData";
 import {
   BRUSH_COLORS,
   EventNames,
@@ -231,9 +231,9 @@ import {
   MUSIC_ICONS,
   MUSIC_SVG,
   Svg,
-} from "@/Enums";
-import { EditState } from "@/models/EditState";
-import { enhanceFabricPrototype, removeStretchControls } from "@/utils";
+} from "../Enums";
+import { EditState } from "../models/EditState";
+import { enhanceFabricPrototype, removeStretchControls } from "../utils";
 
 @Component({
   computed: {
@@ -271,7 +271,7 @@ export default class SheetViewer extends Vue {
   private pdf?: PDFDocumentProxy;
 
   getCurrentWidth(): number {
-    return this.pageSizes[this.currentPage + 1]?.width ?? 0;
+    return this.pageSizes[this.currentPage]?.width ?? 0;
   }
 
   getCurrentHeight(): number {
@@ -437,7 +437,7 @@ export default class SheetViewer extends Vue {
     let iconObject = new fabric.Text(icon.code, {
       fill: "red",
       fontSize: 1,
-      fontWeight: 700,
+      fontWeight: 500,
       fontFamily: "noto-icons",
       selectable: true,
       scaleX: 50,
@@ -977,6 +977,7 @@ export default class SheetViewer extends Vue {
 
 <style lang="less">
 .splitIndicator {
+  pointer-events: none;
   position: absolute;
   display: flex;
   flex-direction: row;
@@ -1002,11 +1003,11 @@ export default class SheetViewer extends Vue {
 }
 
 @font-face {
-  font-family: noto-icons;
+  font-family: notoIcons;
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url(../assets/musicIcons/NotoMusic-Regular.ttf) format("truetype");
+  src: url(../assets/musicIcons/NotoMusic-Regular.ttf?some=true) format("truetype");
 }
 
 .music-icon {
@@ -1020,7 +1021,7 @@ export default class SheetViewer extends Vue {
   position: relative;
 
   &:before {
-    font-family: noto-icons;
+    font-family: notoIcons;
     font-style: normal;
     font-weight: 400;
     content: attr(data-icon-code);

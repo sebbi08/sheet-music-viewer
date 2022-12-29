@@ -1,4 +1,4 @@
-import { Color } from "@/models/EditState";
+import { Color } from "./models/EditState";
 
 export enum EventNames {
   "SELECT_FOLDER" = "SELECT_FOLDER",

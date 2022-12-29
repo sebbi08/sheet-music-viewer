@@ -82,10 +82,10 @@
 import Vue from "vue";
 import Component from "vue-class-component";
 import { Watch } from "vue-property-decorator";
-import { EventNames, RouteNames } from "@/Enums";
-import { SetList } from "@/models/SetList";
+import { EventNames, RouteNames } from "../Enums";
+import { SetList } from "../models/SetList";
 import { mapFields } from "vuex-map-fields";
-import { SheetFile } from "@/models/SheetFile";
+import { SheetFile } from "../models/SheetFile";
 import draggable from "vuedraggable";
 
 @Component({

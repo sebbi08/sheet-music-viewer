@@ -1,8 +1,8 @@
 import Vue from "vue";
 import Vuex from "vuex";
 import { getField, updateField } from "vuex-map-fields";
-import { SetList } from "@/models/SetList";
-import { SheetFile } from "@/models/SheetFile";
+import { SetList } from "../models/SetList";
+import { SheetFile } from "../models/SheetFile";
 
 Vue.use(Vuex);
 

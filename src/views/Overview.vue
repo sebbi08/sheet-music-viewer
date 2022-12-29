@@ -14,7 +14,7 @@
 <script lang="ts">
 import Vue from "vue";
 import Component from "vue-class-component";
-import { RouteNames } from "@/Enums";
+import { RouteNames } from "../Enums";
 
 @Component
 export default class Overview extends Vue {

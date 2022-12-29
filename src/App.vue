@@ -8,59 +8,59 @@
       <v-spacer></v-spacer>
       <div :class="searchVisible ? 'searchVisible' : ''" class="searchWrapper">
         <v-text-field
-          ref="searchWrapper"
-          v-model="searchTerm"
-          hide-details="auto"
-          label=""
+            ref="searchWrapper"
+            v-model="searchTerm"
+            hide-details="auto"
+            label=""
         ></v-text-field>
       </div>
       <v-btn
-        v-if="$route.name === sheetSelectionRouteName"
-        dark
-        icon
-        @click="showSearch"
+          v-if="$route.name === sheetSelectionRouteName"
+          dark
+          icon
+          @click="showSearch"
       >
         <v-icon>mdi-magnify</v-icon>
       </v-btn>
       <v-btn
-        v-if="$route.name === sheetViewerRouterName"
-        dark
-        icon
-        @click="onSwitchEditMode"
+          v-if="$route.name === sheetViewerRouterName"
+          dark
+          icon
+          @click="onSwitchEditMode"
       >
         <v-icon>{{ editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
       </v-btn>
       <v-btn
-        v-if="$route.name === setListRouteName"
-        dark
-        icon
-        @click="toggleSetListSortMode"
+          v-if="$route.name === setListRouteName"
+          dark
+          icon
+          @click="toggleSetListSortMode"
       >
         <v-icon>
           {{ sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
         </v-icon>
       </v-btn>
       <v-btn
-        v-if="$route.name === setListRouteName && !setListEditMode"
-        dark
-        icon
-        @click="startSetListEditMode"
+          v-if="$route.name === setListRouteName && !setListEditMode"
+          dark
+          icon
+          @click="startSetListEditMode"
       >
         <v-icon>mdi-pencil</v-icon>
       </v-btn>
       <v-btn
-        v-if="$route.name === setListListRouteName"
-        dark
-        icon
-        @click="toggleSetListDeletionMode"
+          v-if="$route.name === setListListRouteName"
+          dark
+          icon
+          @click="toggleSetListDeletionMode"
       >
         <v-icon>{{ setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
       </v-btn>
       <v-dialog
-        v-if="showSettingsButton"
-        v-model="dialog"
-        max-width="320"
-        persistent
+          v-if="showSettingsButton"
+          v-model="dialog"
+          max-width="320"
+          persistent
       >
         <template v-slot:activator="{ on, attrs }">
           <v-btn dark icon v-bind="attrs" v-on="on">
@@ -89,14 +89,12 @@
 </template>
 
 <script lang="ts">
-import Vue from "vue";
-import { EventNames, RouteNames } from "@/Enums";
+import { EventNames, RouteNames } from "./Enums";
 import { mapFields } from "vuex-map-fields";
-import { SheetFile } from "@/models/SheetFile";
-import { SetList } from "@/models/SetList";
+import { SheetFile } from "./models/SheetFile";
+import { SetList } from "./models/SetList";
 
-// noinspection JSVoidFunctionReturnValueUsed
-export default Vue.extend({
+export default {
   name: "App",
 
   data: () => ({
@@ -110,55 +108,55 @@ export default Vue.extend({
 
   mounted() {
     window.ipcRenderer.on(
-      EventNames.SEND_VERSION,
-      (event, appVersion: string) => {
-        this.appVersion = appVersion;
-      }
+        EventNames.SEND_VERSION,
+        (event, appVersion: string) => {
+          this.appVersion = appVersion;
+        }
     );
     window.ipcRenderer.send(EventNames.GET_VERSION);
 
     window.ipcRenderer.on(
-      EventNames.FOLDER_SELECTED,
-      (event, selectedFolder: string) => {
-        this.$store.commit("updateField", {
-          path: "sheetMusicFolder",
-          value: selectedFolder,
-        });
-        localStorage.setItem("sheetMusicFolder", selectedFolder);
-        this.$router.push({
-          name: "SheetSelection",
-          params: { path: window.path.sep },
-        });
-      }
+        EventNames.FOLDER_SELECTED,
+        (event, selectedFolder: string) => {
+          this.$store.commit("updateField", {
+            path: "sheetMusicFolder",
+            value: selectedFolder,
+          });
+          localStorage.setItem("sheetMusicFolder", selectedFolder);
+          this.$router.push({
+            name: "SheetSelection",
+            params: { path: window.path.sep },
+          });
+        }
     );
 
     window.ipcRenderer.on(
-      EventNames.FOLDER_LOADED,
-      (event: any, filesAndFolder: SheetFile[]): void => {
-        this.$store.commit("updateField", {
-          path: "filesAndFolder",
-          value: filesAndFolder,
-        });
-      }
+        EventNames.FOLDER_LOADED,
+        (event: any, filesAndFolder: SheetFile[]): void => {
+          this.$store.commit("updateField", {
+            path: "filesAndFolder",
+            value: filesAndFolder,
+          });
+        }
     );
     window.ipcRenderer.on(
-      EventNames.LOAD_SET_LISTS_RESULT,
-      (event: any, setLists: SetList[]): void => {
-        this.$store.commit("updateField", {
-          path: "setLists",
-          value: setLists,
-        });
-      }
+        EventNames.LOAD_SET_LISTS_RESULT,
+        (event: any, setLists: SetList[]): void => {
+          this.$store.commit("updateField", {
+            path: "setLists",
+            value: setLists,
+          });
+        }
     );
 
     window.ipcRenderer.on(
-      EventNames.SEARCH_RESULTS,
-      (event, searchResults: SheetFile[]) => {
-        this.$store.commit("updateField", {
-          path: "searchResults",
-          value: searchResults,
-        });
-      }
+        EventNames.SEARCH_RESULTS,
+        (event, searchResults: SheetFile[]) => {
+          this.$store.commit("updateField", {
+            path: "searchResults",
+            value: searchResults,
+          });
+        }
     );
   },
   computed: {
@@ -256,7 +254,7 @@ export default Vue.extend({
       }
     },
   },
-});
+};
 </script>
 
 <style lang="less">

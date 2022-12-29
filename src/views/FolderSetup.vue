@@ -11,7 +11,7 @@
 import Vue from "vue";
 import { Component } from "vue-property-decorator";
 import { mapFields } from "vuex-map-fields";
-import { EventNames } from "@/Enums";
+import { EventNames } from "../Enums";
 
 @Component({
   computed: {

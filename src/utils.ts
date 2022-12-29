@@ -1,6 +1,6 @@
 import { fabric } from "fabric";
 import { Transform } from "fabric/fabric-impl";
-import { ACTION_ICONS } from "@/Enums";
+import { ACTION_ICONS } from "./Enums";
 
 export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.transparentCorners = false;
