@@ -16,13 +16,21 @@ if (require("electron-squirrel-startup")) {
   app.quit();
 }
 if (!isDevelopment) {
+
   const server = "https://update.sebmahr.de";
-  const url = `${server}/update/${process.platform}/${app.getVersion()}`;
+  let platform = process.platform;
+  if (platform === "win32") {
+    if (process.arch === "x64") {
+      platform = "win64";
+    }
+  }
+  const url = `${server}/update/${platform}/${app.getVersion()}`;
   autoUpdater.setFeedURL({ url });
   setInterval(() => {
     autoUpdater.checkForUpdates();
   }, 60000);
 
+  autoUpdater.checkForUpdates();
   autoUpdater.on("update-downloaded", (event, releaseNotes, releaseName) => {
     const dialogOpts = {
       type: "info",
