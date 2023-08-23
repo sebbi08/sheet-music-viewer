@@ -18,7 +18,7 @@ if (require("electron-squirrel-startup")) {
 if (!isDevelopment) {
 
   const server = "https://update.sebmahr.de";
-  let platform = process.platform;
+  let platform = process.platform as string;
   if (platform === "win32") {
     if (process.arch === "x64") {
       platform = "win64";
@@ -71,7 +71,7 @@ const createWindow = (): void => {
   mainWindow.maximize();
 
   // and load the index.html of the app.
-  mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+  mainWindow.loadURL("https://myposter.de");
   if (isDevelopment) {
     mainWindow.webContents.openDevTools();
   }

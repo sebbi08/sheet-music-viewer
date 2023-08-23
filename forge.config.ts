@@ -9,6 +9,7 @@ import { mainConfig } from "./webpack.main.config";
 import { rendererConfig } from "./webpack.renderer.config";
 
 import { config as dotenv } from "dotenv";
+import PublisherERS from "./publisher/PublisherERS";
 
 dotenv();
 const config: ForgeConfig = {
@@ -40,15 +41,11 @@ const config: ForgeConfig = {
     })
   ],
   publishers: [
-    {
-      name: "@electron-forge/publisher-electron-release-server",
-      config: {
-        baseUrl: "https://update.sebmahr.de",
-        username: "sebbi",
-        password: process.env.PASSWORD, // string
-        flavor: "default"
-      }
-    }
+    new PublisherERS({
+      baseUrl: "https://update.sebmahr.de",
+      username: "sebbi",
+      password: process.env.PASSWORD || ""
+    })
   ]
 };
 
