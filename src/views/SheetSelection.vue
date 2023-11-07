@@ -55,7 +55,7 @@ export default class SheetSelection extends Vue {
 
   get folderPath(): string {
     return this.$route?.params?.path
-      ? this.$route.params.path.slice(0, -1)
+      ? this.$route.params.path
       : window.path.sep;
   }
 

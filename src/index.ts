@@ -33,7 +33,6 @@ if (!isDevelopment) {
   autoUpdater.checkForUpdates();
   autoUpdater.on("update-downloaded", (event, releaseNotes, releaseName) => {
     const dialogOpts = {
-      type: "info",
       buttons: ["Restart", "Later"],
       title: "Application Update",
       message: process.platform === "win32" ? releaseNotes : releaseName,
@@ -71,7 +70,7 @@ const createWindow = (): void => {
   mainWindow.maximize();
 
   // and load the index.html of the app.
-  mainWindow.loadURL("https://myposter.de");
+  mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   if (isDevelopment) {
     mainWindow.webContents.openDevTools();
   }
@@ -171,11 +170,15 @@ ipcMain.on(EventNames.SEARCH_FILES, async (event: IpcMainEvent, args: { basePath
       console.log(err);
       return;
     }
-    matches = matches.map((filepath) => filepath.split("/").join(path.sep));
+    // matches = matches.map((filepath) => filepath.split("/").join(path.sep));
 
     const filesAndFolders = matches.map((item) => {
+
+      const filePath = item.includes("/") ? ("/" + path.dirname(item)) : ""
+
+      
       return {
-        path: basePath + path.sep + path.dirname(item),
+        path: basePath + filePath,
         name: path.basename(item),
         isFile: true,
         isSearch: true

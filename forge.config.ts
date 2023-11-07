@@ -10,6 +10,7 @@ import { rendererConfig } from "./webpack.renderer.config";
 
 import { config as dotenv } from "dotenv";
 import PublisherERS from "./publisher/PublisherERS";
+import MakerFlatpak from "@electron-forge/maker-flatpak";
 
 dotenv();
 const config: ForgeConfig = {
