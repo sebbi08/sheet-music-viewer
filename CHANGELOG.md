@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.6.0...v1.6.1) (2023-11-15)
+
+
+### Bug Fixes
+
+* path handling on linux ([adf554e](https://github.com/sebbi08/sheet-music-viewer/commit/adf554e1108ea251a66e75a22f529145f594f0fa))
+
 # [1.6.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.5.0...v1.6.0) (2022-12-29)
 
 
