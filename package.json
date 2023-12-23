@@ -1,7 +1,7 @@
 {
   "name": "sheet-music-viewer",
   "productName": "sheet-music-viewer",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "App to display music sheets",
   "main": ".webpack/main",
   "type": "commonjs",

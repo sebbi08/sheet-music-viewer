@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.6.1...v1.7.0) (2023-12-23)
+
+
+### Features
+
+* reworked edit mode to be faster ([dc37d1b](https://github.com/sebbi08/sheet-music-viewer/commit/dc37d1baf559a9bd2ad642af36fb0669d9c9035a))
+
 ## [1.6.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.6.0...v1.6.1) (2023-11-15)
 
 
