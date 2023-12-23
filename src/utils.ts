@@ -14,6 +14,9 @@ export function enhanceFabricPrototype(): void {
 
   enhanceCustomControlsOnPrototype(fabric.Object.prototype);
   enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
+
+  fabric.Textbox.prototype.lockMovementX = true;
+  fabric.Textbox.prototype.lockMovementY = true;
 }
 
 function enhanceCustomControlsOnPrototype(proto: any) {
@@ -54,9 +57,21 @@ function enhanceCustomControlsOnPrototype(proto: any) {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     render: fabric.controlsUtils.renderCircleControl,
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    actionHandler: fabric.controlsUtils.dragHandler,
+    actionHandler: function (event, transform, x, y): boolean {
+      const target = transform.target;
+      const lockState = target.lockMovementX
+      
+      target.lockMovementX = false;
+      target.lockMovementY = false;
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      const res = fabric.controlsUtils.dragHandler(event, transform, x, y);
+
+      target.lockMovementX = lockState;
+      target.lockMovementY = lockState;
+      return res;
+    },
+
     actionName: "drag",
   });
 

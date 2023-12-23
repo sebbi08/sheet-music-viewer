@@ -86,6 +86,13 @@ export class MUSIC_ICONS {
   static readonly MEZO_FORTE: string = "\u{01D190}\u{01D191}";
   static readonly MEZO_PIANO: string = "\u{01D190}\u{01D18F}";
   static readonly S_F_Z: string = "\u{01D18D}\u{01D191}\u{01D18E}";
+  static readonly REST: string = "𝄽";
+  static readonly Q_REST: string = "𝄾";
+  static readonly FULL_NOTE: string = "𝅗";
+  static readonly HALF_NOTE: string = "𝅗𝅥";
+  static readonly QUATER_NOTE: string = "𝅘𝅥";
+  static readonly EIGTH_NOTE: string = "𝅘𝅥𝅮";
+  static readonly SIXTH_NOTE: string = "𝅘𝅥𝅯";
   static readonly CIS: string = "CIS";
   static readonly C: string = "C";
   static readonly CES: string = "CES";
@@ -124,6 +131,13 @@ export class MUSIC_ICONS {
     { name: "MEZO_FORTE", code: MUSIC_ICONS.MEZO_FORTE },
     { name: "MEZO_PIANO", code: MUSIC_ICONS.MEZO_PIANO },
     { name: "S_F_Z", code: MUSIC_ICONS.S_F_Z },
+    { name: "REST", code: MUSIC_ICONS.REST },
+    { name: "Q_REST", code: MUSIC_ICONS.Q_REST },
+    { name: "FULL_NOTE", code: MUSIC_ICONS.FULL_NOTE },
+    { name: "HALF_NOTE", code: MUSIC_ICONS.HALF_NOTE },
+    { name: "QUATER_NOTE", code: MUSIC_ICONS.QUATER_NOTE },
+    { name: "EIGTH_NOTE", code: MUSIC_ICONS.EIGTH_NOTE },
+    { name: "SIXTH_NOTE", code: MUSIC_ICONS.SIXTH_NOTE },
   ];
   static readonly NOTES: Icon[] = [
     { name: "CIS", code: MUSIC_ICONS.CIS },
@@ -235,7 +249,11 @@ export class MUSIC_SVG {
     // { name: "MEZZO_FORTE", file: MUSIC_SVG.MEZZO_FORTE },
     // { name: "ENGAGE_PEDAL", file: MUSIC_SVG.ENGAGE_PEDAL },
     // { name: "PIANISSIMO", file: MUSIC_SVG.PIANISSIMO },
-    // { name: "QUARTER_REST", file: MUSIC_SVG.QUARTER_REST },
+    // { name: "QUARTER_REST", file: MUSIC_SVG.QUARTER_REST,
+    // scaleY: 0.75,
+    // scaleX: 0.75,
+    // width: 250,
+    // height: 70, },
     // { name: "F_CLEF", file: MUSIC_SVG.F_CLEF },
     // { name: "SIXTEENTH_REST", file: MUSIC_SVG.SIXTEENTH_REST },
     // { name: "MEZZO_PIANO", file: MUSIC_SVG.MEZZO_PIANO },
@@ -253,21 +271,21 @@ export class MUSIC_SVG {
     // { name: "C_CLEF", file: MUSIC_SVG.C_CLEF },
     // { name: "SIXTEENTH_NOTES", file: MUSIC_SVG.SIXTEENTH_NOTES },
     // { name: "CODA", file: MUSIC_SVG.CODA },
-    {
-      name: "CRESCENDO",
-      file: MUSIC_SVG.CRESCENDO,
-      scaleY: 0.75,
-      scaleX: 0.75,
-      width: 250,
-      height: 70,
-    },
-    {
-      name: "DE_CRESCENDO",
-      file: MUSIC_SVG.DE_CRESCENDO,
-      scaleY: 0.75,
-      scaleX: 0.75,
-      width: 250,
-      height: 70,
-    },
+    // {
+    //   name: "CRESCENDO",
+    //   file: MUSIC_SVG.CRESCENDO,
+    //   scaleY: 0.75,
+    //   scaleX: 0.75,
+    //   width: 250,
+    //   height: 70,
+    // },
+    // {
+    //   name: "DE_CRESCENDO",
+    //   file: MUSIC_SVG.DE_CRESCENDO,
+    //   scaleY: 0.75,
+    //   scaleX: 0.75,
+    //   width: 250,
+    //   height: 70,
+    // },
   ];
 }

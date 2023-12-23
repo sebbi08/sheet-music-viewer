@@ -1,98 +1,83 @@
 <template>
   <div id="sheetViewerWrapper" class="canvasWrapper">
-    <v-progress-circular
-      v-if="pagesLoaded !== pageNumbers"
-      :size="70"
-      :width="7"
-      class="loader"
-      color="primary"
-      indeterminate
-    >
+    <v-progress-circular v-if="pagesLoaded !== pageNumbers" :size="70" :width="7" class="loader" color="primary"
+      indeterminate>
       {{
         Number.isInteger((100 / pageNumbers) * pagesLoaded)
-          ? (100 / pageNumbers) * pagesLoaded
-          : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
+        ? (100 / pageNumbers) * pagesLoaded
+        : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
       }}%
     </v-progress-circular>
     <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
-    <div
-      class="splitIndicator"
-      v-if="currentPage !== pageNumbers"
-      v-bind:style="{
-        width: getCurrentWidth() + 'px',
-        height: getCurrentHeight() + 'px',
-      }"
-    >
+    <div class="splitIndicator" v-if="currentPage !== pageNumbers" v-bind:style="{
+      width: getCurrentWidth() + 'px',
+      height: getCurrentHeight() + 'px',
+    }">
       <div class="indicatorLeft"></div>
       <div class="indicatorRight"></div>
     </div>
     <div class="canvasWrapper">
-      <div
-        v-for="pageNumber in pageNumbers"
-        :key="pageNumber"
-        class="pageWrapper"
-      >
-        <div
-          v-if="pageNumber !== 1"
-          :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
-          :data-page-backdrop="pageNumber - 0.5"
-          class="pageCanvas pageBackdrop"
-          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
-        ></div>
-        <canvas
-          v-if="pageNumber !== 1"
-          :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
-          :data-page="pageNumber - 0.5"
-          class="pageCanvas"
-          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"
-        />
-        <canvas
-          :class="isPageVisible(pageNumber) ? 'pageVisible' : ''"
-          :data-page="pageNumber"
-          class="pageCanvas"
-          v-bind:style="{ zIndex: pageNumber * 2 }"
-        />
+      <div v-for="pageNumber in pageNumbers" :key="pageNumber" class="pageWrapper">
+        <div v-if="pageNumber !== 1" :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
+          :data-page-backdrop="pageNumber - 0.5" class="pageCanvas pageBackdrop"
+          v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }"></div>
+        <canvas v-if="pageNumber !== 1" :class="isPageVisible(pageNumber - 0.5) ? 'pageVisible' : ''"
+          :data-page="pageNumber - 0.5" class="pageCanvas" v-bind:style="{ zIndex: (pageNumber - 0.5) * 2 }" />
+        <canvas :class="isPageVisible(pageNumber) ? 'pageVisible' : ''" :data-page="pageNumber" class="pageCanvas"
+          v-bind:style="{ zIndex: pageNumber * 2 }" />
       </div>
     </div>
 
-    <!--  Mode Selection  -->
-    <v-speed-dial
-      v-if="editMode"
-      v-model="editFab"
-      absolute
-      bottom
-      direction="left"
-      right
-      transition="slide-x-reverse-transition"
-    >
-      <template v-slot:activator>
-        <v-btn v-model="editFab" color="blue darken-2" dark fab>
-          <v-icon v-if="editFab"> mdi-close</v-icon>
-          <v-icon v-else-if="editState.interactiveMode">
-            mdi-hand-back-right-outline
-          </v-icon>
-          <v-icon v-else-if="editState.drawingMode"> mdi-pencil</v-icon>
-        </v-btn>
-      </template>
-      <v-btn color="green" dark fab small @click="startDrawingMode">
-        <v-icon>mdi-pencil</v-icon>
-      </v-btn>
-      <v-btn color="green" dark fab small @click="startInteractiveMode">
-        <v-icon>mdi-hand-back-right-outline</v-icon>
-      </v-btn>
-    </v-speed-dial>
 
-    <!--  Add Item Selection  -->
-    <v-speed-dial
-      v-if="editState.interactiveMode"
-      v-model="objectFab"
-      absolute
-      bottom
-      class="first-level-fab"
-      direction="left"
-      right
-      transition="slide-x-reverse-transition"
-    >
+    <div v-if="editMode" class="fabContainer" absolute bottom right>
+      <v-btn v-model="editFab" color="blue darken-2" dark fab @click="toggleDrawingAndInteractiveMode">
+        <v-icon v-if="editFab"> mdi-close</v-icon>
+        <v-icon v-else-if="editState.interactiveMode">
+          mdi-hand-back-right-outline
+        </v-icon>
+        <v-icon v-else-if="editState.drawingMode"> mdi-pencil</v-icon>
+      </v-btn>
+      <v-btn v-if="editState.drawingMode" v-model="drawingFab" color="green darken-1" dark fab small
+        @click="togglePencileAndMarkerMode">
+        <v-icon v-if="editState.pencilMode">mdi-pencil</v-icon>
+        <v-icon v-else>mdi-marker</v-icon>
+      </v-btn>
+
+
+      <v-speed-dial v-if="editState.drawingMode" v-model="colorFab"
+        direction="left" transition="slide-x-reverse-transition">
+        <template v-slot:activator>
+          <v-btn v-model="colorFab" color="green" small dark fab>
+            <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
+          </v-btn>
+        </template>
+        <v-btn color="white" dark fab small @click="setRedColor">
+          <v-icon class="square-red">mdi-square-rounded</v-icon>
+        </v-btn>
+        <v-btn color="white" dark fab small @click="setGreenColor">
+          <v-icon class="square-green">mdi-square-rounded</v-icon>
+        </v-btn>
+        <v-btn color="white" dark fab small @click="setBlueColor">
+          <v-icon class="square-blue">mdi-square-rounded</v-icon>
+        </v-btn>
+        <v-btn color="white" dark fab small @click="setBlackColor">
+          <v-icon class="square-black">mdi-square-rounded</v-icon>
+        </v-btn>
+      </v-speed-dial>
+
+      <v-btn color="green" dark fab small @click="openMusicIconPopover">
+        <v-icon>mdi-music</v-icon>
+      </v-btn>
+      <v-btn color="green" dark fab small @click="addTextToCanvas">
+        <v-icon>mdi-format-text</v-icon>
+      </v-btn>
+    </div>
+    <!--  Mode Selection  -->
+
+
+    <!-- Add Item Selection -->
+    <!-- <v-speed-dial v-if="editState.interactiveMode" v-model="objectFab" absolute bottom class="first-level-fab"
+      direction="left" right transition="slide-x-reverse-transition">
       <template v-slot:activator>
         <v-btn v-model="drawingFab" color="green darken-1" dark fab>
           <v-icon>mdi-plus</v-icon>
@@ -104,24 +89,11 @@
       <v-btn color="green" dark fab small @click="addBlackSquare">
         <v-icon color="black">mdi-square</v-icon>
       </v-btn>
-      <v-btn color="green" dark fab small @click="openMusicIconPopover">
-        <v-icon>mdi-music</v-icon>
-      </v-btn>
-      <v-btn color="green" dark fab small @click="addTextToCanvas">
-        <v-icon>mdi-format-text</v-icon>
-      </v-btn>
-    </v-speed-dial>
+
+    </v-speed-dial> -->
     <!--  Drawing Mode Selection  -->
-    <v-speed-dial
-      v-if="editState.drawingMode"
-      v-model="drawingFab"
-      absolute
-      bottom
-      class="first-level-fab"
-      direction="left"
-      right
-      transition="slide-x-reverse-transition"
-    >
+    <!-- <v-speed-dial v-if="editState.drawingMode" v-model="drawingFab" absolute bottom class="first-level-fab"
+      direction="left" right transition="slide-x-reverse-transition">
       <template v-slot:activator>
         <v-btn v-model="drawingFab" color="green darken-1" dark fab>
           <v-icon v-if="editState.pencilMode">mdi-pencil</v-icon>
@@ -134,19 +106,11 @@
       <v-btn color="green" dark fab small @click="setPencilMode">
         <v-icon>mdi-pencil</v-icon>
       </v-btn>
-    </v-speed-dial>
+    </v-speed-dial> -->
 
     <!--  Color Selection  -->
-    <v-speed-dial
-      v-if="editState.drawingMode"
-      v-model="colorFab"
-      absolute
-      bottom
-      class="second-level-fab"
-      direction="left"
-      right
-      transition="slide-x-reverse-transition"
-    >
+    <!-- <v-speed-dial v-if="editState.drawingMode" v-model="colorFab" absolute bottom class="second-level-fab"
+      direction="left" right transition="slide-x-reverse-transition">
       <template v-slot:activator>
         <v-btn v-model="colorFab" color="white" dark fab>
           <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
@@ -164,7 +128,7 @@
       <v-btn color="white" dark fab small @click="setBlackColor">
         <v-icon class="square-black">mdi-square-rounded</v-icon>
       </v-btn>
-    </v-speed-dial>
+    </v-speed-dial> -->
 
     <v-dialog v-model="musicSymbolDialog" max-width="466px">
       <v-card>
@@ -172,32 +136,14 @@
           <span>Add Symbol</span>
         </v-card-title>
         <div class="music-icons-wrapper">
-          <div
-            v-for="icon in allMusicIcons"
-            v-bind:key="icon.name"
-            :class="'icon-' + icon.name"
-            :data-icon-code="icon.code"
-            class="music-icon"
-            @click="addMusicIcon(icon)"
-          />
+          <div v-for="icon in allMusicIcons" v-bind:key="icon.name" :class="'icon-' + icon.name"
+            :data-icon-code="icon.code" class="music-icon" @click="addMusicIcon(icon)" />
 
-          <img
-            v-for="icon in allMusicSVGs"
-            v-bind:key="icon.name"
-            :alt="icon.name"
-            class="music-icon"
-            v-bind:src="getImgUrl(icon.file)"
-            @click="addMusicSvg(icon)"
-          />
+          <img v-for="icon in allMusicSVGs" v-bind:key="icon.name" :alt="icon.name" class="music-icon"
+            v-bind:src="getImgUrl(icon.file)" @click="addMusicSvg(icon)" />
 
-          <div
-            v-for="icon in allNOTES"
-            v-bind:key="icon.name"
-            :class="'icon-' + icon.name"
-            :data-icon-code="icon.code"
-            class="music-icon note"
-            @click="addMusicIcon(icon)"
-          />
+          <div v-for="icon in allNOTES" v-bind:key="icon.name" :class="'icon-' + icon.name" :data-icon-code="icon.code"
+            class="music-icon note" @click="addMusicIcon(icon)" />
         </div>
         <v-card-actions>
           <v-btn color="primary" text @click="musicSymbolDialog = false">
@@ -267,6 +213,7 @@ export default class SheetViewer extends Vue {
     color: { r: 0, g: 0, b: 0 },
     pencilMode: false,
   };
+  editMode: boolean;
   currentSelection: any[] = [];
   private pdf?: PDFDocumentProxy;
 
@@ -346,6 +293,14 @@ export default class SheetViewer extends Vue {
     });
   }
 
+  togglePencileAndMarkerMode(): void {
+    if (this.editState.pencilMode) {
+      this.setMarkerMode();
+    } else {
+      this.setPencilMode();
+    }
+  }
+
   setMarkerMode(): void {
     this.setEditMode({
       pencilMode: false,
@@ -379,41 +334,44 @@ export default class SheetViewer extends Vue {
     return "";
   }
 
-  addSquare(): void {
-    if (!this.editFabric) {
-      return;
-    }
+  // addSquare(): void {
+  //   if (!this.editFabric) {
+  //     return;
+  //   }
 
-    let rect = new fabric.Rect({
-      fill: "rgba(255,0,0,0.25)",
-      width: 50,
-      height: 50,
-      left: (this.editFabric.width || 0) / 2,
-      top: (this.editFabric.height || 0) / 2,
-    });
-    this.editFabric.add(rect);
-    this.editFabric.setActiveObject(rect);
-  }
+  //   let rect = new fabric.Rect({
+  //     fill: "rgba(255,0,0,0.25)",
+  //     width: 50,
+  //     height: 50,
+  //     left: (this.editFabric.width || 0) / 2,
+  //     top: (this.editFabric.height || 0) / 2,
+  //   });
+  //   this.editFabric.add(rect);
+  //   this.editFabric.setActiveObject(rect);
+  // }
 
-  addBlackSquare(): void {
-    if (!this.editFabric) {
-      return;
-    }
+  // addBlackSquare(): void {
+  //   if (!this.editFabric) {
+  //     return;
+  //   }
 
-    let rect = new fabric.Rect({
-      fill: "rgba(0,0,0,1)",
-      width: 50,
-      height: 50,
-      left: (this.editFabric.width || 0) / 2,
-      top: (this.editFabric.height || 0) / 2,
-    });
-    this.editFabric.add(rect);
-    this.editFabric.setActiveObject(rect);
-  }
+  //   let rect = new fabric.Rect({
+  //     fill: "rgba(0,0,0,1)",
+  //     width: 50,
+  //     height: 50,
+  //     left: (this.editFabric.width || 0) / 2,
+  //     top: (this.editFabric.height || 0) / 2,
+  //   });
+  //   this.editFabric.add(rect);
+  //   this.editFabric.setActiveObject(rect);
+  // }
 
   addTextToCanvas(): void {
     if (!this.editFabric) {
       return;
+    }
+    if (!this.editState.interactiveMode) {
+      this.startInteractiveMode();
     }
 
     let textbox = new fabric.Textbox("edit here", {
@@ -453,6 +411,9 @@ export default class SheetViewer extends Vue {
       left: (this.editFabric?.width || 0) / 2,
       top: (this.editFabric?.height || 0) / 2,
     });
+    if (!this.editState.interactiveMode) {
+      this.startInteractiveMode();
+    }
     this.editFabric.setActiveObject(iconObject);
 
     this.musicSymbolDialog = false;
@@ -479,6 +440,11 @@ export default class SheetViewer extends Vue {
         this.editFabric?.add(loadedObjects);
 
         this.musicSymbolDialog = false;
+
+        if (!this.editState.interactiveMode) {
+          this.startInteractiveMode();
+        }
+
         this.editFabric?.setActiveObject(loadedObjects);
         this.editFabric?.renderAll();
       },
@@ -511,6 +477,14 @@ export default class SheetViewer extends Vue {
     }
   }
 
+  toggleDrawingAndInteractiveMode(): void {
+    if (this.editState.interactiveMode) {
+      this.startDrawingMode();
+    } else {
+      this.startInteractiveMode();
+    }
+  }
+
   startDrawingMode(): void {
     if (!this.editFabric) {
       return;
@@ -518,9 +492,8 @@ export default class SheetViewer extends Vue {
     this.setEditMode({
       interactiveMode: false,
       drawingMode: true,
-      pencilMode: false,
     });
-    this.setMarkerMode();
+    this.setPencilMode();
   }
 
   startInteractiveMode(): void {
@@ -585,9 +558,8 @@ export default class SheetViewer extends Vue {
 
     let cssColor: string;
     if (newEditState.color) {
-      cssColor = `rgba(${newEditState.color.r},${newEditState.color.g},${
-        newEditState.color.b
-      },${newEditState.pencilMode ? 1 : 0.25})`;
+      cssColor = `rgba(${newEditState.color.r},${newEditState.color.g},${newEditState.color.b
+        },${newEditState.pencilMode ? 1 : 0.25})`;
     } else {
       cssColor = "rgba(0,0,0,0)";
     }
@@ -636,7 +608,7 @@ export default class SheetViewer extends Vue {
     this.editFabric = new fabric.Canvas(editCanvas, {
       isDrawingMode: false,
     });
-    this.startInteractiveMode();
+    this.startDrawingMode();
     let handleSelection = (event: any) => {
       this.currentSelection = event.selected;
       if (event.selected.length > 1) {
@@ -988,18 +960,16 @@ export default class SheetViewer extends Vue {
   left: 50%;
   z-index: 99;
 
-  > div {
+  >div {
     width: 10px;
     transform: translateY(2px);
     height: 5px;
     background-color: black;
   }
 
-  .indicatorLeft {
-  }
+  .indicatorLeft {}
 
-  .indicatorRight {
-  }
+  .indicatorRight {}
 }
 
 @font-face {
@@ -1092,23 +1062,14 @@ export default class SheetViewer extends Vue {
   z-index: 97 !important;
 }
 
-.first-level-fab {
+.fabContainer {
   position: absolute;
+  bottom: 16px;
   right: 16px;
-
-  bottom: calc(1 * (56px + 16px) + 16px) !important;
-}
-
-.second-level-fab {
-  position: absolute;
-  right: 16px;
-  bottom: calc(2 * (56px + 16px) + 16px) !important;
-}
-
-.third-level-fab {
-  position: absolute;
-  right: 16px;
-  bottom: calc(3 * (56px + 16px) + 16px) !important;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 8px;
 }
 
 .square-red {
