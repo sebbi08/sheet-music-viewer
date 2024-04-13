@@ -11,9 +11,6 @@
     "outDir": "dist",
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    "types": [
-      "webpack-env"
-    ],
     "paths": {
       "*": ["node_modules/*"]
     },

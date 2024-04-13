@@ -1,4 +1,4 @@
-import { Color } from "./models/EditState";
+import { Color } from "./models/EditState"
 
 export enum EventNames {
   "SELECT_FOLDER" = "SELECT_FOLDER",
@@ -31,6 +31,7 @@ export class BRUSH_COLORS {
   static readonly GREEN = new BRUSH_COLORS({ r: 0, g: 255, b: 0 });
   static readonly BLUE = new BRUSH_COLORS({ r: 0, g: 0, b: 255 });
   static readonly BLACK = new BRUSH_COLORS({ r: 0, g: 0, b: 0 });
+  static readonly WHITE = new BRUSH_COLORS({ r: 255, g: 255, b: 255 });
 
   // private to disallow creating other instances of this type
   private constructor(private readonly color: Color) {}

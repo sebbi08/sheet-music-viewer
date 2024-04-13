@@ -1,6 +1,5 @@
-import { fabric } from "fabric";
-import { Transform } from "fabric/fabric-impl";
-import { ACTION_ICONS } from "./Enums";
+import { fabric } from "fabric"
+import { ACTION_ICONS } from "./Enums"
 
 export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.transparentCorners = false;
@@ -14,6 +13,23 @@ export function enhanceFabricPrototype(): void {
 
   enhanceCustomControlsOnPrototype(fabric.Object.prototype);
   enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
+
+  fabric.Group.prototype.controls.mr = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.mt = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.ml = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.mb = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.mtr = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.tlr = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.tl = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.tr = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.bl = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.br = new fabric.Control({ visible: false });
+  fabric.Group.prototype.controls.clone = new fabric.Control({ visible: false });
+  // fabric.Group.prototype.controls.customMove = new fabric.Control({ visible: false });
+  
+  fabric.Group.prototype.lockMovementX = true;
+  fabric.Group.prototype.lockMovementY = true;
+  
 
   fabric.Textbox.prototype.lockMovementX = true;
   fabric.Textbox.prototype.lockMovementY = true;
@@ -59,8 +75,8 @@ function enhanceCustomControlsOnPrototype(proto: any) {
     render: fabric.controlsUtils.renderCircleControl,
     actionHandler: function (event, transform, x, y): boolean {
       const target = transform.target;
-      const lockState = target.lockMovementX
-      
+      const lockState = target.lockMovementX;
+
       target.lockMovementX = false;
       target.lockMovementY = false;
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -111,7 +127,7 @@ function renderIcon(icon: HTMLImageElement) {
   };
 }
 
-function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
+function deleteObject(eventData: MouseEvent, transform: any): boolean {
   const target = transform.target as any;
   const canvas = target.canvas;
 
@@ -123,15 +139,18 @@ function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
   }
 
   canvas?.remove(...toDelete);
-  canvas?.requestRenderAll();
-  canvas.selection = false;
-  setTimeout(() => {
-    canvas.selection = true;
-  });
+  // canvas?.requestRenderAll();
+  
+  canvas.discardActiveObject()
+  canvas.renderAll()
+  // canvas.selection = false;
+  // setTimeout(() => {
+  //   canvas.selection = true;
+  // });
   return true;
 }
 
-function cloneObject(eventData: MouseEvent, transform: Transform): boolean {
+function cloneObject(eventData: MouseEvent, transform: any): boolean {
   const target = transform.target;
   const canvas = target.canvas;
   target.clone(function (cloned: fabric.Object) {

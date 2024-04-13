@@ -1,12 +1,14 @@
-import Vue from "vue";
-import App from "./App.vue";
-import router from "./router/index";
-import store from "./store/index";
-import "roboto-fontface/css/roboto/roboto-fontface.css";
-import "@mdi/font/css/materialdesignicons.css";
+import "@mdi/font/css/materialdesignicons.css"
+import "roboto-fontface/css/roboto/roboto-fontface.css"
+import Vue from "vue"
+import App from "./App.vue"
+import router from "./router/index"
+import store from "./store/index"
 
-import de from "vuetify/src/locale/de";
 import Vuetify from 'vuetify/lib'
+import de from "vuetify/src/locale/de"
+
+import "pdfjs-dist/webpack"
 
 Vue.use(Vuetify);
 

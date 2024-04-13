@@ -51,17 +51,20 @@
             <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
           </v-btn>
         </template>
-        <v-btn color="white" dark fab small @click="setRedColor">
+        <v-btn color="gray" dark fab small @click="setRedColor">
           <v-icon class="square-red">mdi-square-rounded</v-icon>
         </v-btn>
-        <v-btn color="white" dark fab small @click="setGreenColor">
+        <v-btn color="gray" dark fab small @click="setGreenColor">
           <v-icon class="square-green">mdi-square-rounded</v-icon>
         </v-btn>
-        <v-btn color="white" dark fab small @click="setBlueColor">
+        <v-btn color="gray" dark fab small @click="setBlueColor">
           <v-icon class="square-blue">mdi-square-rounded</v-icon>
         </v-btn>
-        <v-btn color="white" dark fab small @click="setBlackColor">
+        <v-btn color="gray" dark fab small @click="setBlackColor">
           <v-icon class="square-black">mdi-square-rounded</v-icon>
+        </v-btn>
+        <v-btn color="gray" dark fab small @click="setWhiteColor">
+          <v-icon class="square-white">mdi-square-rounded</v-icon>
         </v-btn>
       </v-speed-dial>
 
@@ -74,61 +77,6 @@
     </div>
     <!--  Mode Selection  -->
 
-
-    <!-- Add Item Selection -->
-    <!-- <v-speed-dial v-if="editState.interactiveMode" v-model="objectFab" absolute bottom class="first-level-fab"
-      direction="left" right transition="slide-x-reverse-transition">
-      <template v-slot:activator>
-        <v-btn v-model="drawingFab" color="green darken-1" dark fab>
-          <v-icon>mdi-plus</v-icon>
-        </v-btn>
-      </template>
-      <v-btn color="green" dark fab small @click="addSquare">
-        <v-icon>mdi-square</v-icon>
-      </v-btn>
-      <v-btn color="green" dark fab small @click="addBlackSquare">
-        <v-icon color="black">mdi-square</v-icon>
-      </v-btn>
-
-    </v-speed-dial> -->
-    <!--  Drawing Mode Selection  -->
-    <!-- <v-speed-dial v-if="editState.drawingMode" v-model="drawingFab" absolute bottom class="first-level-fab"
-      direction="left" right transition="slide-x-reverse-transition">
-      <template v-slot:activator>
-        <v-btn v-model="drawingFab" color="green darken-1" dark fab>
-          <v-icon v-if="editState.pencilMode">mdi-pencil</v-icon>
-          <v-icon v-else>mdi-marker</v-icon>
-        </v-btn>
-      </template>
-      <v-btn color="green" dark fab small @click="setMarkerMode">
-        <v-icon>mdi-marker</v-icon>
-      </v-btn>
-      <v-btn color="green" dark fab small @click="setPencilMode">
-        <v-icon>mdi-pencil</v-icon>
-      </v-btn>
-    </v-speed-dial> -->
-
-    <!--  Color Selection  -->
-    <!-- <v-speed-dial v-if="editState.drawingMode" v-model="colorFab" absolute bottom class="second-level-fab"
-      direction="left" right transition="slide-x-reverse-transition">
-      <template v-slot:activator>
-        <v-btn v-model="colorFab" color="white" dark fab>
-          <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
-        </v-btn>
-      </template>
-      <v-btn color="white" dark fab small @click="setRedColor">
-        <v-icon class="square-red">mdi-square-rounded</v-icon>
-      </v-btn>
-      <v-btn color="white" dark fab small @click="setGreenColor">
-        <v-icon class="square-green">mdi-square-rounded</v-icon>
-      </v-btn>
-      <v-btn color="white" dark fab small @click="setBlueColor">
-        <v-icon class="square-blue">mdi-square-rounded</v-icon>
-      </v-btn>
-      <v-btn color="white" dark fab small @click="setBlackColor">
-        <v-icon class="square-black">mdi-square-rounded</v-icon>
-      </v-btn>
-    </v-speed-dial> -->
 
     <v-dialog v-model="musicSymbolDialog" max-width="466px">
       <v-card>
@@ -156,30 +104,24 @@
 </template>
 
 <script lang="ts">
-import Vue from "vue";
-import Component from "vue-class-component";
-import * as pdfJs from "pdfjs-dist/webpack";
+import { fabric } from "fabric"
+import _ from "lodash"
+import * as pdfJs from "pdfjs-dist"
+import Vue from "vue"
+import Component from "vue-class-component"
+import { Watch } from "vue-property-decorator"
+import { mapFields } from "vuex-map-fields"
 import {
-  PDFDocumentProxy,
-  PDFLoadingTask,
-  PDFRenderParams,
-  ViewportParameters,
-} from "pdfjs-dist/webpack";
-import _ from "lodash";
-import { Watch } from "vue-property-decorator";
-import { mapFields } from "vuex-map-fields";
-import { fabric } from "fabric";
-import { OverlayData } from "../models/OverlayData";
-import {
-  BRUSH_COLORS,
-  EventNames,
-  Icon,
-  MUSIC_ICONS,
-  MUSIC_SVG,
-  Svg,
-} from "../Enums";
-import { EditState } from "../models/EditState";
-import { enhanceFabricPrototype, removeStretchControls } from "../utils";
+BRUSH_COLORS,
+EventNames,
+Icon,
+MUSIC_ICONS,
+MUSIC_SVG,
+Svg,
+} from "../Enums"
+import { EditState } from "../models/EditState"
+import { OverlayData } from "../models/OverlayData"
+import { enhanceFabricPrototype, removeStretchControls } from "../utils"
 
 @Component({
   computed: {
@@ -194,7 +136,7 @@ export default class SheetViewer extends Vue {
   currentPage = 1;
   pagesLoaded = 0;
   debouncedResize?: any;
-  pdfLoadingTask?: PDFLoadingTask<any>;
+  pdfLoadingTask?: pdfJs.PDFDocumentLoadingTask;
   editFabric?: fabric.Canvas;
   sheetViewerWrapperId = "sheetViewerWrapper";
   editCanvasId = "";
@@ -214,8 +156,7 @@ export default class SheetViewer extends Vue {
     pencilMode: false,
   };
   editMode: boolean;
-  currentSelection: any[] = [];
-  private pdf?: PDFDocumentProxy;
+  private pdf?: pdfJs.PDFDocumentProxy;
 
   getCurrentWidth(): number {
     return this.pageSizes[this.currentPage]?.width ?? 0;
@@ -292,6 +233,11 @@ export default class SheetViewer extends Vue {
       color: BRUSH_COLORS.BLACK.getColor(),
     });
   }
+  setWhiteColor(): void {
+    this.setEditMode({
+      color: BRUSH_COLORS.WHITE.getColor(),
+    });
+  }
 
   togglePencileAndMarkerMode(): void {
     if (this.editState.pencilMode) {
@@ -330,6 +276,9 @@ export default class SheetViewer extends Vue {
     }
     if (BRUSH_COLORS.BLACK.equals(this.editState.color)) {
       return "square-black";
+    }
+    if (BRUSH_COLORS.WHITE.equals(this.editState.color)) {
+      return "square-white";
     }
     return "";
   }
@@ -461,6 +410,10 @@ export default class SheetViewer extends Vue {
 
   @Watch("editMode", { immediate: true })
   async onEditChange(editMode: boolean): Promise<void> {
+    if(this.editMode && this.pagesLoaded !== this.pageNumbers){
+      this.editMode = false
+      return;
+    }
     if (editMode) {
       if (!Number.isInteger(this.currentPage)) {
         this.currentPage += 0.5;
@@ -479,6 +432,8 @@ export default class SheetViewer extends Vue {
 
   toggleDrawingAndInteractiveMode(): void {
     if (this.editState.interactiveMode) {
+      this.editFabric.discardActiveObject()
+      this.editFabric.renderAll()
       this.startDrawingMode();
     } else {
       this.startInteractiveMode();
@@ -489,6 +444,7 @@ export default class SheetViewer extends Vue {
     if (!this.editFabric) {
       return;
     }
+    
     this.setEditMode({
       interactiveMode: false,
       drawingMode: true,
@@ -520,15 +476,14 @@ export default class SheetViewer extends Vue {
     let width = this.editFabric.width || 0;
     let height = this.editFabric.height || 0;
     if (currentPageData) {
+      delete currentPageData.dataUrl;
       currentPageData.data = fabricJson;
-      currentPageData.dataUrl = fabricDataUrl;
       currentPageData.drawWidth = width;
       currentPageData.drawHeight = height;
     } else {
       this.overlayData.push({
         page: this.currentPage,
         data: fabricJson,
-        dataUrl: fabricDataUrl,
         drawWidth: width,
         drawHeight: height,
       });
@@ -610,10 +565,6 @@ export default class SheetViewer extends Vue {
     });
     this.startDrawingMode();
     let handleSelection = (event: any) => {
-      this.currentSelection = event.selected;
-      if (event.selected.length > 1) {
-        event.target.controls.clone = new fabric.Control({ visible: false });
-      }
       if (
         event.selected.length === 1 &&
         event.selected[0].data &&
@@ -624,9 +575,6 @@ export default class SheetViewer extends Vue {
     };
     this.editFabric.on("selection:created", handleSelection);
     this.editFabric.on("selection:updated", handleSelection);
-    this.editFabric.on("selection:cleared", () => {
-      this.currentSelection = [];
-    });
 
     if (!currentPageData) return;
 
@@ -652,7 +600,6 @@ export default class SheetViewer extends Vue {
     let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
     sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
     this.setEditMode({});
-    this.currentSelection = [];
   }
 
   clearOverlayCanvas(): void {
@@ -858,15 +805,15 @@ export default class SheetViewer extends Vue {
     let page = await this.pdf.getPage(pageNumber);
     let scale1ViewPort = page.getViewport({
       scale: 1,
-    } as ViewportParameters);
+    });
 
     let scale = $wrapper.clientHeight / scale1ViewPort.height;
 
-    let windowViewport = page.getViewport({ scale } as ViewportParameters);
+    let windowViewport = page.getViewport({ scale });
 
     if (windowViewport.width > $wrapper.clientWidth) {
       scale = $wrapper.clientWidth / scale1ViewPort.width;
-      windowViewport = page.getViewport({ scale } as ViewportParameters);
+      windowViewport = page.getViewport({ scale });
     }
     let viewport = scale1ViewPort;
 
@@ -889,7 +836,7 @@ export default class SheetViewer extends Vue {
       canvasContext,
       viewport,
       background: "#ffffff",
-    } as PDFRenderParams;
+    };
 
     await page.render(renderContext).promise.then(() => {
       return this.copyPageToHalfPageAndBackdrop(pageNumber, $canvas, $wrapper);
