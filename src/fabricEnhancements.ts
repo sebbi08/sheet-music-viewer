@@ -1,5 +1,5 @@
-import { fabric } from "fabric"
-import { ACTION_ICONS } from "./Enums"
+import { fabric } from "fabric";
+import { ACTION_ICONS } from "./Enums";
 
 export function enhanceFabricPrototype(): void {
   fabric.Object.prototype.transparentCorners = false;
@@ -11,8 +11,6 @@ export function enhanceFabricPrototype(): void {
 
   fabric.Object.NUM_FRACTION_DIGITS = 99;
 
-  enhanceCustomControlsOnPrototype(fabric.Object.prototype);
-  enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
 
   fabric.Group.prototype.controls.mr = new fabric.Control({ visible: false });
   fabric.Group.prototype.controls.mt = new fabric.Control({ visible: false });
@@ -33,6 +31,10 @@ export function enhanceFabricPrototype(): void {
 
   fabric.Textbox.prototype.lockMovementX = true;
   fabric.Textbox.prototype.lockMovementY = true;
+
+  
+  enhanceCustomControlsOnPrototype(fabric.Object.prototype);
+  enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
 }
 
 function enhanceCustomControlsOnPrototype(proto: any) {

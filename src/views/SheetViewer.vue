@@ -105,6 +105,7 @@
 
 <script lang="ts">
 import { fabric } from "fabric"
+import * as fontfaceobserver from "fontfaceobserver"
 import _ from "lodash"
 import * as pdfJs from "pdfjs-dist"
 import Vue from "vue"
@@ -119,9 +120,10 @@ MUSIC_ICONS,
 MUSIC_SVG,
 Svg,
 } from "../Enums"
+import { enhanceFabricPrototype, removeStretchControls } from "../fabricEnhancements"
 import { EditState } from "../models/EditState"
 import { OverlayData } from "../models/OverlayData"
-import { enhanceFabricPrototype, removeStretchControls } from "../utils"
+
 
 @Component({
   computed: {
@@ -578,7 +580,9 @@ export default class SheetViewer extends Vue {
 
     if (!currentPageData) return;
 
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
+
+      await new fontfaceobserver.default("notoIcons").load()
       this.editFabric?.loadFromJSON(currentPageData?.data, () => {
         this.editFabric?.getObjects().forEach((canvasObject) => {
           canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
@@ -914,9 +918,6 @@ export default class SheetViewer extends Vue {
     background-color: black;
   }
 
-  .indicatorLeft {}
-
-  .indicatorRight {}
 }
 
 @font-face {
