@@ -54,7 +54,11 @@ export class ACTION_ICONS {
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' style='width:24px;height:24px' viewBox='0 0 24 24'%3E%3Cpath fill='red' d='M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z' /%3E%3C/svg%3E";
   static readonly cloneIcon =
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' style='width:24px;height:24px' viewBox='0 0 24 24'%3E%3Cpath fill='green' d='M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z' /%3E%3C/svg%3E";
-}
+  static readonly editIcon =
+    "data:image/svg+xml,%3Csvg fill='%23000000' height='24px' width='24px' version='1.1' id='Capa_1' xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' viewBox='0 0 31.982 31.982' xml:space='preserve'%3E%3Cg id='SVGRepo_bgCarrier' stroke-width='0'%3E%3C/g%3E%3Cg id='SVGRepo_tracerCarrier' stroke-linecap='round' stroke-linejoin='round'%3E%3C/g%3E%3Cg id='SVGRepo_iconCarrier'%3E%3Cg%3E%3Cpath d='M3.952,23.15L0,31.955l8.767-3.992l0.018,0.019L3.938,23.13L3.952,23.15z M4.602,22.463L24.634,2.432l4.849,4.848 L9.45,27.312L4.602,22.463z M30.883,0.941c-2.104-1.963-4.488-0.156-4.488-0.156l4.851,4.843 C31.244,5.627,33.124,3.375,30.883,0.941z'%3E%3C/path%3E%3C/g%3E%3C/g%3E%3C/svg%3E"
+  }
+
+
 
 export interface Icon {
   name: string;
@@ -68,6 +72,16 @@ export interface Svg {
   height: number;
   scaleX: number;
   scaleY: number;
+}
+
+export class MDI_ICONS {
+  static readonly GLASSES: string = "\u{F02AA}";
+  static readonly NEXT_PAGE: string = "\u{F15D6}";
+  static readonly ALL_ICONS: Icon[] = [
+    { name: "GLASSES", code: MDI_ICONS.GLASSES },
+    { name: "NEXT_PAGE", code: MDI_ICONS.NEXT_PAGE }
+  ];
+
 }
 
 export class MUSIC_ICONS {

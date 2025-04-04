@@ -1,53 +1,37 @@
-import { fabric } from "fabric";
+import fabric, { ControlActionHandler, FabricObject, Transform } from "fabric";
 import { ACTION_ICONS } from "./Enums";
 
 export function enhanceFabricPrototype(): void {
-  fabric.Object.prototype.transparentCorners = false;
-  fabric.Object.prototype.cornerColor = "blue";
-  fabric.Object.prototype.cornerStyle = "circle";
-  fabric.Object.prototype.lockRotation = true;
-  fabric.Object.prototype.cornerSize = 25;
-  fabric.Object.prototype.padding = 0;
-
-  fabric.Object.NUM_FRACTION_DIGITS = 99;
-
-
-  fabric.Group.prototype.controls.mr = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.mt = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.ml = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.mb = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.mtr = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.tlr = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.tl = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.tr = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.bl = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.br = new fabric.Control({ visible: false });
-  fabric.Group.prototype.controls.clone = new fabric.Control({ visible: false });
-  // fabric.Group.prototype.controls.customMove = new fabric.Control({ visible: false });
-  
   fabric.Group.prototype.lockMovementX = true;
   fabric.Group.prototype.lockMovementY = true;
-  
+  fabric.InteractiveFabricObject.ownDefaults = {
+    ...fabric.InteractiveFabricObject.ownDefaults,
+    transparentCorners: false,
+    cornerColor: "blue",
+    cornerStyle: "circle",
+    lockRotation: true,
+    cornerSize: 25,
+    padding: 0,
+  };
 
   fabric.Textbox.prototype.lockMovementX = true;
   fabric.Textbox.prototype.lockMovementY = true;
 
-  
-  enhanceCustomControlsOnPrototype(fabric.Object.prototype);
-  enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
+  // enhanceCustomControlsOnPrototype(fabric.FabricObject.prototype);
+  // enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
 }
 
-function enhanceCustomControlsOnPrototype(proto: any) {
-  proto.controls.tlr = new fabric.Control({ visible: false });
-  proto.controls.mtr = new fabric.Control({ visible: false });
+export function setDefaultPropsOnFabricObject(
+  object: FabricObject,
+  customHandler: ControlActionHandler,
+  isGroup = false
+): void {
+  removeStretchControls(object);
 
   const deleteImg = document.createElement("img");
   deleteImg.src = ACTION_ICONS.deleteIcon;
 
-  const cloneImg = document.createElement("img");
-  cloneImg.src = ACTION_ICONS.cloneIcon;
-
-  proto.controls.deleteControl = new fabric.Control({
+  object.controls.deleteControl = new fabric.Control({
     x: 0.5,
     y: -0.5,
     offsetY: -50,
@@ -57,58 +41,75 @@ function enhanceCustomControlsOnPrototype(proto: any) {
     render: renderIcon(deleteImg),
   });
 
-  proto.controls.clone = new fabric.Control({
-    x: -0.5,
-    y: -0.5,
-    offsetY: -50,
-    offsetX: -50,
-    cursorStyle: "pointer",
-    mouseUpHandler: cloneObject,
-    render: renderIcon(cloneImg),
-  });
+  if (!isGroup) {
+    const cloneImg = document.createElement("img");
+    cloneImg.src = ACTION_ICONS.cloneIcon;
 
-  proto.controls.customMove = new fabric.Control({
-    x: 0,
-    y: 0.5,
-    offsetY: 40,
-    cursorStyle: "pointer",
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    render: fabric.controlsUtils.renderCircleControl,
-    actionHandler: function (event, transform, x, y): boolean {
-      const target = transform.target;
-      const lockState = target.lockMovementX;
+    object.controls.clone = new fabric.Control({
+      x: -0.5,
+      y: -0.5,
+      offsetY: -50,
+      offsetX: -50,
+      cursorStyle: "pointer",
+      mouseUpHandler: cloneObject,
+      render: renderIcon(cloneImg),
+    });
 
-      target.lockMovementX = false;
-      target.lockMovementY = false;
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      const res = fabric.controlsUtils.dragHandler(event, transform, x, y);
+    object.controls.customMove = new fabric.Control({
+      x: 0,
+      y: 0.5,
+      offsetY: 40,
+      cursorStyle: "pointer",
+      render: fabric.controlsUtils.renderCircleControl,
+      actionHandler: function (event, transform, x, y): boolean {
+        const target = transform.target;
+        const lockState = target.lockMovementX;
 
-      target.lockMovementX = lockState;
-      target.lockMovementY = lockState;
-      return res;
-    },
+        target.lockMovementX = false;
+        target.lockMovementY = false;
+        const res = fabric.controlsUtils.dragHandler(event, transform, x, y);
 
-    actionName: "drag",
-  });
+        target.lockMovementX = lockState;
+        target.lockMovementY = lockState;
+        return res;
+      },
 
-  proto.controls.tl.offsetX = -24;
-  proto.controls.tl.offsetY = -24;
-  proto.controls.tr.offsetX = 24;
-  proto.controls.tr.offsetY = -24;
-  proto.controls.bl.offsetX = -24;
-  proto.controls.bl.offsetY = 24;
-  proto.controls.br.offsetX = 24;
-  proto.controls.br.offsetY = 24;
+      actionName: "drag",
+    });
+  }
+
+  object.controls.tl.offsetX = -24;
+  object.controls.tl.offsetY = -24;
+  object.controls.tr.offsetX = 24;
+  object.controls.tr.offsetY = -24;
+  object.controls.bl.offsetX = -24;
+  object.controls.bl.offsetY = 24;
+  object.controls.br.offsetX = 24;
+  object.controls.br.offsetY = 24;
+
+  if (object.get("__isText")) {
+    const editImg = document.createElement("img");
+    editImg.src = ACTION_ICONS.editIcon;
+    object.controls.editControl = new fabric.Control({
+      x: 0,
+      y: -0.5,
+      offsetY: -50,
+      offsetX: 0,
+      cursorStyle: "pointer",
+      mouseUpHandler: customHandler,
+      render: renderIcon(editImg),
+    });
+  }
 }
 
-export function removeStretchControls(object: any) {
+export function removeStretchControls(object: FabricObject) {
   object.controls = Object.assign({}, object.controls, {
     mr: new fabric.Control({ visible: false }),
     mt: new fabric.Control({ visible: false }),
     ml: new fabric.Control({ visible: false }),
     mb: new fabric.Control({ visible: false }),
+    tlr: new fabric.Control({ visible: false }),
+    mtr: new fabric.Control({ visible: false }),
   });
 }
 
@@ -129,12 +130,14 @@ function renderIcon(icon: HTMLImageElement) {
   };
 }
 
-function deleteObject(eventData: MouseEvent, transform: any): boolean {
-  const target = transform.target as any;
+function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
+  const target = transform.target;
   const canvas = target.canvas;
 
   let toDelete;
-  if (target.type === "activeSelection") {
+  if (target.type === "activeselection") {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    //@ts-expect-error
     toDelete = target.getObjects();
   } else {
     toDelete = [target];
@@ -142,9 +145,9 @@ function deleteObject(eventData: MouseEvent, transform: any): boolean {
 
   canvas?.remove(...toDelete);
   // canvas?.requestRenderAll();
-  
-  canvas.discardActiveObject()
-  canvas.renderAll()
+
+  canvas.discardActiveObject();
+  canvas.renderAll();
   // canvas.selection = false;
   // setTimeout(() => {
   //   canvas.selection = true;

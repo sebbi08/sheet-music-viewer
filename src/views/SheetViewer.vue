@@ -4,8 +4,8 @@
       indeterminate>
       {{
         Number.isInteger((100 / pageNumbers) * pagesLoaded)
-        ? (100 / pageNumbers) * pagesLoaded
-        : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
+          ? (100 / pageNumbers) * pagesLoaded
+          : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
       }}%
     </v-progress-circular>
     <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
@@ -29,7 +29,7 @@
     </div>
 
 
-    <div v-if="editMode" class="fabContainer" absolute bottom right>
+    <div v-if="editMode" class="fabContainer" :class="buttonGroupLeft ? 'fabButtonsLeft' : ''" absolute bottom right>
       <v-btn v-model="editFab" color="blue darken-2" dark fab @click="toggleDrawingAndInteractiveMode">
         <v-icon v-if="editFab"> mdi-close</v-icon>
         <v-icon v-else-if="editState.interactiveMode">
@@ -44,8 +44,8 @@
       </v-btn>
 
 
-      <v-speed-dial v-if="editState.drawingMode" v-model="colorFab"
-        direction="left" transition="slide-x-reverse-transition">
+      <v-speed-dial v-if="editState.drawingMode" v-model="colorFab" direction="left"
+        transition="slide-x-reverse-transition">
         <template v-slot:activator>
           <v-btn v-model="colorFab" color="green" small dark fab>
             <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
@@ -63,15 +63,41 @@
         <v-btn color="gray" dark fab small @click="setBlackColor">
           <v-icon class="square-black">mdi-square-rounded</v-icon>
         </v-btn>
-        <v-btn color="gray" dark fab small @click="setWhiteColor">
+        <v-btn v-if="editState.pencilMode" color="gray" dark fab small @click="setWhiteColor">
           <v-icon class="square-white">mdi-square-rounded</v-icon>
+        </v-btn>
+      </v-speed-dial>
+
+
+
+      <v-speed-dial v-if="editState.pencilMode && editState.drawingMode" v-model="sizeFab" direction="left"
+        transition="slide-x-reverse-transition">
+        <template v-slot:activator>
+          <v-btn v-model="colorFab" color="green" small dark fab>
+            <v-icon :class="getCurrentBrushClass() + ' draw-size-' + editState.thickness">mdi-circle</v-icon>
+          </v-btn>
+        </template>
+        <v-btn color="grey lighten-1" dark fab small @click="setThickness(2)">
+          <v-icon :class="getCurrentBrushClass() + ' draw-size-2'">mdi-circle</v-icon>
+        </v-btn>
+        <v-btn color="grey lighten-1" dark fab small @click="setThickness(6)">
+          <v-icon :class="getCurrentBrushClass() + ' draw-size-6'">mdi-circle</v-icon>
+        </v-btn>
+        <v-btn color="grey lighten-1" dark fab small @click="setThickness(10)">
+          <v-icon :class="getCurrentBrushClass() + ' draw-size-10'">mdi-circle</v-icon>
+        </v-btn>
+        <v-btn color="grey lighten-1" dark fab small @click="setThickness(14)">
+          <v-icon :class="getCurrentBrushClass() + ' draw-size-14'">mdi-circle</v-icon>
+        </v-btn>
+        <v-btn color="grey lighten-1" dark fab small @click="setThickness(18)">
+          <v-icon :class="getCurrentBrushClass() + ' draw-size-18'">mdi-circle</v-icon>
         </v-btn>
       </v-speed-dial>
 
       <v-btn color="green" dark fab small @click="openMusicIconPopover">
         <v-icon>mdi-music</v-icon>
       </v-btn>
-      <v-btn color="green" dark fab small @click="addTextToCanvas">
+      <v-btn color="green" dark fab small @click="textDialog = !textDialog">
         <v-icon>mdi-format-text</v-icon>
       </v-btn>
     </div>
@@ -87,6 +113,9 @@
           <div v-for="icon in allMusicIcons" v-bind:key="icon.name" :class="'icon-' + icon.name"
             :data-icon-code="icon.code" class="music-icon" @click="addMusicIcon(icon)" />
 
+          <div v-for="icon in allMdiIcons" v-bind:key="icon.name" :class="'icon-' + icon.name"
+            :data-icon-code="icon.code" class="mdi mdi-icon" @click="addMdiIcon(icon)" />
+
           <img v-for="icon in allMusicSVGs" v-bind:key="icon.name" :alt="icon.name" class="music-icon"
             v-bind:src="getImgUrl(icon.file)" @click="addMusicSvg(icon)" />
 
@@ -100,27 +129,51 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+
+    <v-dialog v-model="textDialog" max-width="466px">
+
+      <v-card>
+        <v-card-title>
+          <span>Add Text</span>
+        </v-card-title>
+        <v-card-text>
+
+          <v-text-field hide-details="auto" v-model="text"></v-text-field>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-btn color="primary" text @click="addTextToCanvas">
+            Ok
+          </v-btn>
+          <v-btn color="primary" text @click="textDialog = false">
+            Cancel
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script lang="ts">
-import { fabric } from "fabric"
+import fabric, { FabricObject } from "fabric"
 import * as fontfaceobserver from "fontfaceobserver"
-import _ from "lodash"
+import _, { set } from "lodash"
 import * as pdfJs from "pdfjs-dist"
 import Vue from "vue"
 import Component from "vue-class-component"
 import { Watch } from "vue-property-decorator"
 import { mapFields } from "vuex-map-fields"
 import {
-BRUSH_COLORS,
-EventNames,
-Icon,
-MUSIC_ICONS,
-MUSIC_SVG,
-Svg,
+  BRUSH_COLORS,
+  EventNames,
+  Icon,
+  MDI_ICONS,
+  MUSIC_ICONS,
+  MUSIC_SVG,
+  Svg,
 } from "../Enums"
-import { enhanceFabricPrototype, removeStretchControls } from "../fabricEnhancements"
+import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements"
 import { EditState } from "../models/EditState"
 import { OverlayData } from "../models/OverlayData"
 
@@ -134,6 +187,7 @@ export default class SheetViewer extends Vue {
   allMusicIcons = MUSIC_ICONS.ALL_ICONS;
   allMusicSVGs = MUSIC_SVG.ALL_SGVS;
   allNOTES = MUSIC_ICONS.NOTES;
+  allMdiIcons = MDI_ICONS.ALL_ICONS;
   pageNumbers = 0;
   currentPage = 1;
   pagesLoaded = 0;
@@ -146,6 +200,7 @@ export default class SheetViewer extends Vue {
   editFab = false;
   drawingFab = false;
   colorFab = false;
+  sizeFab = false;
   objectFab = false;
   musicSymbolDialog = false;
   overlayFabrics: fabric.StaticCanvas[] = [];
@@ -157,8 +212,12 @@ export default class SheetViewer extends Vue {
     color: { r: 0, g: 0, b: 0 },
     pencilMode: false,
   };
+  textDialog = false;
+  text = "";
+  buttonGroupLeft = false;
   editMode: boolean;
   private pdf?: pdfJs.PDFDocumentProxy;
+  existingText: fabric.FabricObject
 
   getCurrentWidth(): number {
     return this.pageSizes[this.currentPage]?.width ?? 0;
@@ -211,6 +270,15 @@ export default class SheetViewer extends Vue {
     });
     await this.renderPdf();
   }
+  // @Watch("pagesLoaded", { immediate: true })
+  // async enableEditModeDebug() {
+  //   if (this.pagesLoaded === this.pageNumbers && this.pageNumbers !== 0) {
+
+  //     await new Promise(resolve => setTimeout(resolve, 1000));
+  //     this.editMode = true;
+  //   }
+  // }
+
 
   setGreenColor(): void {
     this.setEditMode({
@@ -254,6 +322,12 @@ export default class SheetViewer extends Vue {
       pencilMode: false,
       thickness: 20,
       color: BRUSH_COLORS.RED.getColor(),
+    });
+  }
+
+  setThickness(thickness: number): void {
+    this.setEditMode({
+      thickness,
     });
   }
 
@@ -325,12 +399,37 @@ export default class SheetViewer extends Vue {
       this.startInteractiveMode();
     }
 
-    let textbox = new fabric.Textbox("edit here", {
+    if (this.existingText) {
+      if (this.editFabric.getObjects().some(o => o === this.existingText)) {
+        this.existingText.set("text", this.text)
+        this.existingText.dirty = true;
+        this.editFabric.requestRenderAll();
+
+        this.textDialog = false;
+        this.text = ""
+        this.existingText = undefined;
+        return;
+      } else {
+
+        this.textDialog = false;
+        this.text = ""
+        this.existingText = undefined
+        return
+      }
+
+    }
+
+    this.textDialog = false;
+
+    let textbox = new fabric.FabricText(this.text, {
       width: 100,
       height: 20,
       fontSize: 16,
       selectable: true,
+      __isText: true
     });
+
+    this.text = ""
     this.editFabric.add(textbox);
 
     textbox.set({
@@ -340,22 +439,24 @@ export default class SheetViewer extends Vue {
     this.editFabric.setActiveObject(textbox);
   }
 
-  addMusicIcon(icon: Icon): void {
+  addMdiIcon(icon: Icon) {
+    this.addMusicIcon(icon, "Material Design Icons")
+  }
+
+  addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
     if (!this.editFabric) return;
 
-    let iconObject = new fabric.Text(icon.code, {
+    let iconObject = new fabric.FabricText(icon.code, {
       fill: "red",
       fontSize: 1,
       fontWeight: 500,
-      fontFamily: "noto-icons",
+      fontFamily: fontFamily,
       selectable: true,
       scaleX: 50,
       scaleY: 50,
     });
 
     removeStretchControls(iconObject);
-
-    iconObject.data = { isIcon: true };
 
     this.editFabric?.add(iconObject);
     iconObject.set({
@@ -399,10 +500,10 @@ export default class SheetViewer extends Vue {
         this.editFabric?.setActiveObject(loadedObjects);
         this.editFabric?.renderAll();
       },
-      function (item: any, object: any) {
-        object.set("id", item.getAttribute("id"));
-        group.push(object);
-      }
+      // function (item: any, object: any) {
+      //   object.set("id", item.getAttribute("id"));
+      //   group.push(object);
+      // }
     );
   }
 
@@ -412,7 +513,7 @@ export default class SheetViewer extends Vue {
 
   @Watch("editMode", { immediate: true })
   async onEditChange(editMode: boolean): Promise<void> {
-    if(this.editMode && this.pagesLoaded !== this.pageNumbers){
+    if (this.editMode && this.pagesLoaded !== this.pageNumbers) {
       this.editMode = false
       return;
     }
@@ -422,13 +523,13 @@ export default class SheetViewer extends Vue {
       }
       this.clearOverlayCanvas();
       await this.createFabricCanvas();
-      this.saveDrawnData();
-      this.removeFabricCanvas();
-      await this.createFabricCanvas();
+      // this.saveDrawnData();
+      // this.removeFabricCanvas();
+      // await this.createFabricCanvas();
     } else if (this.editFabric) {
       this.saveDrawnData();
-      this.populateOverlayCanvas();
       this.removeFabricCanvas();
+      await this.populateOverlayCanvas();
     }
   }
 
@@ -446,7 +547,7 @@ export default class SheetViewer extends Vue {
     if (!this.editFabric) {
       return;
     }
-    
+
     this.setEditMode({
       interactiveMode: false,
       drawingMode: true,
@@ -466,7 +567,7 @@ export default class SheetViewer extends Vue {
 
   saveDrawnData(): void {
     if (!this.editFabric) return;
-    let fabricJson = this.editFabric.toJSON() as any;
+    let fabricJson = this.editFabric.toObject(["__isText"]) as any;
     let fabricDataUrl = this.editFabric.toDataURL();
     if (fabricJson.objects.length === 0) {
       fabricDataUrl = "";
@@ -511,7 +612,7 @@ export default class SheetViewer extends Vue {
     this.editState.drawingMode = newEditState.drawingMode;
     this.editFabric.isDrawingMode = newEditState.drawingMode;
     this.editState.interactiveMode = newEditState.interactiveMode;
-    this.editFabric.interactive = newEditState.interactiveMode;
+    // this.editFabric.interactive = newEditState.interactiveMode;
 
     let cssColor: string;
     if (newEditState.color) {
@@ -521,6 +622,7 @@ export default class SheetViewer extends Vue {
       cssColor = "rgba(0,0,0,0)";
     }
     this.editState.color = newEditState.color;
+    this.editFabric.freeDrawingBrush = new fabric.PencilBrush(this.editFabric);
     this.editFabric.freeDrawingBrush.color = cssColor;
     this.editState.thickness = newEditState.thickness;
     this.editFabric.freeDrawingBrush.width = newEditState.thickness || 0;
@@ -566,34 +668,65 @@ export default class SheetViewer extends Vue {
       isDrawingMode: false,
     });
     this.startDrawingMode();
-    let handleSelection = (event: any) => {
-      if (
-        event.selected.length === 1 &&
-        event.selected[0].data &&
-        event.selected[0].data.isIcon
-      ) {
-        removeStretchControls(event.selected[0]);
+    let handleSelection = () => {
+      if (this.editFabric.getActiveObjects().length > 1) {
+        let groupSelector = this.editFabric.getActiveObject()
+        setDefaultPropsOnFabricObject(groupSelector, () => { }, true)
+        groupSelector.setCoords()
+        this.editFabric.renderAll();
       }
+      checkFabButtonLocation();
     };
-    this.editFabric.on("selection:created", handleSelection);
-    this.editFabric.on("selection:updated", handleSelection);
+
+
+    let checkFabButtonLocation = () => {
+      const [tl, tr, br, bl] = this.editFabric.getActiveObject().getCoords();
+
+      if (br.x > this.editFabric.width * 0.75 && br.y > this.editFabric.height * 0.75) {
+        this.buttonGroupLeft = true
+      } else {
+        this.buttonGroupLeft = false
+      }
+
+    }
+    this.editFabric.on("selection:created", handleSelection.bind(this));
+    this.editFabric.on("selection:updated", handleSelection.bind(this));
+
+
+
+    this.editFabric.on("object:moving", checkFabButtonLocation)
+    this.editFabric.on("selection:cleared", (event) => {
+      this.buttonGroupLeft = false
+    });
+
+    this.editFabric.on("object:added", (event) => {
+      const target = event.target
+      let text = target.get("text");
+      setDefaultPropsOnFabricObject(event.target, () => {
+        this.text = text;
+        this.textDialog = true;
+        this.existingText = target;
+      })
+    })
 
     if (!currentPageData) return;
 
     return new Promise(async (resolve) => {
 
       await new fontfaceobserver.default("notoIcons").load()
-      this.editFabric?.loadFromJSON(currentPageData?.data, () => {
-        this.editFabric?.getObjects().forEach((canvasObject) => {
+      await this.editFabric?.loadFromJSON(currentPageData?.data, (jsonObject, canvasObject) => {
+        if (canvasObject instanceof FabricObject) {
           canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
           canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
           canvasObject.left = (canvasObject.left || 0) * widthScale;
           canvasObject.top = (canvasObject.top || 0) * heightScale;
           canvasObject.dirty = true;
-        });
-        this.editFabric?.renderAll();
-        resolve();
+          // setDefaultPropsOnFabricObject(canvasObject)
+        }
       });
+
+      this.editFabric?.renderAll();
+      resolve();
     });
   }
 
@@ -616,7 +749,7 @@ export default class SheetViewer extends Vue {
       .forEach((canvas) => canvas.remove());
   }
 
-  populateOverlayCanvas(): void {
+  async populateOverlayCanvas() {
     this.clearOverlayCanvas();
 
     let $wrapper = document.getElementById(
@@ -635,19 +768,19 @@ export default class SheetViewer extends Vue {
         'canvas[data-page="' + (pageNumber - 0.5) + '"]'
       ) as HTMLCanvasElement;
 
-      this.createOverlay(canvas, overlayJsonData, false);
+      await this.createOverlay(canvas, overlayJsonData, false);
       if (halfPageCanvas) {
-        this.createOverlay(halfPageCanvas, overlayJsonData, true);
+        await this.createOverlay(halfPageCanvas, overlayJsonData, true);
       }
       this.setOverlayVisible();
     }
   }
 
-  createOverlay(
+  async createOverlay(
     canvas: HTMLCanvasElement,
     overlayData: OverlayData,
     isHalfPage: boolean
-  ): void {
+  ): Promise<void> {
     let zIndex = canvas.style.zIndex;
     let width = parseFloat(canvas.style.width);
     let height = parseFloat(canvas.style.height);
@@ -673,21 +806,23 @@ export default class SheetViewer extends Vue {
     heightScale = parseFloat(heightScale.toFixed(2));
 
     let overlayFabric = new fabric.StaticCanvas(overlayCanvas);
-    overlayFabric.loadFromJSON(overlayData.data, () => {
-      overlayFabric.getObjects().forEach((canvasObject) => {
+    await overlayFabric.loadFromJSON(overlayData.data, (a, canvasObject) => {
+      if (canvasObject instanceof FabricObject) {
         canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
         canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
         canvasObject.left = (canvasObject.left || 0) * widthScale;
         canvasObject.top = (canvasObject.top || 0) * heightScale;
         canvasObject.dirty = true;
-      });
-      overlayFabric.renderAll();
-      if (isHalfPage) {
-        let height = overlayFabric.getHeight() / 2;
-        let width = overlayFabric.getWidth();
-        overlayFabric.getContext().clearRect(0, height, width, height);
       }
     });
+
+
+    overlayFabric.renderAll();
+    if (isHalfPage) {
+      let height = overlayFabric.getHeight() / 2;
+      let width = overlayFabric.getWidth();
+      overlayFabric.getContext().clearRect(0, height, width, height);
+    }
 
     this.overlayFabrics.push(overlayFabric);
   }
@@ -915,7 +1050,7 @@ export default class SheetViewer extends Vue {
     width: 10px;
     transform: translateY(2px);
     height: 5px;
-    background-color: black;
+    background-color: red;
   }
 
 }
@@ -940,6 +1075,27 @@ export default class SheetViewer extends Vue {
 
   &:before {
     font-family: notoIcons;
+    font-style: normal;
+    font-weight: 400;
+    content: attr(data-icon-code);
+  }
+
+  &:not(:last-child) {
+    margin-right: 16px;
+  }
+}
+
+.mdi-icon {
+  width: 25px;
+  height: 40px;
+  padding: 16px;
+  box-sizing: content-box;
+  border: 1px solid;
+  font-size: 24px;
+  line-height: 24px;
+  position: relative;
+
+  &:before {
     font-style: normal;
     font-weight: 400;
     content: attr(data-icon-code);
@@ -1011,6 +1167,12 @@ export default class SheetViewer extends Vue {
 }
 
 .fabContainer {
+
+  &.fabButtonsLeft {
+    left: 16px;
+    right: auto;
+  }
+
   position: absolute;
   bottom: 16px;
   right: 16px;
@@ -1034,6 +1196,26 @@ export default class SheetViewer extends Vue {
 
 .square-black {
   color: #000000 !important;
+}
+
+.draw-size-2 {
+  font-size: 2px !important;
+}
+
+.draw-size-6 {
+  font-size: 6px !important;
+}
+
+.draw-size-10 {
+  font-size: 10px !important;
+}
+
+.draw-size-14 {
+  font-size: 14px !important;
+}
+
+.draw-size-18 {
+  font-size: 18px !important;
 }
 
 .pageBackdrop {
