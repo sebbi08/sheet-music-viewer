@@ -1,4 +1,12 @@
-import { app, BrowserWindow, protocol, ipcMain, dialog, IpcMainEvent, autoUpdater } from "electron";
+import {
+  app,
+  BrowserWindow,
+  protocol,
+  ipcMain,
+  dialog,
+  IpcMainEvent,
+  autoUpdater,
+} from "electron";
 import installExtension, { VUEJS_DEVTOOLS } from "electron-devtools-installer";
 import { EventNames } from "./Enums";
 import path from "path";
@@ -16,7 +24,6 @@ if (require("electron-squirrel-startup")) {
   app.quit();
 }
 if (!isDevelopment) {
-
   const server = "https://update.sebmahr.de";
   let platform = process.platform as string;
   if (platform === "win32") {
@@ -37,7 +44,7 @@ if (!isDevelopment) {
       title: "Application Update",
       message: process.platform === "win32" ? releaseNotes : releaseName,
       detail:
-        "A new version has been downloaded. Restart the application to apply the updates."
+        "A new version has been downloaded. Restart the application to apply the updates.",
     };
 
     dialog.showMessageBox(dialogOpts).then((returnValue) => {
@@ -53,7 +60,7 @@ if (!isDevelopment) {
 
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([
-  { scheme: "app", privileges: { secure: true, standard: true } }
+  { scheme: "app", privileges: { secure: true, standard: true } },
 ]);
 
 let mainWindow: any;
@@ -64,8 +71,8 @@ const createWindow = (): void => {
     height: 600,
     width: 800,
     webPreferences: {
-      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY
-    }
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+    },
   });
   mainWindow.maximize();
 
@@ -132,112 +139,128 @@ ipcMain.on(EventNames.GET_VERSION, (event: IpcMainEvent) => {
   event.reply(EventNames.SEND_VERSION, app.getVersion());
 });
 
-
 ipcMain.on(EventNames.SELECT_FOLDER, (event: IpcMainEvent) => {
   dialog
     .showOpenDialog({
-      properties: ["openDirectory"]
+      properties: ["openDirectory"],
     })
-    .then(function(result) {
+    .then(function (result) {
       event.reply(EventNames.FOLDER_SELECTED, result.filePaths[0]);
     });
 });
 
-ipcMain.on(EventNames.FOLDER_SELECTED, async (event: IpcMainEvent, args: { basePath: string, relativePath: string }) => {
-  const basePath = args.basePath;
-  const relativePath = args.relativePath;
-  const folderPath = path.join(basePath, relativePath);
-  let folderContent = await fs.readdir(folderPath, { withFileTypes: true });
+ipcMain.on(
+  EventNames.FOLDER_SELECTED,
+  async (
+    event: IpcMainEvent,
+    args: { basePath: string; relativePath: string }
+  ) => {
+    const basePath = args.basePath;
+    const relativePath = args.relativePath;
+    const folderPath = path.join(basePath, relativePath);
+    let folderContent = await fs.readdir(folderPath, { withFileTypes: true });
 
-  folderContent = folderContent.filter((item) => !item.name.startsWith("."));
+    folderContent = folderContent.filter((item) => !item.name.startsWith("."));
 
-  const filesAndFolders = folderContent.map((item) => {
-    return {
-      path: basePath,
-      name: item.name,
-      isFile: item.isFile(),
-      isSearch: false
-    };
-  });
+    const filesAndFolders = folderContent.map((item) => {
+      return {
+        path: basePath,
+        name: item.name,
+        isFile: item.isFile(),
+        isSearch: false,
+      };
+    });
 
-  event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
-});
-ipcMain.on(EventNames.SEARCH_FILES, async (event: IpcMainEvent, args: { basePath: string, searchTerm: string }) => {
-  const basePath = args.basePath;
-  const searchTerm = args.searchTerm;
-  glob("**/*" + searchTerm + "*.*", { cwd: basePath }, (err, matches) => {
-    if (err) {
-      console.log(err);
-      return;
-    }
+    event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
+  }
+);
+ipcMain.on(
+  EventNames.SEARCH_FILES,
+  async (
+    event: IpcMainEvent,
+    args: { basePath: string; searchTerm: string }
+  ) => {
+    const basePath = args.basePath;
+    const searchTerm = args.searchTerm;
+    const matches = await glob("**/*" + searchTerm + "*.*", { cwd: basePath });
     // matches = matches.map((filepath) => filepath.split("/").join(path.sep));
 
     const filesAndFolders = matches.map((item) => {
+      const filePath = item.includes("/") ? "/" + path.dirname(item) : "";
 
-      const filePath = item.includes("/") ? ("/" + path.dirname(item)) : ""
-
-      
       return {
         path: basePath + filePath,
         name: path.basename(item),
         isFile: true,
-        isSearch: true
+        isSearch: true,
       };
     });
     event.reply(EventNames.SEARCH_RESULTS, filesAndFolders);
-  });
-});
-ipcMain.on(EventNames.START_LOAD_OVERLAY_DATA, async (event: IpcMainEvent, args: { path: string }) => {
-  const sheetPath = args.path;
+  }
+);
+ipcMain.on(
+  EventNames.START_LOAD_OVERLAY_DATA,
+  async (event: IpcMainEvent, args: { path: string }) => {
+    const sheetPath = args.path;
 
-  const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
+    const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
 
-  let overlayData;
+    let overlayData;
 
-  try {
-    overlayData = (await fs.readFile(overlayDataPath)).toString();
-  } catch (e) {
-    if (e.code !== "ENOENT") {
-      console.log("Error while loading data file");
+    try {
+      overlayData = (await fs.readFile(overlayDataPath)).toString();
+    } catch (e) {
+      if (e.code !== "ENOENT") {
+        console.log("Error while loading data file");
+        console.log(e);
+      }
+      overlayData = "";
+    }
+
+    event.reply(EventNames.LOAD_OVERLAY_DATA, overlayData);
+  }
+);
+
+ipcMain.on(
+  EventNames.SAVE_OVERLAY_DATA,
+  async (event: IpcMainEvent, args: { path: string; data: string }) => {
+    const sheetPath = args.path;
+    const overlayData = args.data;
+    const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
+    try {
+      await fs.writeFile(overlayDataPath, overlayData);
+    } catch (e) {
+      console.log("Error while saving:");
       console.log(e);
     }
-    overlayData = "";
   }
+);
 
-  event.reply(EventNames.LOAD_OVERLAY_DATA, overlayData);
-});
-
-ipcMain.on(EventNames.SAVE_OVERLAY_DATA, async (event: IpcMainEvent, args: { path: string, data: string }) => {
-  const sheetPath = args.path;
-  const overlayData = args.data;
-  const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
-  try {
-    await fs.writeFile(overlayDataPath, overlayData);
-  } catch (e) {
-    console.log("Error while saving:");
-    console.log(e);
+ipcMain.on(
+  EventNames.LOAD_SET_LISTS,
+  async (event: IpcMainEvent, args: { basePath: string }) => {
+    const basePath = args.basePath;
+    let setListsJson: any;
+    try {
+      const setListJsonPath = path.join(basePath, ".set-lists.json");
+      setListsJson = await fs.readFile(setListJsonPath);
+    } catch (e) {
+      setListsJson = "[]";
+    }
+    event.reply(EventNames.LOAD_SET_LISTS_RESULT, JSON.parse(setListsJson));
   }
-});
-
-ipcMain.on(EventNames.LOAD_SET_LISTS, async (event: IpcMainEvent, args: { basePath: string }) => {
-  const basePath = args.basePath;
-  let setListsJson: any;
-  try {
-    const setListJsonPath = path.join(basePath, ".set-lists.json");
-    setListsJson = await fs.readFile(setListJsonPath);
-  } catch (e) {
-    setListsJson = "[]";
+);
+ipcMain.on(
+  EventNames.SAVE_SET_LISTS,
+  async (event: IpcMainEvent, args: { setLists: string; basePath: string }) => {
+    const setLists = args.setLists;
+    const basePath = args.basePath;
+    await fs.writeFile(
+      path.join(basePath, ".set-lists.json"),
+      JSON.stringify(setLists)
+    );
   }
-  event.reply(EventNames.LOAD_SET_LISTS_RESULT, JSON.parse(setListsJson));
-});
-ipcMain.on(EventNames.SAVE_SET_LISTS, async (event: IpcMainEvent, args: { setLists: string, basePath: string }) => {
-  const setLists = args.setLists;
-  const basePath = args.basePath;
-  await fs.writeFile(
-    path.join(basePath, ".set-lists.json"),
-    JSON.stringify(setLists)
-  );
-});
+);
 
 function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
   let overlayDataPath = path.basename(sheetPath);
