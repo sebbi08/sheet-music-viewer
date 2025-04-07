@@ -1,3 +1,15 @@
+# [1.8.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.7.0...v1.8.0) (2025-04-07)
+
+
+### Bug Fixes
+
+* disappearing clone button ([f073485](https://github.com/sebbi08/sheet-music-viewer/commit/f0734853e7431d82e73d4d4aa670395adb8502ad))
+
+
+### Features
+
+* add white marker ([da28730](https://github.com/sebbi08/sheet-music-viewer/commit/da2873072def3540268b9cad92c35962835e1bd8))
+
 # [1.7.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.6.1...v1.7.0) (2023-12-23)
 
 
