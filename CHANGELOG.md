@@ -1,3 +1,15 @@
+# [1.9.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.8.0...v1.9.0) (2025-04-08)
+
+
+### Bug Fixes
+
+* paths not beeing encoded correctly ([9938c39](https://github.com/sebbi08/sheet-music-viewer/commit/9938c3991526a47586ec2619de21cac498117e71))
+
+
+### Features
+
+* update to vue3 pdfJs5 and switched to vite ([313e879](https://github.com/sebbi08/sheet-music-viewer/commit/313e879fa895683ee25eb41266f92ab919e43780))
+
 # [1.8.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.7.0...v1.8.0) (2025-04-07)
 
 
