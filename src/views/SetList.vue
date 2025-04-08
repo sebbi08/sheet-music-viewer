@@ -65,7 +65,7 @@ import type { SetList } from '../models/SetList';
 import type { SheetFile } from '../models/SheetFile';
 import useStore from '../store';
 import { fileNameWithoutExtension, sortAndFilterFile } from "../utils"
-import { EventNames, RouteNames } from '../Enums';
+import { RouteNames } from '../Enums';
 import router from '../router';
 import { storeToRefs } from 'pinia';
 import draggable from 'vuedraggable'
@@ -96,7 +96,7 @@ function openSheet(item: SheetFile): void {
 
   router.push({
     name: RouteNames.SheetViewer,
-    params: { path: path.replace(window.path.sep+window.path.sep,window.path.sep) },
+    params: { path: path.replace(window.path.sep + window.path.sep, window.path.sep) },
   });
 }
 
@@ -146,17 +146,14 @@ watch(filesAndFolder, (newVal) => {
   pdfsAndFolders.value = sortAndFilterFile(newVal);
 })
 
-function loadPath(): void {
+async function loadPath() {
   let relativePath = folderPath;
   let basePath = store.sheetMusicFolder;
   if (loadedRelative.value === relativePath.value) {
     return;
   }
   loadedRelative.value = relativePath.value;
-  window.ipcRenderer.send(EventNames.FOLDER_SELECTED, {
-    basePath,
-    relativePath: relativePath.value,
-  });
+  await store.loadFiles(basePath, relativePath.value);
 }
 
 
@@ -184,10 +181,7 @@ watch(setLists, (newVal) => {
 onMounted(() => {
   store.sortSetListEnabled = false;
   loadedRelative.value = null;
-  let basePath = store.sheetMusicFolder;
-  window.ipcRenderer.send(EventNames.LOAD_SET_LISTS, {
-    basePath,
-  });
+  store.loadSetLists();
 })
 </script>
 <style lang="less" scoped>

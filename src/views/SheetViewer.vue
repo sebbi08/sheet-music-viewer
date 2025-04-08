@@ -31,14 +31,13 @@
 
     <div v-if="editMode" class="fabContainer" :class="buttonGroupLeft ? 'fabButtonsLeft' : ''" absolute bottom right>
       <v-btn color="blue darken-2" dark @click="toggleDrawingAndInteractiveMode"
-      :icon="editState.interactiveMode ? 'mdi-hand-back-right-outline' : 'mdi-pencil'"></v-btn>
-      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small
-        @click="togglePencileAndMarkerMode" :icon="editState.pencilMode ? 'mdi-pencil' : 'mdi-marker'">
+        :icon="editState.interactiveMode ? 'mdi-hand-back-right-outline' : 'mdi-pencil'"></v-btn>
+      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small @click="togglePencileAndMarkerMode"
+        :icon="editState.pencilMode ? 'mdi-pencil' : 'mdi-marker'">
       </v-btn>
 
-      
-      <v-speed-dial v-if="editState.drawingMode" location="left center"
-        transition="slide-x-reverse-transition">
+
+      <v-speed-dial v-if="editState.drawingMode" location="left center" transition="slide-x-reverse-transition">
         <template v-slot:activator="{ props: activatorProps }">
           <v-btn v-bind="activatorProps" :class="getCurrentBrushClass()" color="green" small dark
             icon="mdi-square-rounded">
@@ -46,13 +45,11 @@
         </template>
         <v-btn key="1" color="grey" dark small @click="setRedColor" icon="mdi-square-rounded" class="square-red">
         </v-btn>
-        <v-btn key="2" color="grey" dark small @click="setGreenColor" icon="mdi-square-rounded"
-          class="square-green">
+        <v-btn key="2" color="grey" dark small @click="setGreenColor" icon="mdi-square-rounded" class="square-green">
         </v-btn>
         <v-btn key="3" color="grey" dark small @click="setBlueColor" icon="mdi-square-rounded" class="square-blue">
         </v-btn>
-        <v-btn key="4" color="grey" dark small @click="setBlackColor" icon="mdi-square-rounded"
-          class="square-black">
+        <v-btn key="4" color="grey" dark small @click="setBlackColor" icon="mdi-square-rounded" class="square-black">
         </v-btn>
         <v-btn key="5" v-if="editState.pencilMode" color="grey" dark small @click="setWhiteColor"
           icon="mdi-square-rounded" class="square-white">
@@ -61,21 +58,27 @@
 
 
 
-      <v-speed-dial v-if="editState.pencilMode && editState.drawingMode"  location="left center"
+      <v-speed-dial v-if="editState.pencilMode && editState.drawingMode" location="left center"
         transition="slide-x-reverse-transition">
         <template v-slot:activator="{ props: activatorProps }">
-          <v-btn v-bind="activatorProps" color="green" small dark icon="mdi-circle" :class="getCurrentBrushClass() + ' draw-size-' + editState.thickness">
+          <v-btn v-bind="activatorProps" color="green" small dark icon="mdi-circle"
+            :class="getCurrentBrushClass() + ' draw-size-' + editState.thickness">
           </v-btn>
         </template>
-        <v-btn key="1" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(2)" :class="getCurrentBrushClass() + ' draw-size-2'">
+        <v-btn key="1" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(2)"
+          :class="getCurrentBrushClass() + ' draw-size-2'">
         </v-btn>
-        <v-btn key="2" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(6)" :class="getCurrentBrushClass() + ' draw-size-6'">
+        <v-btn key="2" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(6)"
+          :class="getCurrentBrushClass() + ' draw-size-6'">
         </v-btn>
-        <v-btn key="3" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(10)" :class="getCurrentBrushClass() + ' draw-size-10'">
+        <v-btn key="3" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(10)"
+          :class="getCurrentBrushClass() + ' draw-size-10'">
         </v-btn>
-        <v-btn key="4" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(14)" :class="getCurrentBrushClass() + ' draw-size-14'">
+        <v-btn key="4" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(14)"
+          :class="getCurrentBrushClass() + ' draw-size-14'">
         </v-btn>
-        <v-btn key="5" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(18)" :class="getCurrentBrushClass() + ' draw-size-18'">
+        <v-btn key="5" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(18)"
+          :class="getCurrentBrushClass() + ' draw-size-18'">
         </v-btn>
       </v-speed-dial>
 
@@ -147,7 +150,6 @@ import * as pdfJs from "pdfjs-dist"
 import { onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   BRUSH_COLORS,
-  EventNames,
   type Icon,
   MDI_ICONS,
   MUSIC_ICONS,
@@ -160,6 +162,7 @@ import { type OverlayData } from "../models/OverlayData"
 import useStore from "../store";
 import { storeToRefs } from "pinia";
 import router from "../router";
+import { client } from "../trcpClient";
 
 
 
@@ -211,27 +214,18 @@ onMounted(async () => {
 
   window.addEventListener("resize", debouncedResize);
 
-  await new Promise((resolve) => {
-    window.ipcRenderer.once(
-      EventNames.LOAD_OVERLAY_DATA,
-      (event, newOverlayData: string): void => {
-        if (!newOverlayData) {
-          overlayData = [];
-          resolve(undefined);
-          return;
-        }
-        overlayData = JSON.parse(newOverlayData);
-        resolve(undefined);
-      }
-    );
-    window.ipcRenderer.send(EventNames.START_LOAD_OVERLAY_DATA, {
-      path: router.currentRoute.value.params.path,
-    });
-  });
+
+  const newOverlayData = await client.loadOverlayData.query(router.currentRoute.value.params.path as string);
+  if (!newOverlayData) {
+    overlayData = [];
+    return;
+  } else {
+    overlayData = JSON.parse(newOverlayData);
+  }
 
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
-    url: "local-resource://" + btoa(router.currentRoute.value.params.path),
+    url: "local-resource://" + btoa(router.currentRoute.value.params.path as string),
   });
   await renderPdf();
 
@@ -619,10 +613,11 @@ function saveDrawnData(): void {
       drawHeight: height,
     });
   }
-  window.ipcRenderer.send(EventNames.SAVE_OVERLAY_DATA, {
+  client.saveOverlayData.query({
     data: JSON.stringify(overlayData),
-    path: router.currentRoute.value.params.path,
-  });
+    path: router.currentRoute.value.params.path as string,
+  })
+
 }
 
 function setEditMode(newEditState: Partial<EditState>): void {
@@ -734,7 +729,7 @@ async function createFabricCanvas(): Promise<void> {
   });
 
   editFabric.on("object:added", (event) => {
-    setDefaultPropsOnFabricObject(event.target, (event,transform) => {
+    setDefaultPropsOnFabricObject(event.target, (event, transform) => {
       text.value = transform.target.get("text");
       textDialog.value = true;
       existingText = transform.target;
@@ -1191,6 +1186,7 @@ function copyPageToHalfPageAndBackdrop(
 .square-black {
   color: #000000 !important;
 }
+
 .square-white {
   color: #ffffff !important;
 }

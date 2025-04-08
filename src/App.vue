@@ -12,24 +12,24 @@
 
       <v-app-bar-title>Sheet music viewer : {{ appVersion }}</v-app-bar-title>
       <template v-slot:append>
-        <div class="searchFieldWrapper">
+        <div v-if="router.currentRoute.value.name === RouteNames.SheetSelection" class="searchFieldWrapper">
 
           <v-text-field append-inner-icon="mdi-magnify" density="compact" ref="searchWrapper" v-model="store.searchTerm"
             hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
         </div>
-        <v-btn v-if="router.currentRoute.value.name === sheetViewerRouterName" dark icon @click="onSwitchEditMode">
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon @click="onSwitchEditMode">
           <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
         </v-btn>
-        <v-btn v-if="router.currentRoute.value.name === setListRouteName" dark icon @click="toggleSetListSortMode">
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SetList" dark icon @click="toggleSetListSortMode">
           <v-icon>
             {{ store.sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
           </v-icon>
         </v-btn>
-        <v-btn v-if="router.currentRoute.value.name === setListRouteName && !store.setListEditMode" dark icon
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SetList && !store.setListEditMode" dark icon
           @click="startSetListEditMode">
           <v-icon>mdi-pencil</v-icon>
         </v-btn>
-        <v-btn v-if="router.currentRoute.value.name === setListListRouteName" dark icon
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SetListList" dark icon
           @click="toggleSetListDeletionMode">
           <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
         </v-btn>
@@ -62,21 +62,17 @@
 </template>
 
 <script setup lang="ts">
-import { EventNames, RouteNames } from "./Enums";
-import { type SheetFile } from "./models/SheetFile";
-import { type SetList } from "./models/SetList";
-import { computed, type Ref, ref, useTemplateRef } from "vue";
+import { RouteNames } from "./Enums";
+import { computed, ref, useTemplateRef } from "vue";
 import useStore from "./store";
 import router from "./router";
 import { watch } from "vue";
 import { storeToRefs } from "pinia";
+import { client } from "./trcpClient";
+
 
 const dialog = ref(false);
 const appVersion = ref("");
-const sheetViewerRouterName = ref(RouteNames.SheetViewer);
-const sheetSelectionRouteName = ref(RouteNames.SheetSelection);
-const setListRouteName = ref(RouteNames.SetList);
-const setListListRouteName = ref(RouteNames.SetListList);
 const searchWrapper = useTemplateRef("searchWrapper")
 
 
@@ -84,49 +80,11 @@ const searchWrapper = useTemplateRef("searchWrapper")
 const store = useStore();
 
 
-window.ipcRenderer.on(
-  EventNames.SEND_VERSION,
-  (event, newAppVersion: string) => {
-    appVersion.value = newAppVersion;
-  }
-);
-window.ipcRenderer.send(EventNames.GET_VERSION);
+client.getVersion.query().then((version) => {
+  appVersion.value = version;
+})
 
-window.ipcRenderer.on(
-  EventNames.FOLDER_SELECTED,
-  (event, selectedFolder: string) => {
-    // selectedFolder = selectedFolder.replace(/\\/g, window.path.sep);
 
-    store.sheetMusicFolder = selectedFolder;
-
-    localStorage.setItem("sheetMusicFolder", selectedFolder);
-    router.push({
-      name: "SheetSelection",
-      params: { path: window.path.sep },
-    });
-  }
-);
-
-window.ipcRenderer.on(
-  EventNames.FOLDER_LOADED,
-  (event: any, filesAndFolder: SheetFile[]): void => {
-    store.filesAndFolder = filesAndFolder;
-
-  }
-);
-window.ipcRenderer.on(
-  EventNames.LOAD_SET_LISTS_RESULT,
-  (event: any, setLists: SetList[]): void => {
-    store.setLists = setLists;
-  }
-);
-
-window.ipcRenderer.on(
-  EventNames.SEARCH_RESULTS,
-  (event, searchResults: SheetFile[]) => {
-    store.searchResults = searchResults;
-  }
-);
 
 const showBackButton = computed(() => {
   let currentRoute = router.currentRoute.value.name;
@@ -188,12 +146,8 @@ function showSearch() {
 }
 
 const { setLists } = storeToRefs(store);
-watch(setLists, (newVal) => {
-  let basePath = store.sheetMusicFolder;
-  window.ipcRenderer.send(EventNames.SAVE_SET_LISTS, {
-    basePath,
-    setLists: JSON.parse(JSON.stringify(newVal)),
-  });
+watch(setLists, async () => {
+  await store.saveSetLists();
 }, { deep: true });
 
 </script>

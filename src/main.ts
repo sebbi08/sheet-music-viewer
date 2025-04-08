@@ -2,17 +2,15 @@ import {
   app,
   BrowserWindow,
   protocol,
-  ipcMain,
   dialog,
-  type IpcMainEvent,
   autoUpdater,
 } from "electron";
 import installExtension, { VUEJS_DEVTOOLS } from "electron-devtools-installer";
-import { EventNames } from "./Enums";
 import path from "path";
-import * as fs from "fs-extra";
-import { glob } from "glob";
 import startup from "electron-squirrel-startup";
+// eslint-disable-next-line import/no-unresolved
+import { createIPCHandler } from "electron-trpc/main";
+import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -72,6 +70,8 @@ const createWindow = (): void => {
       preload: path.join(__dirname, "preload.js"),
     },
   });
+
+  createIPCHandler({ router: trcpRouter, windows: [mainWindow] });
   mainWindow.maximize();
 
   // and load the index.html of the app.
@@ -110,7 +110,7 @@ function registerLocalResourceProtocol() {
   protocol.registerFileProtocol("local-resource", (request, callback) => {
     const url = request.url.replace(/^local-resource:\/\//, "");
     // Decode URL to prevent errors when loading filenames with UTF-8 chars or chars like "#"
-    const decodedUrl = Buffer.from(url,"base64").toString("utf-8"); // Needed in case URL contains spaces
+    const decodedUrl = Buffer.from(url, "base64").toString("utf-8"); // Needed in case URL contains spaces
     try {
       return callback(decodedUrl);
     } catch (error) {
@@ -141,149 +141,3 @@ app.on("activate", () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and import them here.
-
-ipcMain.on(EventNames.GET_VERSION, (event: IpcMainEvent) => {
-  event.reply(
-    EventNames.SEND_VERSION,
-    isDevelopment ? "development" : app.getVersion()
-  );
-});
-
-ipcMain.on(EventNames.SELECT_FOLDER, (event: IpcMainEvent) => {
-  dialog
-    .showOpenDialog({
-      properties: ["openDirectory"],
-    })
-    .then(function (result) {
-      event.reply(EventNames.FOLDER_SELECTED, result.filePaths[0]);
-    });
-});
-
-ipcMain.on(
-  EventNames.FOLDER_SELECTED,
-  async (
-    event: IpcMainEvent,
-    args: { basePath: string; relativePath: string }
-  ) => {
-    const basePath = args.basePath;
-    const relativePath = args.relativePath;
-    const folderPath = path.join(basePath, relativePath);
-    let folderContent = await fs.readdir(folderPath, { withFileTypes: true });
-
-    folderContent = folderContent.filter((item) => !item.name.startsWith("."));
-
-    const filesAndFolders = folderContent.map((item) => {
-      return {
-        path: basePath,
-        name: item.name,
-        isFile: item.isFile(),
-        isSearch: false,
-      };
-    });
-
-    event.reply(EventNames.FOLDER_LOADED, filesAndFolders);
-  }
-);
-ipcMain.on(
-  EventNames.SEARCH_FILES,
-  async (
-    event: IpcMainEvent,
-    args: { basePath: string; searchTerm: string }
-  ) => {
-    const basePath = args.basePath;
-    const searchTerm = args.searchTerm;
-    const matches = await glob("**/*" + searchTerm + "*.*", {
-      cwd: basePath,
-      nocase: true,
-    });
-    // matches = matches.map((filepath) => filepath.split("/").join(path.sep));
-
-    const filesAndFolders = matches.map((item) => {
-      const filePath = item.includes("/") ? "/" + path.dirname(item) : "";
-
-      return {
-        path: basePath + filePath,
-        name: path.basename(item),
-        isFile: true,
-        isSearch: true,
-      };
-    });
-    event.reply(EventNames.SEARCH_RESULTS, filesAndFolders);
-  }
-);
-ipcMain.on(
-  EventNames.START_LOAD_OVERLAY_DATA,
-  async (event: IpcMainEvent, args: { path: string }) => {
-    const sheetPath = args.path;
-
-    const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
-
-    let overlayData;
-
-    try {
-      overlayData = (await fs.readFile(overlayDataPath)).toString();
-    } catch (e) {
-      if (e instanceof Error && "code" in e && e.code !== "ENOENT") {
-        console.log("Error while loading data file");
-        console.log(e);
-      }
-      overlayData = "";
-    }
-
-    event.reply(EventNames.LOAD_OVERLAY_DATA, overlayData);
-  }
-);
-
-ipcMain.on(
-  EventNames.SAVE_OVERLAY_DATA,
-  async (event: IpcMainEvent, args: { path: string; data: string }) => {
-    const sheetPath = args.path;
-    const overlayData = args.data;
-    const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
-    try {
-      await fs.writeFile(overlayDataPath, overlayData);
-    } catch (e) {
-      console.log("Error while saving:");
-      console.log(e);
-    }
-  }
-);
-
-ipcMain.on(
-  EventNames.LOAD_SET_LISTS,
-  async (event: IpcMainEvent, args: { basePath: string }) => {
-    const basePath = args.basePath;
-    let setListsJson: string;
-    try {
-      const setListJsonPath = path.join(basePath, ".set-lists.json");
-      setListsJson = (await fs.readFile(setListJsonPath)).toString();
-    } catch (e) {
-      console.log(e);
-      setListsJson = "[]";
-    }
-    event.reply(EventNames.LOAD_SET_LISTS_RESULT, JSON.parse(setListsJson));
-  }
-);
-ipcMain.on(
-  EventNames.SAVE_SET_LISTS,
-  async (event: IpcMainEvent, args: { setLists: string; basePath: string }) => {
-    const setLists = args.setLists;
-    const basePath = args.basePath;
-    await fs.writeFile(
-      path.join(basePath, ".set-lists.json"),
-      JSON.stringify(setLists)
-    );
-  }
-);
-
-function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
-  let overlayDataPath = path.basename(sheetPath);
-  overlayDataPath =
-    "." + overlayDataPath.replace(path.extname(overlayDataPath), ".data");
-  overlayDataPath = sheetPath.replace(
-    path.basename(sheetPath),
-    overlayDataPath
-  );
-
-  return overlayDataPath;
-}

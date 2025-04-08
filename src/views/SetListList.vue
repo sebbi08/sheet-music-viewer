@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import useStore from '../store';
-import { EventNames, RouteNames } from '../Enums';
+import { RouteNames } from '../Enums';
 import type { SetList } from '../models/SetList';
 import router from '../router';
 
@@ -46,10 +46,7 @@ const newSetListName = ref("")
 
 onMounted(() => {
   store.setListDeletionMode = false;
-  let basePath = store.sheetMusicFolder;
-  window.ipcRenderer.send(EventNames.LOAD_SET_LISTS, {
-    basePath,
-  });
+  store.loadSetLists();
 })
 
 

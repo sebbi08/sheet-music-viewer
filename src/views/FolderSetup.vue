@@ -8,13 +8,22 @@
 </template>
 
 <script setup lang="ts">
-import { EventNames } from "../Enums";
+import router from "../router";
+import useStore from "../store";
+import { client } from "../trcpClient";
 
 
+const store = useStore();
 
+async function selectFolder() {
+  const selectedFolder = await client.selectFolder.query()
+  store.sheetMusicFolder = selectedFolder;
 
-function selectFolder(): void {
-  window.ipcRenderer.send(EventNames.SELECT_FOLDER);
+    localStorage.setItem("sheetMusicFolder", selectedFolder);
+    router.push({
+      name: "SheetSelection",
+      params: { path: window.path.sep },
+    });
 }
 </script>
 

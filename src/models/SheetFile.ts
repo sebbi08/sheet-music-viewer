@@ -4,3 +4,4 @@ export interface SheetFile {
   isFile: boolean;
   isSearch: boolean;
 }
+

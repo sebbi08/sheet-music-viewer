@@ -32,6 +32,8 @@
     "@electron/fuses": "1.8.0",
     "@eslint/compat": "^1.2.8",
     "@mdi/font": "7.4.47",
+    "@trpc/client": "10.45.2",
+    "@trpc/server": "10.45.2",
     "@tsconfig/node22": "22.0.1",
     "@types/debug": "4.1.12",
     "@types/electron-devtools-installer": "4.0.0",
@@ -52,6 +54,7 @@
     "electron-devtools-installer": "4.0.0",
     "electron-log": "5.3.3",
     "electron-squirrel-startup": "1.0.1",
+    "electron-trpc": "^0.7.1",
     "eslint": "9.24.0",
     "eslint-plugin-import": "2.31.0",
     "fabric": "6.6.2",
@@ -89,7 +92,8 @@
     "electron-devtools-installer": "4.0.0",
     "fontfaceobserver": "2.3.0",
     "material-design-icons": "3.0.1",
-    "typeface-roboto": "1.1.13"
+    "typeface-roboto": "1.1.13",
+    "zod": "^3.24.2"
   },
   "release": {
     "branches": [

@@ -24,7 +24,7 @@
 
 <script setup lang="ts">
 import { isArray } from 'lodash';
-import { EventNames, RouteNames } from '../Enums';
+import { RouteNames } from '../Enums';
 import type { SheetFile } from '../models/SheetFile';
 import router from '../router';
 import useStore from '../store';
@@ -57,12 +57,8 @@ const searchOrFolder = computed(() => {
 })
 
 
-function searchFiles(searchTerm: string): void {
-  let basePath = store.sheetMusicFolder;
-  window.ipcRenderer.send(EventNames.SEARCH_FILES, {
-    searchTerm,
-    basePath,
-  });
+async function searchFiles(searchTerm: string) {
+  await store.searchForFiles(searchTerm);
 }
 
 const { searchTerm, filesAndFolder } = storeToRefs(store);
@@ -101,27 +97,25 @@ function selectItem(item: SheetFile): void {
     }
     router.push({
       name: RouteNames.SheetViewer,
-      params: { path: path.replace(window.path.sep+window.path.sep,window.path.sep) },
+      params: { path: path.replace(window.path.sep + window.path.sep, window.path.sep) },
     });
   } else {
     const path = folderPath.value + item.name + window.path.sep
     router.push({
       name: RouteNames.SheetSelection,
-      params: { path: path.replace(window.path.sep+window.path.sep,window.path.sep) },
+      params: { path: path.replace(window.path.sep + window.path.sep, window.path.sep) },
     });
   }
 }
 
-function loadPath(): void {
+async function loadPath() {
   let basePath = store.sheetMusicFolder;
   if (loadedRelative.value === folderPath.value) {
     return;
   }
   loadedRelative.value = folderPath.value;
-  window.ipcRenderer.send(EventNames.FOLDER_SELECTED, {
-    basePath,
-    relativePath: folderPath.value,
-  });
+
+  await store.loadFiles(basePath, folderPath.value);
 }
 
 
