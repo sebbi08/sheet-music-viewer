@@ -12,7 +12,7 @@
     "semantic-release": "semantic-release --no-ci",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "electron-forge publish --arch x64 --from-dry-run",
-    "release": "yarn semantic-release --no-ci && git push && npm run publish"
+    "release": "npx semantic-release --no-ci && git push && npm run publish"
   },
   "keywords": [],
   "author": {
