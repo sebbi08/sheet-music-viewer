@@ -7,9 +7,9 @@
     <v-card v-for="setList in store.setLists" :key="setList.id" @click="showSetList(setList)">
       <v-icon x-large>mdi-playlist-music</v-icon>
       <h2 class="itemName">{{ setList.name }}</h2>
-      <v-btn v-if="store.setListDeletionMode" class="deletionButton" color="primary" elevation="2" icon small
+      <v-btn v-if="store.setListDeletionMode" class="deletionButton" color="transparent" elevation="0" icon small
         @click="removeSetList(setList)">
-        <v-icon color="red"> mdi-close</v-icon>
+        <v-icon color="red"> mdi-delete</v-icon>
       </v-btn>
     </v-card>
 

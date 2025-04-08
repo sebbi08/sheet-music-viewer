@@ -2,51 +2,57 @@
 
   <v-app>
     <v-app-bar density="compact" app dark v-bind:color="store.editMode ? 'red' : 'primary'">
-      <v-btn v-if="showBackButton" icon @click="onNavBack">
-        <v-icon>mdi-arrow-left</v-icon>
-      </v-btn>
-      <div>Sheet music viewer : {{ appVersion }}</div>
-      <v-spacer></v-spacer>
-      <div class="searchFieldWrapper">
-        
-        <v-text-field append-inner-icon="mdi-magnify" density="compact" ref="searchWrapper" v-model="store.searchTerm"
-        hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
-      </div>
-      <v-btn v-if="router.currentRoute.value.name === sheetViewerRouterName" dark icon @click="onSwitchEditMode">
-        <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
-      </v-btn>
-      <v-btn v-if="router.currentRoute.value.name === setListRouteName" dark icon @click="toggleSetListSortMode">
-        <v-icon>
-          {{ store.sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
-        </v-icon>
-      </v-btn>
-      <v-btn v-if="router.currentRoute.value.name === setListRouteName && !store.setListEditMode" dark icon
-        @click="startSetListEditMode">
-        <v-icon>mdi-pencil</v-icon>
-      </v-btn>
-      <v-btn v-if="router.currentRoute.value.name === setListListRouteName" dark icon
-        @click="toggleSetListDeletionMode">
-        <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
-      </v-btn>
-      <v-dialog v-if="showSettingsButton" v-model="dialog" max-width="320" persistent>
-        <template v-slot:activator="{ props }">
-          <v-btn dark icon v-bind="props">
-            <v-icon>mdi-cog</v-icon>
-          </v-btn>
-        </template>
-        <v-card>
-          <v-card-title class="text-h5">Choose new root folder?</v-card-title>
-          <v-card-actions>
-            <v-spacer></v-spacer>
-            <v-btn color="green darken-1" text @click="dialog = false">
-              Disagree
+      <template v-slot:prepend>
+        <v-btn v-if="showBackButton" icon @click="onNavBack">
+          <v-icon>mdi-arrow-left</v-icon>
+        </v-btn>
+      </template>
+
+
+
+      <v-app-bar-title>Sheet music viewer : {{ appVersion }}</v-app-bar-title>
+      <template v-slot:append>
+        <div class="searchFieldWrapper">
+
+          <v-text-field append-inner-icon="mdi-magnify" density="compact" ref="searchWrapper" v-model="store.searchTerm"
+            hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
+        </div>
+        <v-btn v-if="router.currentRoute.value.name === sheetViewerRouterName" dark icon @click="onSwitchEditMode">
+          <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
+        </v-btn>
+        <v-btn v-if="router.currentRoute.value.name === setListRouteName" dark icon @click="toggleSetListSortMode">
+          <v-icon>
+            {{ store.sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
+          </v-icon>
+        </v-btn>
+        <v-btn v-if="router.currentRoute.value.name === setListRouteName && !store.setListEditMode" dark icon
+          @click="startSetListEditMode">
+          <v-icon>mdi-pencil</v-icon>
+        </v-btn>
+        <v-btn v-if="router.currentRoute.value.name === setListListRouteName" dark icon
+          @click="toggleSetListDeletionMode">
+          <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
+        </v-btn>
+        <v-dialog v-if="showSettingsButton" v-model="dialog" max-width="320" persistent>
+          <template v-slot:activator="{ props }">
+            <v-btn dark icon v-bind="props">
+              <v-icon>mdi-cog</v-icon>
             </v-btn>
-            <v-btn color="green darken-1" text @click="navToSettings">
-              Agree
-            </v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+          </template>
+          <v-card>
+            <v-card-title class="text-h5">Choose new root folder?</v-card-title>
+            <v-card-actions>
+              <v-spacer></v-spacer>
+              <v-btn color="green darken-1" text @click="dialog = false">
+                Disagree
+              </v-btn>
+              <v-btn color="green darken-1" text @click="navToSettings">
+                Agree
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
+      </template>
     </v-app-bar>
 
     <v-main>
@@ -89,6 +95,7 @@ window.ipcRenderer.send(EventNames.GET_VERSION);
 window.ipcRenderer.on(
   EventNames.FOLDER_SELECTED,
   (event, selectedFolder: string) => {
+    // selectedFolder = selectedFolder.replace(/\\/g, window.path.sep);
 
     store.sheetMusicFolder = selectedFolder;
 
@@ -197,10 +204,11 @@ html {
   max-height: 100vh;
 }
 
-.searchFieldWrapper{
+.searchFieldWrapper {
   max-width: 300px;
   min-width: 300px;
 }
+
 .v-card {
   user-select: none;
 }

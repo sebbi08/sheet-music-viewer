@@ -87,11 +87,16 @@ const folderPath = computed(() => {
 
 function openSheet(item: SheetFile): void {
   let basePath = store.sheetMusicFolder;
-  let path = basePath + item.path + window.path.sep + item.name;
-  debugger;
+  let path = basePath + item.path
+  if (!path.endsWith(window.path.sep) && !item.name.startsWith(window.path.sep)) {
+    path = path + window.path.sep + item.name
+  } else {
+    path = path + item.name
+  }
+
   router.push({
     name: RouteNames.SheetViewer,
-    params: { path: path },
+    params: { path: path.replace(window.path.sep+window.path.sep,window.path.sep) },
   });
 }
 
@@ -174,7 +179,7 @@ watch(setLists, (newVal) => {
   setList.value = store.setLists.find(
     (setList: SetList) => setList.id === parseInt(router.currentRoute.value.params.id as string, 10)
   ) || { name: "", sheets: [], id: -1 };
-},{deep: true});
+}, { deep: true });
 
 onMounted(() => {
   store.sortSetListEnabled = false;

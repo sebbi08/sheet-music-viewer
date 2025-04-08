@@ -49,6 +49,7 @@ router.beforeEach((to, from, next) => {
 const store = useStore();
   if (to.name === "FolderSetup") {
     next();
+    return;
   }
   if (store.sheetMusicFolder && to.name !== "FolderSetup") {
     next();

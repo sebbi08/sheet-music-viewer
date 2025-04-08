@@ -101,12 +101,13 @@ function selectItem(item: SheetFile): void {
     }
     router.push({
       name: RouteNames.SheetViewer,
-      params: { path: path },
+      params: { path: path.replace(window.path.sep+window.path.sep,window.path.sep) },
     });
   } else {
+    const path = folderPath.value + item.name + window.path.sep
     router.push({
       name: RouteNames.SheetSelection,
-      params: { path: folderPath.value + item.name + window.path.sep },
+      params: { path: path.replace(window.path.sep+window.path.sep,window.path.sep) },
     });
   }
 }
