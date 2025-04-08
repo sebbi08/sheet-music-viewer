@@ -30,75 +30,58 @@
 
 
     <div v-if="editMode" class="fabContainer" :class="buttonGroupLeft ? 'fabButtonsLeft' : ''" absolute bottom right>
-      <v-btn v-model="editFab" color="blue darken-2" dark fab @click="toggleDrawingAndInteractiveMode">
-        <v-icon v-if="editFab"> mdi-close</v-icon>
-        <v-icon v-else-if="editState.interactiveMode">
-          mdi-hand-back-right-outline
-        </v-icon>
-        <v-icon v-else-if="editState.drawingMode"> mdi-pencil</v-icon>
-      </v-btn>
-      <v-btn v-if="editState.drawingMode" v-model="drawingFab" color="green darken-1" dark fab small
-        @click="togglePencileAndMarkerMode">
-        <v-icon v-if="editState.pencilMode">mdi-pencil</v-icon>
-        <v-icon v-else>mdi-marker</v-icon>
+      <v-btn color="blue darken-2" dark @click="toggleDrawingAndInteractiveMode"
+      :icon="editState.interactiveMode ? 'mdi-hand-back-right-outline' : 'mdi-pencil'"></v-btn>
+      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small
+        @click="togglePencileAndMarkerMode" :icon="editState.pencilMode ? 'mdi-pencil' : 'mdi-marker'">
       </v-btn>
 
-
-      <v-speed-dial v-if="editState.drawingMode" v-model="colorFab" direction="left"
+      
+      <v-speed-dial v-if="editState.drawingMode" location="left center"
         transition="slide-x-reverse-transition">
-        <template v-slot:activator>
-          <v-btn v-model="colorFab" color="green" small dark fab>
-            <v-icon :class="getCurrentBrushClass()">mdi-square-rounded</v-icon>
+        <template v-slot:activator="{ props: activatorProps }">
+          <v-btn v-bind="activatorProps" :class="getCurrentBrushClass()" color="green" small dark
+            icon="mdi-square-rounded">
           </v-btn>
         </template>
-        <v-btn color="gray" dark fab small @click="setRedColor">
-          <v-icon class="square-red">mdi-square-rounded</v-icon>
+        <v-btn key="1" color="grey" dark small @click="setRedColor" icon="mdi-square-rounded" class="square-red">
         </v-btn>
-        <v-btn color="gray" dark fab small @click="setGreenColor">
-          <v-icon class="square-green">mdi-square-rounded</v-icon>
+        <v-btn key="2" color="grey" dark small @click="setGreenColor" icon="mdi-square-rounded"
+          class="square-green">
         </v-btn>
-        <v-btn color="gray" dark fab small @click="setBlueColor">
-          <v-icon class="square-blue">mdi-square-rounded</v-icon>
+        <v-btn key="3" color="grey" dark small @click="setBlueColor" icon="mdi-square-rounded" class="square-blue">
         </v-btn>
-        <v-btn color="gray" dark fab small @click="setBlackColor">
-          <v-icon class="square-black">mdi-square-rounded</v-icon>
+        <v-btn key="4" color="grey" dark small @click="setBlackColor" icon="mdi-square-rounded"
+          class="square-black">
         </v-btn>
-        <v-btn v-if="editState.pencilMode" color="gray" dark fab small @click="setWhiteColor">
-          <v-icon class="square-white">mdi-square-rounded</v-icon>
+        <v-btn key="5" v-if="editState.pencilMode" color="grey" dark small @click="setWhiteColor"
+          icon="mdi-square-rounded" class="square-white">
         </v-btn>
       </v-speed-dial>
 
 
 
-      <v-speed-dial v-if="editState.pencilMode && editState.drawingMode" v-model="sizeFab" direction="left"
+      <v-speed-dial v-if="editState.pencilMode && editState.drawingMode"  location="left center"
         transition="slide-x-reverse-transition">
-        <template v-slot:activator>
-          <v-btn v-model="colorFab" color="green" small dark fab>
-            <v-icon :class="getCurrentBrushClass() + ' draw-size-' + editState.thickness">mdi-circle</v-icon>
+        <template v-slot:activator="{ props: activatorProps }">
+          <v-btn v-bind="activatorProps" color="green" small dark icon="mdi-circle" :class="getCurrentBrushClass() + ' draw-size-' + editState.thickness">
           </v-btn>
         </template>
-        <v-btn color="grey lighten-1" dark fab small @click="setThickness(2)">
-          <v-icon :class="getCurrentBrushClass() + ' draw-size-2'">mdi-circle</v-icon>
+        <v-btn key="1" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(2)" :class="getCurrentBrushClass() + ' draw-size-2'">
         </v-btn>
-        <v-btn color="grey lighten-1" dark fab small @click="setThickness(6)">
-          <v-icon :class="getCurrentBrushClass() + ' draw-size-6'">mdi-circle</v-icon>
+        <v-btn key="2" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(6)" :class="getCurrentBrushClass() + ' draw-size-6'">
         </v-btn>
-        <v-btn color="grey lighten-1" dark fab small @click="setThickness(10)">
-          <v-icon :class="getCurrentBrushClass() + ' draw-size-10'">mdi-circle</v-icon>
+        <v-btn key="3" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(10)" :class="getCurrentBrushClass() + ' draw-size-10'">
         </v-btn>
-        <v-btn color="grey lighten-1" dark fab small @click="setThickness(14)">
-          <v-icon :class="getCurrentBrushClass() + ' draw-size-14'">mdi-circle</v-icon>
+        <v-btn key="4" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(14)" :class="getCurrentBrushClass() + ' draw-size-14'">
         </v-btn>
-        <v-btn color="grey lighten-1" dark fab small @click="setThickness(18)">
-          <v-icon :class="getCurrentBrushClass() + ' draw-size-18'">mdi-circle</v-icon>
+        <v-btn key="5" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(18)" :class="getCurrentBrushClass() + ' draw-size-18'">
         </v-btn>
       </v-speed-dial>
 
-      <v-btn color="green" dark fab small @click="openMusicIconPopover">
-        <v-icon>mdi-music</v-icon>
+      <v-btn color="green" dark small @click="openMusicIconPopover" icon="mdi-music">
       </v-btn>
-      <v-btn color="green" dark fab small @click="textDialog = !textDialog">
-        <v-icon>mdi-format-text</v-icon>
+      <v-btn color="green" dark small @click="textDialog = !textDialog" icon="mdi-format-text">
       </v-btn>
     </div>
     <!--  Mode Selection  -->
@@ -155,882 +138,893 @@
   </div>
 </template>
 
-<script lang="ts">
-import fabric, { FabricObject } from "fabric"
+<script setup lang="ts">
+import { FabricObject } from "fabric"
+import * as fabric from 'fabric';
 import * as fontfaceobserver from "fontfaceobserver"
 import _, { set } from "lodash"
 import * as pdfJs from "pdfjs-dist"
-import Vue from "vue"
-import Component from "vue-class-component"
-import { Watch } from "vue-property-decorator"
-import { mapFields } from "vuex-map-fields"
+import { onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   BRUSH_COLORS,
   EventNames,
-  Icon,
+  type Icon,
   MDI_ICONS,
   MUSIC_ICONS,
   MUSIC_SVG,
-  Svg,
+  type Svg,
 } from "../Enums"
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements"
-import { EditState } from "../models/EditState"
-import { OverlayData } from "../models/OverlayData"
+import { type EditState } from "../models/EditState"
+import { type OverlayData } from "../models/OverlayData"
+import useStore from "../store";
+import { storeToRefs } from "pinia";
+import router from "../router";
 
 
-@Component({
-  computed: {
-    ...mapFields(["editMode"]),
-  },
-})
-export default class SheetViewer extends Vue {
-  allMusicIcons = MUSIC_ICONS.ALL_ICONS;
-  allMusicSVGs = MUSIC_SVG.ALL_SGVS;
-  allNOTES = MUSIC_ICONS.NOTES;
-  allMdiIcons = MDI_ICONS.ALL_ICONS;
-  pageNumbers = 0;
-  currentPage = 1;
-  pagesLoaded = 0;
-  debouncedResize?: any;
-  pdfLoadingTask?: pdfJs.PDFDocumentLoadingTask;
-  editFabric?: fabric.Canvas;
-  sheetViewerWrapperId = "sheetViewerWrapper";
-  editCanvasId = "";
-  overlayData: OverlayData[] = [];
-  editFab = false;
-  drawingFab = false;
-  colorFab = false;
-  sizeFab = false;
-  objectFab = false;
-  musicSymbolDialog = false;
-  overlayFabrics: fabric.StaticCanvas[] = [];
-  pageSizes: Array<{ width: number; height: number }> = [];
-  editState: EditState = {
-    thickness: 0,
-    drawingMode: false,
-    interactiveMode: false,
-    color: { r: 0, g: 0, b: 0 },
-    pencilMode: false,
-  };
-  textDialog = false;
-  text = "";
-  buttonGroupLeft = false;
-  editMode: boolean;
-  private pdf?: pdfJs.PDFDocumentProxy;
-  existingText: fabric.FabricObject
 
-  getCurrentWidth(): number {
-    return this.pageSizes[this.currentPage]?.width ?? 0;
-  }
 
-  getCurrentHeight(): number {
-    return this.pageSizes[this.currentPage + 1]?.height ?? 0;
-  }
+const allMusicIcons = ref(MUSIC_ICONS.ALL_ICONS);
+const allMusicSVGs = ref(MUSIC_SVG.ALL_SGVS);
+const allNOTES = ref(MUSIC_ICONS.NOTES);
+const allMdiIcons = ref(MDI_ICONS.ALL_ICONS);
+const pageNumbers = ref(0);
+const currentPage = ref(1);
+const pagesLoaded = ref(0);
+let pdfLoadingTask: pdfJs.PDFDocumentLoadingTask | undefined;
+let editFabric: fabric.Canvas | undefined;
+const sheetViewerWrapperId = "sheetViewerWrapper";
+const editCanvasId = "";
+let overlayData: OverlayData[] = [];
+const musicSymbolDialog = ref(false);
+let overlayFabrics: fabric.StaticCanvas[] = [];
+const pageSizes: Array<{ width: number; height: number }> = [];
+const editState = ref<EditState>({
+  thickness: 0,
+  drawingMode: false,
+  interactiveMode: false,
+  color: { r: 0, g: 0, b: 0 },
+  pencilMode: false,
+});
+const textDialog = ref(false);
+const text = ref("");
+const buttonGroupLeft = ref(false);
+let pdf: pdfJs.PDFDocumentProxy;
+let existingText: fabric.FabricObject | undefined;
 
-  getImgUrl(icon: string): string {
-    let images = require.context("../assets/", false, /\.svg$/);
-    return images("./" + icon);
-  }
 
-  beforeDestroy(): void {
-    window.removeEventListener("keydown", this.onKeyDown);
-    window.removeEventListener("click", this.onClick);
-    window.removeEventListener("resize", this.debouncedResize);
-  }
 
-  async mounted(): Promise<void> {
-    enhanceFabricPrototype();
+const store = useStore();
+const { editMode } = storeToRefs(store);
+const debouncedResize = _.debounce(onResize, 500);
 
-    window.addEventListener("keydown", this.onKeyDown);
-    window.addEventListener("click", this.onClick);
-    this.debouncedResize = _.debounce(this.onResize, 500);
-    window.addEventListener("resize", this.debouncedResize);
 
-    await new Promise((resolve) => {
-      window.ipcRenderer.once(
-        EventNames.LOAD_OVERLAY_DATA,
-        (event, overlayData: string): void => {
-          if (!overlayData) {
-            this.overlayData = [];
-            resolve(undefined);
-            return;
-          }
-          this.overlayData = JSON.parse(overlayData);
+
+
+
+
+onMounted(async () => {
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("click", onClick);
+
+  enhanceFabricPrototype();
+
+  window.addEventListener("resize", debouncedResize);
+
+  await new Promise((resolve) => {
+    window.ipcRenderer.once(
+      EventNames.LOAD_OVERLAY_DATA,
+      (event, newOverlayData: string): void => {
+        if (!newOverlayData) {
+          overlayData = [];
           resolve(undefined);
+          return;
         }
-      );
-      window.ipcRenderer.send(EventNames.START_LOAD_OVERLAY_DATA, {
-        path: this.$route.params.path,
-      });
+        overlayData = JSON.parse(newOverlayData);
+        resolve(undefined);
+      }
+    );
+    window.ipcRenderer.send(EventNames.START_LOAD_OVERLAY_DATA, {
+      path: router.currentRoute.value.params.path,
     });
+  });
 
-    this.currentPage = 1;
-    this.pdfLoadingTask = pdfJs.getDocument({
-      url: "local-resource://" + this.$route.params.path,
-    });
-    await this.renderPdf();
+  currentPage.value = 1;
+  pdfLoadingTask = pdfJs.getDocument({
+    url: "local-resource://" + router.currentRoute.value.params.path,
+  });
+  await renderPdf();
+
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeyDown);
+  window.removeEventListener("click", onClick);
+  window.removeEventListener("resize", debouncedResize);
+})
+
+function onKeyDown(event: KeyboardEvent): void {
+  if (store.editMode) {
+    return;
   }
-  // @Watch("pagesLoaded", { immediate: true })
-  // async enableEditModeDebug() {
-  //   if (this.pagesLoaded === this.pageNumbers && this.pageNumbers !== 0) {
-
-  //     await new Promise(resolve => setTimeout(resolve, 1000));
-  //     this.editMode = true;
-  //   }
-  // }
-
-
-  setGreenColor(): void {
-    this.setEditMode({
-      color: BRUSH_COLORS.GREEN.getColor(),
-    });
+  if (event.key === "ArrowRight") {
+    nextPage();
   }
-
-  setRedColor(): void {
-    this.setEditMode({
-      color: BRUSH_COLORS.RED.getColor(),
-    });
+  if (event.key === "ArrowLeft") {
+    prevPage();
   }
+}
 
-  setBlueColor(): void {
-    this.setEditMode({
-      color: BRUSH_COLORS.BLUE.getColor(),
-    });
+function onClick(event: MouseEvent): void {
+  if (!event.target) {
+    return;
   }
+  let sheetViewerWrapper = document.getElementById("sheetViewerWrapper");
+  if (!sheetViewerWrapper) {
+    return;
+  }
+  if (!sheetViewerWrapper.contains(event.target as HTMLElement)) {
+    return;
+  }
+  if (store.editMode) {
+    return;
+  }
+  if (pagesLoaded.value !== pageNumbers.value) {
+    return;
+  }
+  if (event.clientX > window.innerWidth / 2) {
+    nextPage();
+  } else {
+    prevPage();
+  }
+}
 
-  setBlackColor(): void {
-    this.setEditMode({
-      color: BRUSH_COLORS.BLACK.getColor(),
-    });
-  }
-  setWhiteColor(): void {
-    this.setEditMode({
-      color: BRUSH_COLORS.WHITE.getColor(),
-    });
-  }
+function onResize(): void {
+  renderPdf();
+}
 
-  togglePencileAndMarkerMode(): void {
-    if (this.editState.pencilMode) {
-      this.setMarkerMode();
-    } else {
-      this.setPencilMode();
+watch(editMode, async (editMode) => {
+  if (editMode && pagesLoaded.value !== pageNumbers.value) {
+    store.editMode = false
+    return;
+  }
+  if (editMode) {
+    if (!Number.isInteger(currentPage.value)) {
+      currentPage.value += 0.5;
     }
+    clearOverlayCanvas();
+    await createFabricCanvas();
+  } else if (editFabric) {
+    saveDrawnData();
+    removeFabricCanvas();
+    await populateOverlayCanvas();
+  }
+})
+
+
+
+function getCurrentWidth(): number {
+  return pageSizes[currentPage.value]?.width ?? 0;
+}
+
+function getCurrentHeight(): number {
+  return pageSizes[currentPage.value + 1]?.height ?? 0;
+}
+
+function getImgUrl(icon: string): string {
+  // let images = require.context("../assets/", false, /\.svg$/);
+  // return images("./" + icon);
+  return icon
+}
+
+
+// @Watch("pagesLoaded", { immediate: true })
+// async enableEditModeDebug() {
+//   if (this.pagesLoaded === this.pageNumbers && this.pageNumbers !== 0) {
+
+//     await new Promise(resolve => setTimeout(resolve, 1000));
+//     this.editMode = true;
+//   }
+// }
+
+
+function setGreenColor(): void {
+  setEditMode({
+    color: BRUSH_COLORS.GREEN.getColor(),
+  });
+}
+
+function setRedColor(): void {
+  setEditMode({
+    color: BRUSH_COLORS.RED.getColor(),
+  });
+}
+
+function setBlueColor(): void {
+  setEditMode({
+    color: BRUSH_COLORS.BLUE.getColor(),
+  });
+}
+
+function setBlackColor(): void {
+  setEditMode({
+    color: BRUSH_COLORS.BLACK.getColor(),
+  });
+}
+function setWhiteColor(): void {
+  setEditMode({
+    color: BRUSH_COLORS.WHITE.getColor(),
+  });
+}
+
+function togglePencileAndMarkerMode(): void {
+  if (editState.value.pencilMode) {
+    setMarkerMode();
+  } else {
+    setPencilMode();
+  }
+}
+
+function setMarkerMode(): void {
+  setEditMode({
+    pencilMode: false,
+    thickness: 20,
+    color: BRUSH_COLORS.RED.getColor(),
+  });
+}
+
+function setThickness(thickness: number): void {
+  setEditMode({
+    thickness,
+  });
+}
+
+function setPencilMode(): void {
+  setEditMode({
+    pencilMode: true,
+    thickness: 2,
+    color: BRUSH_COLORS.BLACK.getColor(),
+  });
+}
+
+function getCurrentBrushClass(): string {
+  if (!editState.value.color) return "";
+  if (BRUSH_COLORS.RED.equals(editState.value.color)) {
+    return "square-red";
+  }
+  if (BRUSH_COLORS.BLUE.equals(editState.value.color)) {
+    return "square-blue";
+  }
+  if (BRUSH_COLORS.GREEN.equals(editState.value.color)) {
+    return "square-green";
+  }
+  if (BRUSH_COLORS.BLACK.equals(editState.value.color)) {
+    return "square-black";
+  }
+  if (BRUSH_COLORS.WHITE.equals(editState.value.color)) {
+    return "square-white";
+  }
+  return "";
+}
+
+// function addSquare(): void {
+//   if (!this.editFabric) {
+//     return;
+//   }
+
+//   let rect = new fabric.Rect({
+//     fill: "rgba(255,0,0,0.25)",
+//     width: 50,
+//     height: 50,
+//     left: (this.editFabric.width || 0) / 2,
+//     top: (this.editFabric.height || 0) / 2,
+//   });
+//   this.editFabric.add(rect);
+//   this.editFabric.setActiveObject(rect);
+// }
+
+// addBlackSquare(): void {
+//   if (!this.editFabric) {
+//     return;
+//   }
+
+//   let rect = new fabric.Rect({
+//     fill: "rgba(0,0,0,1)",
+//     width: 50,
+//     height: 50,
+//     left: (this.editFabric.width || 0) / 2,
+//     top: (this.editFabric.height || 0) / 2,
+//   });
+//   this.editFabric.add(rect);
+//   this.editFabric.setActiveObject(rect);
+// }
+
+function addTextToCanvas(): void {
+  if (!editFabric) {
+    return;
+  }
+  if (!editState.value.interactiveMode) {
+    startInteractiveMode();
   }
 
-  setMarkerMode(): void {
-    this.setEditMode({
-      pencilMode: false,
-      thickness: 20,
-      color: BRUSH_COLORS.RED.getColor(),
-    });
-  }
+  if (existingText) {
+    if (editFabric.getObjects().some(o => o === existingText)) {
+      existingText.set("text", text.value)
+      existingText.dirty = true;
+      editFabric.requestRenderAll();
 
-  setThickness(thickness: number): void {
-    this.setEditMode({
-      thickness,
-    });
-  }
-
-  setPencilMode(): void {
-    this.setEditMode({
-      pencilMode: true,
-      thickness: 2,
-      color: BRUSH_COLORS.BLACK.getColor(),
-    });
-  }
-
-  getCurrentBrushClass(): string {
-    if (!this.editState.color) return "";
-    if (BRUSH_COLORS.RED.equals(this.editState.color)) {
-      return "square-red";
-    }
-    if (BRUSH_COLORS.BLUE.equals(this.editState.color)) {
-      return "square-blue";
-    }
-    if (BRUSH_COLORS.GREEN.equals(this.editState.color)) {
-      return "square-green";
-    }
-    if (BRUSH_COLORS.BLACK.equals(this.editState.color)) {
-      return "square-black";
-    }
-    if (BRUSH_COLORS.WHITE.equals(this.editState.color)) {
-      return "square-white";
-    }
-    return "";
-  }
-
-  // addSquare(): void {
-  //   if (!this.editFabric) {
-  //     return;
-  //   }
-
-  //   let rect = new fabric.Rect({
-  //     fill: "rgba(255,0,0,0.25)",
-  //     width: 50,
-  //     height: 50,
-  //     left: (this.editFabric.width || 0) / 2,
-  //     top: (this.editFabric.height || 0) / 2,
-  //   });
-  //   this.editFabric.add(rect);
-  //   this.editFabric.setActiveObject(rect);
-  // }
-
-  // addBlackSquare(): void {
-  //   if (!this.editFabric) {
-  //     return;
-  //   }
-
-  //   let rect = new fabric.Rect({
-  //     fill: "rgba(0,0,0,1)",
-  //     width: 50,
-  //     height: 50,
-  //     left: (this.editFabric.width || 0) / 2,
-  //     top: (this.editFabric.height || 0) / 2,
-  //   });
-  //   this.editFabric.add(rect);
-  //   this.editFabric.setActiveObject(rect);
-  // }
-
-  addTextToCanvas(): void {
-    if (!this.editFabric) {
+      textDialog.value = false;
+      text.value = ""
+      existingText = undefined;
       return;
+    } else {
+
+      textDialog.value = false;
+      text.value = ""
+      existingText = undefined
+      return
     }
-    if (!this.editState.interactiveMode) {
-      this.startInteractiveMode();
-    }
 
-    if (this.existingText) {
-      if (this.editFabric.getObjects().some(o => o === this.existingText)) {
-        this.existingText.set("text", this.text)
-        this.existingText.dirty = true;
-        this.editFabric.requestRenderAll();
+  }
 
-        this.textDialog = false;
-        this.text = ""
-        this.existingText = undefined;
-        return;
-      } else {
+  textDialog.value = false;
 
-        this.textDialog = false;
-        this.text = ""
-        this.existingText = undefined
-        return
+  let textbox = new fabric.FabricText(text.value, {
+    width: 100,
+    height: 20,
+    fontSize: 16,
+    selectable: true,
+    __isText: true
+  });
+
+  text.value = ""
+  editFabric.add(textbox);
+
+  textbox.set({
+    left: (editFabric?.width || 0) / 2,
+    top: (editFabric?.height || 0) / 2,
+  });
+  editFabric.setActiveObject(textbox);
+}
+
+function addMdiIcon(icon: Icon) {
+  addMusicIcon(icon, "Material Design Icons")
+}
+
+function addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
+  if (!editFabric) return;
+
+  let iconObject = new fabric.FabricText(icon.code, {
+    fill: "red",
+    fontSize: 1,
+    fontWeight: 500,
+    fontFamily: fontFamily,
+    selectable: true,
+    scaleX: 50,
+    scaleY: 50,
+  });
+
+  removeStretchControls(iconObject);
+
+  editFabric?.add(iconObject);
+  iconObject.set({
+    left: (editFabric?.width || 0) / 2,
+    top: (editFabric?.height || 0) / 2,
+  });
+  if (!editState.value.interactiveMode) {
+    startInteractiveMode();
+  }
+  editFabric.setActiveObject(iconObject);
+
+  musicSymbolDialog.value = false;
+}
+
+function addMusicSvg(svg: Svg): void {
+  if (!editFabric) return;
+  let group: any[] = [];
+
+  fabric.loadSVGFromURL(
+    getImgUrl(svg.file),
+    () => {
+      let loadedObjects = new fabric.Group(group);
+
+      loadedObjects.set({
+        left: (editFabric?.width || 0) / 2,
+        top: (editFabric?.height || 0) / 2,
+        width: svg.width,
+        height: svg.height,
+        scaleX: svg.scaleX,
+        scaleY: svg.scaleY,
+      });
+
+      editFabric?.add(loadedObjects);
+
+      musicSymbolDialog.value = false;
+
+      if (!editState.value.interactiveMode) {
+        startInteractiveMode();
       }
 
-    }
+      editFabric?.setActiveObject(loadedObjects);
+      editFabric?.renderAll();
+    },
+    // function (item: any, object: any) {
+    //   object.set("id", item.getAttribute("id"));
+    //   group.push(object);
+    // }
+  );
+}
 
-    this.textDialog = false;
+function openMusicIconPopover(): void {
+  musicSymbolDialog.value = true;
+}
 
-    let textbox = new fabric.FabricText(this.text, {
-      width: 100,
-      height: 20,
-      fontSize: 16,
-      selectable: true,
-      __isText: true
-    });
 
-    this.text = ""
-    this.editFabric.add(textbox);
+function toggleDrawingAndInteractiveMode(): void {
+  if (!editFabric) return;
+  if (editState.value.interactiveMode) {
+    editFabric.discardActiveObject()
+    editFabric.renderAll()
+    startDrawingMode();
+  } else {
+    startInteractiveMode();
+  }
+}
 
-    textbox.set({
-      left: (this.editFabric?.width || 0) / 2,
-      top: (this.editFabric?.height || 0) / 2,
-    });
-    this.editFabric.setActiveObject(textbox);
+function startDrawingMode(): void {
+  if (!editFabric) {
+    return;
   }
 
-  addMdiIcon(icon: Icon) {
-    this.addMusicIcon(icon, "Material Design Icons")
+  setEditMode({
+    interactiveMode: false,
+    drawingMode: true,
+  });
+  setPencilMode();
+}
+
+function startInteractiveMode(): void {
+  if (!editFabric) {
+    return;
+  }
+  setEditMode({
+    interactiveMode: true,
+    drawingMode: false,
+  });
+}
+
+function saveDrawnData(): void {
+  if (!editFabric) return;
+  let fabricJson = editFabric.toObject(["__isText"]) as any;
+  let fabricDataUrl = editFabric.toDataURL();
+  if (fabricJson.objects.length === 0) {
+    fabricDataUrl = "";
   }
 
-  addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
-    if (!this.editFabric) return;
-
-    let iconObject = new fabric.FabricText(icon.code, {
-      fill: "red",
-      fontSize: 1,
-      fontWeight: 500,
-      fontFamily: fontFamily,
-      selectable: true,
-      scaleX: 50,
-      scaleY: 50,
+  let currentPageData = overlayData.find((a: OverlayData): boolean => {
+    return a.page === currentPage.value;
+  });
+  let width = editFabric.width || 0;
+  let height = editFabric.height || 0;
+  if (currentPageData) {
+    delete currentPageData.dataUrl;
+    currentPageData.data = fabricJson;
+    currentPageData.drawWidth = width;
+    currentPageData.drawHeight = height;
+  } else {
+    overlayData.push({
+      page: currentPage.value,
+      data: fabricJson,
+      drawWidth: width,
+      drawHeight: height,
     });
-
-    removeStretchControls(iconObject);
-
-    this.editFabric?.add(iconObject);
-    iconObject.set({
-      left: (this.editFabric?.width || 0) / 2,
-      top: (this.editFabric?.height || 0) / 2,
-    });
-    if (!this.editState.interactiveMode) {
-      this.startInteractiveMode();
-    }
-    this.editFabric.setActiveObject(iconObject);
-
-    this.musicSymbolDialog = false;
   }
+  window.ipcRenderer.send(EventNames.SAVE_OVERLAY_DATA, {
+    data: JSON.stringify(overlayData),
+    path: router.currentRoute.value.params.path,
+  });
+}
 
-  addMusicSvg(svg: Svg): void {
-    if (!this.editFabric) return;
-    let group: any[] = [];
+function setEditMode(newEditState: Partial<EditState>): void {
+  let currentEditState = getEditMode();
+  const combinedEditState = Object.assign(currentEditState, newEditState);
 
-    fabric.loadSVGFromURL(
-      this.getImgUrl(svg.file),
-      () => {
-        let loadedObjects = new fabric.Group(group);
+  if (!editFabric) {
+    editState.value.drawingMode = false;
+    editState.value.interactiveMode = false;
+    editState.value.pencilMode = false;
+    editState.value.color = { r: 0, g: 0, b: 0 };
+    editState.value.thickness = 0;
+    return;
+  }
+  editState.value.drawingMode = combinedEditState.drawingMode;
+  editFabric.isDrawingMode = combinedEditState.drawingMode;
+  editState.value.interactiveMode = combinedEditState.interactiveMode;
+  // this.editFabric.interactive = newEditState.interactiveMode;
 
-        loadedObjects.set({
-          left: (this.editFabric?.width || 0) / 2,
-          top: (this.editFabric?.height || 0) / 2,
-          width: svg.width,
-          height: svg.height,
-          scaleX: svg.scaleX,
-          scaleY: svg.scaleY,
-        });
+  let cssColor: string;
+  if (combinedEditState.color) {
+    cssColor = `rgba(${combinedEditState.color.r},${combinedEditState.color.g},${combinedEditState.color.b
+      },${combinedEditState.pencilMode ? 1 : 0.25})`;
+  } else {
+    cssColor = "rgba(0,0,0,0)";
+  }
+  editState.value.color = combinedEditState.color;
+  editFabric.freeDrawingBrush = new fabric.PencilBrush(editFabric);
+  editFabric.freeDrawingBrush.color = cssColor;
+  editState.value.thickness = combinedEditState.thickness;
+  editFabric.freeDrawingBrush.width = combinedEditState.thickness || 0;
+}
 
-        this.editFabric?.add(loadedObjects);
+function getEditMode(): EditState {
+  return editState.value;
+}
 
-        this.musicSymbolDialog = false;
+async function createFabricCanvas(): Promise<void> {
+  let sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
 
-        if (!this.editState.interactiveMode) {
-          this.startInteractiveMode();
-        }
-
-        this.editFabric?.setActiveObject(loadedObjects);
-        this.editFabric?.renderAll();
-      },
-      // function (item: any, object: any) {
-      //   object.set("id", item.getAttribute("id"));
-      //   group.push(object);
-      // }
+  let currentPageCanvas =
+    sheetViewerWrapper?.querySelector<HTMLCanvasElement>(
+      `canvas[data-page="${currentPage.value}"]`
     );
+
+  let editCanvas = document.createElement("canvas") as HTMLCanvasElement;
+  editCanvas.className = editCanvasId;
+
+  editCanvas.height = parseFloat(currentPageCanvas?.style.height || "") || 0;
+  editCanvas.width = parseFloat(currentPageCanvas?.style.width || "") || 0;
+  editCanvas.style.height = currentPageCanvas?.style.height || "0px";
+  editCanvas.style.width = currentPageCanvas?.style.width || "0px";
+
+  let canvasWrapper = document.querySelector<HTMLDivElement>(
+    `#${sheetViewerWrapperId} > .canvasWrapper`
+  );
+  canvasWrapper?.appendChild(editCanvas);
+
+  let currentPageData = overlayData.find((a: OverlayData): boolean => {
+    return a.page === currentPage.value;
+  });
+
+  let heightScale = 1;
+  let widthScale = 1;
+  if (currentPageData) {
+    heightScale = editCanvas.height / currentPageData.drawHeight;
+    widthScale = editCanvas.width / currentPageData.drawWidth;
   }
 
-  openMusicIconPopover(): void {
-    this.musicSymbolDialog = true;
-  }
-
-  @Watch("editMode", { immediate: true })
-  async onEditChange(editMode: boolean): Promise<void> {
-    if (this.editMode && this.pagesLoaded !== this.pageNumbers) {
-      this.editMode = false
-      return;
-    }
-    if (editMode) {
-      if (!Number.isInteger(this.currentPage)) {
-        this.currentPage += 0.5;
-      }
-      this.clearOverlayCanvas();
-      await this.createFabricCanvas();
-      // this.saveDrawnData();
-      // this.removeFabricCanvas();
-      // await this.createFabricCanvas();
-    } else if (this.editFabric) {
-      this.saveDrawnData();
-      this.removeFabricCanvas();
-      await this.populateOverlayCanvas();
-    }
-  }
-
-  toggleDrawingAndInteractiveMode(): void {
-    if (this.editState.interactiveMode) {
-      this.editFabric.discardActiveObject()
-      this.editFabric.renderAll()
-      this.startDrawingMode();
-    } else {
-      this.startInteractiveMode();
-    }
-  }
-
-  startDrawingMode(): void {
-    if (!this.editFabric) {
-      return;
-    }
-
-    this.setEditMode({
-      interactiveMode: false,
-      drawingMode: true,
-    });
-    this.setPencilMode();
-  }
-
-  startInteractiveMode(): void {
-    if (!this.editFabric) {
-      return;
-    }
-    this.setEditMode({
-      interactiveMode: true,
-      drawingMode: false,
-    });
-  }
-
-  saveDrawnData(): void {
-    if (!this.editFabric) return;
-    let fabricJson = this.editFabric.toObject(["__isText"]) as any;
-    let fabricDataUrl = this.editFabric.toDataURL();
-    if (fabricJson.objects.length === 0) {
-      fabricDataUrl = "";
-    }
-
-    let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
-      return a.page === this.currentPage;
-    });
-    let width = this.editFabric.width || 0;
-    let height = this.editFabric.height || 0;
-    if (currentPageData) {
-      delete currentPageData.dataUrl;
-      currentPageData.data = fabricJson;
-      currentPageData.drawWidth = width;
-      currentPageData.drawHeight = height;
-    } else {
-      this.overlayData.push({
-        page: this.currentPage,
-        data: fabricJson,
-        drawWidth: width,
-        drawHeight: height,
-      });
-    }
-    window.ipcRenderer.send(EventNames.SAVE_OVERLAY_DATA, {
-      data: JSON.stringify(this.overlayData),
-      path: this.$route.params.path,
-    });
-  }
-
-  setEditMode(editState: EditState): void {
-    let currentEditState = this.getEditMode();
-    let newEditState = Object.assign(currentEditState, editState);
-
-    if (!this.editFabric) {
-      this.editState.drawingMode = false;
-      this.editState.interactiveMode = false;
-      this.editState.pencilMode = false;
-      this.editState.color = { r: 0, g: 0, b: 0 };
-      this.editState.thickness = 0;
-      return;
-    }
-    this.editState.drawingMode = newEditState.drawingMode;
-    this.editFabric.isDrawingMode = newEditState.drawingMode;
-    this.editState.interactiveMode = newEditState.interactiveMode;
-    // this.editFabric.interactive = newEditState.interactiveMode;
-
-    let cssColor: string;
-    if (newEditState.color) {
-      cssColor = `rgba(${newEditState.color.r},${newEditState.color.g},${newEditState.color.b
-        },${newEditState.pencilMode ? 1 : 0.25})`;
-    } else {
-      cssColor = "rgba(0,0,0,0)";
-    }
-    this.editState.color = newEditState.color;
-    this.editFabric.freeDrawingBrush = new fabric.PencilBrush(this.editFabric);
-    this.editFabric.freeDrawingBrush.color = cssColor;
-    this.editState.thickness = newEditState.thickness;
-    this.editFabric.freeDrawingBrush.width = newEditState.thickness || 0;
-  }
-
-  getEditMode(): EditState {
-    return this.editState;
-  }
-
-  async createFabricCanvas(): Promise<void> {
-    let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
-
-    let currentPageCanvas =
-      sheetViewerWrapper?.querySelector<HTMLCanvasElement>(
-        `canvas[data-page="${this.currentPage}"]`
-      );
-
-    let editCanvas = document.createElement("canvas") as HTMLCanvasElement;
-    editCanvas.className = this.editCanvasId;
-
-    editCanvas.height = parseFloat(currentPageCanvas?.style.height || "") || 0;
-    editCanvas.width = parseFloat(currentPageCanvas?.style.width || "") || 0;
-    editCanvas.style.height = currentPageCanvas?.style.height || "0px";
-    editCanvas.style.width = currentPageCanvas?.style.width || "0px";
-
-    let canvasWrapper = document.querySelector<HTMLDivElement>(
-      `#${this.sheetViewerWrapperId} > .canvasWrapper`
-    );
-    canvasWrapper?.appendChild(editCanvas);
-
-    let currentPageData = this.overlayData.find((a: OverlayData): boolean => {
-      return a.page === this.currentPage;
-    });
-
-    let heightScale = 1;
-    let widthScale = 1;
-    if (currentPageData) {
-      heightScale = editCanvas.height / currentPageData.drawHeight;
-      widthScale = editCanvas.width / currentPageData.drawWidth;
-    }
-
-    this.editFabric = new fabric.Canvas(editCanvas, {
-      isDrawingMode: false,
-    });
-    this.startDrawingMode();
-    let handleSelection = () => {
-      if (this.editFabric.getActiveObjects().length > 1) {
-        let groupSelector = this.editFabric.getActiveObject()
+  editFabric = new fabric.Canvas(editCanvas, {
+    isDrawingMode: false,
+  });
+  startDrawingMode();
+  let handleSelection = () => {
+    if (!editFabric) return;
+    if (editFabric.getActiveObjects().length > 1) {
+      let groupSelector = editFabric.getActiveObject()
+      if (groupSelector) {
         setDefaultPropsOnFabricObject(groupSelector, () => { }, true)
         groupSelector.setCoords()
-        this.editFabric.renderAll();
+        editFabric.renderAll();
       }
-      checkFabButtonLocation();
-    };
-
-
-    let checkFabButtonLocation = () => {
-      const [tl, tr, br, bl] = this.editFabric.getActiveObject().getCoords();
-
-      if (br.x > this.editFabric.width * 0.75 && br.y > this.editFabric.height * 0.75) {
-        this.buttonGroupLeft = true
-      } else {
-        this.buttonGroupLeft = false
-      }
-
     }
-    this.editFabric.on("selection:created", handleSelection.bind(this));
-    this.editFabric.on("selection:updated", handleSelection.bind(this));
+    checkFabButtonLocation();
+  };
+
+
+  let checkFabButtonLocation = () => {
+    if (!editFabric) return;
+    const activeObject = editFabric.getActiveObject()
+    if (!activeObject) return;
+    const [tl, tr, br, bl] = activeObject.getCoords();
+
+    if (br.x > editFabric.width * 0.75 && br.y > editFabric.height * 0.75) {
+      buttonGroupLeft.value = true
+    } else {
+      buttonGroupLeft.value = false
+    }
+
+  }
+  editFabric.on("selection:created", handleSelection);
+  editFabric.on("selection:updated", handleSelection);
 
 
 
-    this.editFabric.on("object:moving", checkFabButtonLocation)
-    this.editFabric.on("selection:cleared", (event) => {
-      this.buttonGroupLeft = false
-    });
+  editFabric.on("object:moving", checkFabButtonLocation)
+  editFabric.on("selection:cleared", () => {
+    buttonGroupLeft.value = false
+  });
 
-    this.editFabric.on("object:added", (event) => {
-      const target = event.target
-      let text = target.get("text");
-      setDefaultPropsOnFabricObject(event.target, () => {
-        this.text = text;
-        this.textDialog = true;
-        this.existingText = target;
-      })
+  editFabric.on("object:added", (event) => {
+    setDefaultPropsOnFabricObject(event.target, (event,transform) => {
+      text.value = transform.target.get("text");
+      textDialog.value = true;
+      existingText = transform.target;
     })
+  })
 
-    if (!currentPageData) return;
+  if (!currentPageData) return;
 
-    return new Promise(async (resolve) => {
+  return new Promise(async (resolve) => {
 
-      await new fontfaceobserver.default("notoIcons").load()
-      await this.editFabric?.loadFromJSON(currentPageData?.data, (jsonObject, canvasObject) => {
-        if (canvasObject instanceof FabricObject) {
-          canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
-          canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
-          canvasObject.left = (canvasObject.left || 0) * widthScale;
-          canvasObject.top = (canvasObject.top || 0) * heightScale;
-          canvasObject.dirty = true;
-          // setDefaultPropsOnFabricObject(canvasObject)
-        }
-      });
-
-      this.editFabric?.renderAll();
-      resolve();
-    });
-  }
-
-  removeFabricCanvas(): void {
-    this.editFabric?.dispose();
-    this.editFabric = undefined;
-
-    let sheetViewerWrapper = document.getElementById(this.sheetViewerWrapperId);
-    sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
-    this.setEditMode({});
-  }
-
-  clearOverlayCanvas(): void {
-    this.overlayFabrics.forEach((fabric) => {
-      fabric.dispose();
-    });
-    this.overlayFabrics = [];
-    document
-      .querySelectorAll<HTMLCanvasElement>(".overlayCanvas")
-      .forEach((canvas) => canvas.remove());
-  }
-
-  async populateOverlayCanvas() {
-    this.clearOverlayCanvas();
-
-    let $wrapper = document.getElementById(
-      "sheetViewerWrapper"
-    ) as HTMLDivElement;
-
-    for (let i = 0; i < this.overlayData.length; i++) {
-      let overlayJsonData = this.overlayData[i];
-      if (!overlayJsonData) continue;
-      let pageNumber = overlayJsonData.page;
-
-      let canvas = $wrapper?.querySelector(
-        'canvas[data-page="' + pageNumber + '"]'
-      ) as HTMLCanvasElement;
-      let halfPageCanvas = $wrapper?.querySelector(
-        'canvas[data-page="' + (pageNumber - 0.5) + '"]'
-      ) as HTMLCanvasElement;
-
-      await this.createOverlay(canvas, overlayJsonData, false);
-      if (halfPageCanvas) {
-        await this.createOverlay(halfPageCanvas, overlayJsonData, true);
-      }
-      this.setOverlayVisible();
-    }
-  }
-
-  async createOverlay(
-    canvas: HTMLCanvasElement,
-    overlayData: OverlayData,
-    isHalfPage: boolean
-  ): Promise<void> {
-    let zIndex = canvas.style.zIndex;
-    let width = parseFloat(canvas.style.width);
-    let height = parseFloat(canvas.style.height);
-    let pageNumber = canvas.getAttribute("data-page");
-
-    let overlayCanvas = document.createElement("canvas");
-
-    overlayCanvas.style.zIndex = zIndex;
-    overlayCanvas.style.width = width + "px";
-    overlayCanvas.style.height = height + "px";
-    overlayCanvas.height = height;
-    overlayCanvas.width = width;
-
-    overlayCanvas.setAttribute("data-page-overlay", pageNumber || "");
-
-    overlayCanvas.classList.add("pageCanvas", "overlayCanvas");
-
-    canvas.insertAdjacentElement("afterend", overlayCanvas);
-
-    let widthScale = width / overlayData.drawWidth;
-    let heightScale = height / overlayData.drawHeight;
-    widthScale = parseFloat(widthScale.toFixed(2));
-    heightScale = parseFloat(heightScale.toFixed(2));
-
-    let overlayFabric = new fabric.StaticCanvas(overlayCanvas);
-    await overlayFabric.loadFromJSON(overlayData.data, (a, canvasObject) => {
+    await new fontfaceobserver.default("notoIcons").load()
+    await editFabric?.loadFromJSON(currentPageData?.data, (jsonObject, canvasObject) => {
       if (canvasObject instanceof FabricObject) {
         canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
         canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
         canvasObject.left = (canvasObject.left || 0) * widthScale;
         canvasObject.top = (canvasObject.top || 0) * heightScale;
         canvasObject.dirty = true;
+        // setDefaultPropsOnFabricObject(canvasObject)
       }
     });
 
+    editFabric?.renderAll();
+    resolve();
+  });
+}
 
-    overlayFabric.renderAll();
-    if (isHalfPage) {
-      let height = overlayFabric.getHeight() / 2;
-      let width = overlayFabric.getWidth();
-      overlayFabric.getContext().clearRect(0, height, width, height);
-    }
+function removeFabricCanvas(): void {
+  editFabric?.dispose();
+  editFabric = undefined;
 
-    this.overlayFabrics.push(overlayFabric);
-  }
+  let sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
+  sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
+  setEditMode({});
+}
 
-  async renderPdf(): Promise<void> {
-    if (!this.pdfLoadingTask) {
-      return;
-    }
-    this.pdf = await this.pdfLoadingTask.promise;
-    this.pageNumbers = this.pdf?.numPages || 0;
-    this.pagesLoaded = 0;
+function clearOverlayCanvas(): void {
+  overlayFabrics.forEach((fabric) => {
+    fabric.dispose();
+  });
+  overlayFabrics = [];
+  document
+    .querySelectorAll<HTMLCanvasElement>(".overlayCanvas")
+    .forEach((canvas) => canvas.remove());
+}
 
-    setTimeout(() => {
-      let $wrapper = document.getElementById(
-        "sheetViewerWrapper"
-      ) as HTMLDivElement;
-      let renderingPromises = [];
-      for (let i = 1; i <= this.pageNumbers; i++) {
-        let $canvas = $wrapper?.querySelector(
-          'canvas[data-page="' + i + '"]'
-        ) as HTMLCanvasElement;
-        renderingPromises.push(
-          this.renderPage(i, $canvas, $wrapper).then(() => {
-            this.pagesLoaded++;
-          })
-        );
-      }
-      Promise.all(renderingPromises).then(this.populateOverlayCanvas);
-    }, 0);
-  }
+async function populateOverlayCanvas() {
+  clearOverlayCanvas();
 
-  onKeyDown(event: KeyboardEvent): void {
-    if (this.$store.getters.getField("editMode")) {
-      return;
-    }
-    if (event.key === "ArrowRight") {
-      this.nextPage();
-    }
-    if (event.key === "ArrowLeft") {
-      this.prevPage();
-    }
-  }
+  let $wrapper = document.getElementById(
+    "sheetViewerWrapper"
+  ) as HTMLDivElement;
 
-  onClick(event: MouseEvent): void {
-    if (!event.target) {
-      return;
-    }
-    let sheetViewerWrapper = document.getElementById("sheetViewerWrapper");
-    if (!sheetViewerWrapper) {
-      return;
-    }
-    if (!sheetViewerWrapper.contains(event.target as HTMLElement)) {
-      return;
-    }
-    if (this.$store.getters.getField("editMode")) {
-      return;
-    }
-    if (this.pagesLoaded !== this.pageNumbers) {
-      return;
-    }
-    if (event.clientX > window.innerWidth / 2) {
-      this.nextPage();
-    } else {
-      this.prevPage();
-    }
-  }
+  for (let i = 0; i < overlayData.length; i++) {
+    let overlayJsonData = overlayData[i];
+    if (!overlayJsonData) continue;
+    let pageNumber = overlayJsonData.page;
 
-  onResize(): void {
-    this.renderPdf();
-  }
-
-  nextPage(): void {
-    this.currentPage < this.pageNumbers ? (this.currentPage += 0.5) : null;
-    this.setOverlayVisible();
-  }
-
-  prevPage(): void {
-    this.currentPage > 1 ? (this.currentPage -= 0.5) : null;
-    this.setOverlayVisible();
-  }
-
-  setOverlayVisible(): void {
-    document
-      .querySelectorAll<HTMLCanvasElement>("canvas.overlayCanvas")
-      .forEach((canvas) => {
-        let pageNumber = parseFloat(
-          canvas.getAttribute("data-page-overlay") || ""
-        );
-        if (
-          this.currentPage === pageNumber ||
-          this.currentPage - 0.5 === pageNumber
-        ) {
-          canvas.classList.add("pageVisible");
-        } else {
-          canvas.classList.remove("pageVisible");
-        }
-      });
-  }
-
-  isPageVisible(page: number): boolean {
-    if (Number.isInteger(this.currentPage)) {
-      return page === this.currentPage;
-    }
-    if (page === this.currentPage) {
-      return true;
-    }
-    return page + 0.5 === this.currentPage;
-  }
-
-  async renderPage(
-    pageNumber: number,
-    $canvas: HTMLCanvasElement,
-    $wrapper: HTMLDivElement
-  ): Promise<any> {
-    if (!this.pdf) {
-      return;
-    }
-    let scaling = 4;
-    let page = await this.pdf.getPage(pageNumber);
-    let scale1ViewPort = page.getViewport({
-      scale: 1,
-    });
-
-    let scale = $wrapper.clientHeight / scale1ViewPort.height;
-
-    let windowViewport = page.getViewport({ scale });
-
-    if (windowViewport.width > $wrapper.clientWidth) {
-      scale = $wrapper.clientWidth / scale1ViewPort.width;
-      windowViewport = page.getViewport({ scale });
-    }
-    let viewport = scale1ViewPort;
-
-    // Prepare canvas using PDF page dimensions
-
-    $canvas.height = viewport.height * scaling;
-    $canvas.width = viewport.width * scaling;
-    $canvas.style.height = windowViewport.height + "px";
-    $canvas.style.width = windowViewport.width + "px";
-
-    this.pageSizes[pageNumber] = {
-      width: windowViewport.width,
-      height: windowViewport.height,
-    };
-
-    // Render PDF page into canvas context
-    const canvasContext = $canvas.getContext("2d");
-    canvasContext?.scale(scaling, scaling);
-    const renderContext = {
-      canvasContext,
-      viewport,
-      background: "#ffffff",
-    };
-
-    await page.render(renderContext).promise.then(() => {
-      return this.copyPageToHalfPageAndBackdrop(pageNumber, $canvas, $wrapper);
-    });
-  }
-
-  copyPageToHalfPageAndBackdrop(
-    pageNumber: number,
-    $canvas: HTMLCanvasElement,
-    $wrapper: HTMLDivElement
-  ): Promise<number> {
-    let originalCanvas = $wrapper?.querySelector(
+    let canvas = $wrapper?.querySelector(
       'canvas[data-page="' + pageNumber + '"]'
     ) as HTMLCanvasElement;
-    if (pageNumber === 1) {
-      return Promise.resolve(pageNumber);
-    }
     let halfPageCanvas = $wrapper?.querySelector(
       'canvas[data-page="' + (pageNumber - 0.5) + '"]'
     ) as HTMLCanvasElement;
-    halfPageCanvas.height = originalCanvas.height;
-    halfPageCanvas.width = originalCanvas.width;
-    halfPageCanvas.style.height = originalCanvas.style.height;
-    halfPageCanvas.style.width = originalCanvas.style.width;
 
-    let halfPageContext = halfPageCanvas.getContext("2d");
-    halfPageContext?.drawImage(originalCanvas, 0, 0);
-
-    let backdrop = $wrapper?.querySelector(
-      'div[data-page-backdrop="' + (pageNumber - 0.5) + '"]'
-    ) as HTMLDivElement;
-    if (backdrop) {
-      let width = parseFloat(halfPageCanvas.style.width) + 100;
-      if (width > window.outerWidth) {
-        width = window.outerWidth;
-      }
-      backdrop.style.width = width + "px";
-      backdrop.style.height =
-        parseFloat(halfPageCanvas.style.height) / 2 + 5 + "px";
+    await createOverlay(canvas, overlayJsonData, false);
+    if (halfPageCanvas) {
+      await createOverlay(halfPageCanvas, overlayJsonData, true);
     }
-
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        if (!halfPageContext) {
-          resolve(pageNumber);
-          return;
-        }
-        let height = originalCanvas.height / 2;
-        let width = originalCanvas.width;
-        halfPageContext.clearRect(0, height, width, height);
-        resolve(pageNumber);
-      }, 500);
-    });
+    setOverlayVisible();
   }
 }
+
+async function createOverlay(
+  canvas: HTMLCanvasElement,
+  overlayData: OverlayData,
+  isHalfPage: boolean
+): Promise<void> {
+  let zIndex = canvas.style.zIndex;
+  let width = parseFloat(canvas.style.width);
+  let height = parseFloat(canvas.style.height);
+  let pageNumber = canvas.getAttribute("data-page");
+
+  let overlayCanvas = document.createElement("canvas");
+
+  overlayCanvas.style.zIndex = zIndex;
+  overlayCanvas.style.width = width + "px";
+  overlayCanvas.style.height = height + "px";
+  overlayCanvas.height = height;
+  overlayCanvas.width = width;
+
+  overlayCanvas.setAttribute("data-page-overlay", pageNumber || "");
+
+  overlayCanvas.classList.add("pageCanvas", "overlayCanvas");
+
+  canvas.insertAdjacentElement("afterend", overlayCanvas);
+
+  let widthScale = width / overlayData.drawWidth;
+  let heightScale = height / overlayData.drawHeight;
+  widthScale = parseFloat(widthScale.toFixed(2));
+  heightScale = parseFloat(heightScale.toFixed(2));
+
+  let overlayFabric = new fabric.StaticCanvas(overlayCanvas);
+  await overlayFabric.loadFromJSON(overlayData.data, (a, canvasObject) => {
+    if (canvasObject instanceof FabricObject) {
+      canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
+      canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
+      canvasObject.left = (canvasObject.left || 0) * widthScale;
+      canvasObject.top = (canvasObject.top || 0) * heightScale;
+      canvasObject.dirty = true;
+    }
+  });
+
+
+  overlayFabric.renderAll();
+  if (isHalfPage) {
+    let height = overlayFabric.getHeight() / 2;
+    let width = overlayFabric.getWidth();
+    overlayFabric.getContext().clearRect(0, height, width, height);
+  }
+
+  overlayFabrics.push(overlayFabric);
+}
+
+async function renderPdf(): Promise<void> {
+  if (!pdfLoadingTask) {
+    return;
+  }
+  pdf = await pdfLoadingTask.promise;
+  pageNumbers.value = pdf?.numPages || 0;
+  pagesLoaded.value = 0;
+
+  setTimeout(() => {
+    let $wrapper = document.getElementById(
+      "sheetViewerWrapper"
+    ) as HTMLDivElement;
+    let renderingPromises = [];
+    for (let i = 1; i <= pageNumbers.value; i++) {
+      let $canvas = $wrapper?.querySelector(
+        'canvas[data-page="' + i + '"]'
+      ) as HTMLCanvasElement;
+      renderingPromises.push(
+        renderPage(i, $canvas, $wrapper).then(() => {
+          pagesLoaded.value++;
+        })
+      );
+    }
+    Promise.all(renderingPromises).then(populateOverlayCanvas);
+  }, 0);
+}
+
+
+function nextPage(): void {
+  currentPage.value += currentPage.value < pageNumbers.value ? 0.5 : 0
+  setOverlayVisible();
+}
+
+function prevPage(): void {
+  currentPage.value -= currentPage.value > 1 ? 0.5 : 0
+  setOverlayVisible();
+}
+
+function setOverlayVisible(): void {
+  document
+    .querySelectorAll<HTMLCanvasElement>("canvas.overlayCanvas")
+    .forEach((canvas) => {
+      let pageNumber = parseFloat(
+        canvas.getAttribute("data-page-overlay") || ""
+      );
+      if (
+        currentPage.value === pageNumber ||
+        currentPage.value - 0.5 === pageNumber
+      ) {
+        canvas.classList.add("pageVisible");
+      } else {
+        canvas.classList.remove("pageVisible");
+      }
+    });
+}
+
+function isPageVisible(page: number): boolean {
+  if (Number.isInteger(currentPage.value)) {
+    return page === currentPage.value;
+  }
+  if (page === currentPage.value) {
+    return true;
+  }
+  return page + 0.5 === currentPage.value;
+}
+
+async function renderPage(
+  pageNumber: number,
+  $canvas: HTMLCanvasElement,
+  $wrapper: HTMLDivElement
+): Promise<any> {
+  if (!pdf) {
+    return;
+  }
+  let scaling = 4;
+  let page = await pdf.getPage(pageNumber);
+  let scale1ViewPort = page.getViewport({
+    scale: 1,
+  });
+
+  let scale = $wrapper.clientHeight / scale1ViewPort.height;
+
+  let windowViewport = page.getViewport({ scale });
+
+  if (windowViewport.width > $wrapper.clientWidth) {
+    scale = $wrapper.clientWidth / scale1ViewPort.width;
+    windowViewport = page.getViewport({ scale });
+  }
+  let viewport = scale1ViewPort;
+
+  // Prepare canvas using PDF page dimensions
+
+  $canvas.height = viewport.height * scaling;
+  $canvas.width = viewport.width * scaling;
+  $canvas.style.height = windowViewport.height + "px";
+  $canvas.style.width = windowViewport.width + "px";
+
+  pageSizes[pageNumber] = {
+    width: windowViewport.width,
+    height: windowViewport.height,
+  };
+
+  // Render PDF page into canvas context
+  const canvasContext = $canvas.getContext("2d");
+  if (!canvasContext) return;
+  canvasContext?.scale(scaling, scaling);
+  const renderContext = {
+    canvasContext,
+    viewport,
+    background: "#ffffff",
+  };
+
+  await page.render(renderContext).promise.then(() => {
+    return copyPageToHalfPageAndBackdrop(pageNumber, $canvas, $wrapper);
+  });
+}
+
+function copyPageToHalfPageAndBackdrop(
+  pageNumber: number,
+  $canvas: HTMLCanvasElement,
+  $wrapper: HTMLDivElement
+): Promise<number> {
+  let originalCanvas = $wrapper?.querySelector(
+    'canvas[data-page="' + pageNumber + '"]'
+  ) as HTMLCanvasElement;
+  if (pageNumber === 1) {
+    return Promise.resolve(pageNumber);
+  }
+  let halfPageCanvas = $wrapper?.querySelector(
+    'canvas[data-page="' + (pageNumber - 0.5) + '"]'
+  ) as HTMLCanvasElement;
+  halfPageCanvas.height = originalCanvas.height;
+  halfPageCanvas.width = originalCanvas.width;
+  halfPageCanvas.style.height = originalCanvas.style.height;
+  halfPageCanvas.style.width = originalCanvas.style.width;
+
+  let halfPageContext = halfPageCanvas.getContext("2d");
+  halfPageContext?.drawImage(originalCanvas, 0, 0);
+
+  let backdrop = $wrapper?.querySelector(
+    'div[data-page-backdrop="' + (pageNumber - 0.5) + '"]'
+  ) as HTMLDivElement;
+  if (backdrop) {
+    let width = parseFloat(halfPageCanvas.style.width) + 100;
+    if (width > window.outerWidth) {
+      width = window.outerWidth;
+    }
+    backdrop.style.width = width + "px";
+    backdrop.style.height =
+      parseFloat(halfPageCanvas.style.height) / 2 + 5 + "px";
+  }
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      if (!halfPageContext) {
+        resolve(pageNumber);
+        return;
+      }
+      let height = originalCanvas.height / 2;
+      let width = originalCanvas.width;
+      halfPageContext.clearRect(0, height, width, height);
+      resolve(pageNumber);
+    }, 500);
+  });
+}
+
 </script>
 
 <style lang="less">
@@ -1196,6 +1190,9 @@ export default class SheetViewer extends Vue {
 
 .square-black {
   color: #000000 !important;
+}
+.square-white {
+  color: #ffffff !important;
 }
 
 .draw-size-2 {

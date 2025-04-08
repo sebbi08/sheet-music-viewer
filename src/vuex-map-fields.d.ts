@@ -1,15 +1,9 @@
 declare module "vuex-map-fields" {
-  export function mapFields<V extends { [P in U]: any }, U extends keyof V>(
-    fields: V
-  ): { [P in U]: () => any };
+  // export function mapFields<V extends { [P in U]: unknown }, U extends keyof V>(
+  //   fields: V
+  // ): { [P in U]: () => any };
 
-  export function updateField(): any;
+  export function updateField(): unknown;
 
-  export function getField(): any;
-}
-
-declare module "electron" {
-  export const ipcMain : {
-    on(channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void): this
-  };
+  export function getField<T>(): T;
 }

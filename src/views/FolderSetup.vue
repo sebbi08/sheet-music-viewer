@@ -7,25 +7,14 @@
   </div>
 </template>
 
-<script lang="ts">
-import Vue from "vue";
-import { Component } from "vue-property-decorator";
-import { mapFields } from "vuex-map-fields";
+<script setup lang="ts">
 import { EventNames } from "../Enums";
 
-@Component({
-  computed: {
-    ...mapFields(["sheetMusicFolder"]),
-  },
-})
-export default class FolderSetup extends Vue {
-  public sheetMusicFolder!: string;
 
-  selectFolder(): void {
-    if (window.ipcRenderer) {
-      window.ipcRenderer.send(EventNames.SELECT_FOLDER);
-    }
-  }
+
+
+function selectFolder(): void {
+  window.ipcRenderer.send(EventNames.SELECT_FOLDER);
 }
 </script>
 

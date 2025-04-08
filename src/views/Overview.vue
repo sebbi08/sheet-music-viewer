@@ -11,21 +11,19 @@
   </div>
 </template>
 
-<script lang="ts">
-import Vue from "vue";
-import Component from "vue-class-component";
-import { RouteNames } from "../Enums";
+<script setup lang="ts">
+import router from '../router';
+import { RouteNames } from '../Enums';
 
-@Component
-export default class Overview extends Vue {
-  goToSetLists(): void {
-    this.$router.push({ name: RouteNames.SetListList });
-  }
 
-  goToFolders(): void {
-    this.$router.push({ name: RouteNames.SheetSelection });
-  }
+function goToSetLists(): void {
+  router.push({ name: RouteNames.SetListList });
 }
+
+function goToFolders(): void {
+  router.push({ name: RouteNames.SheetSelection });
+}
+
 </script>
 <style lang="less" scoped>
 .container {
@@ -43,12 +41,15 @@ export default class Overview extends Vue {
     padding: 16px;
     margin: 16px;
     width: calc(25% - 32px);
+
     @media (max-width: 960px) {
       width: calc(33% - 32px);
     }
+
     @media (max-width: 700px) {
       width: calc(50% - 32px);
     }
+
     @media (max-width: 400px) {
       width: calc(100% - 32px);
     }

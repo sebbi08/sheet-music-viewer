@@ -1,4 +1,4 @@
-import { Color } from "./models/EditState"
+import { type Color } from "./models/EditState"
 
 export enum EventNames {
   "SELECT_FOLDER" = "SELECT_FOLDER",
@@ -17,7 +17,6 @@ export enum EventNames {
 }
 
 export enum RouteNames {
-  "Root" = "Root",
   "SheetSelection" = "SheetSelection",
   "FolderSetup" = "FolderSetup",
   "Overview" = "Overview",

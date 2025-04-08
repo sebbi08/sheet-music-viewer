@@ -1,4 +1,5 @@
-import fabric, { ControlActionHandler, FabricObject, Transform } from "fabric";
+import { type ControlActionHandler, FabricObject, type Transform } from "fabric";
+import * as fabric from 'fabric';
 import { ACTION_ICONS } from "./Enums";
 
 export function enhanceFabricPrototype(): void {
@@ -118,8 +119,8 @@ function renderIcon(icon: HTMLImageElement) {
     ctx: CanvasRenderingContext2D,
     left: number,
     top: number,
-    styleOverride: any,
-    fabricObject: fabric.Object
+    styleOverride: unknown,
+    fabricObject: fabric.InteractiveFabricObject
   ) {
     const size = 24;
     ctx.save();
@@ -130,7 +131,7 @@ function renderIcon(icon: HTMLImageElement) {
   };
 }
 
-function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
+function deleteObject(eventData: fabric.TPointerEvent, transform: Transform): boolean {
   const target = transform.target;
   const canvas = target.canvas;
 
@@ -146,8 +147,8 @@ function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
   canvas?.remove(...toDelete);
   // canvas?.requestRenderAll();
 
-  canvas.discardActiveObject();
-  canvas.renderAll();
+  canvas?.discardActiveObject();
+  canvas?.renderAll();
   // canvas.selection = false;
   // setTimeout(() => {
   //   canvas.selection = true;
@@ -155,16 +156,17 @@ function deleteObject(eventData: MouseEvent, transform: Transform): boolean {
   return true;
 }
 
-function cloneObject(eventData: MouseEvent, transform: any): boolean {
+function cloneObject(eventData: fabric.TPointerEvent, transform: Transform): boolean {
   const target = transform.target;
-  const canvas = target.canvas;
-  target.clone(function (cloned: fabric.Object) {
-    if (cloned.left && cloned.top) {
-      cloned.left += 10;
-      cloned.top += 10;
-    }
-    canvas?.add(cloned);
-    cloned.canvas?.setActiveObject(cloned);
-  });
+  // const canvas = target.canvas;
+  // target.clone(function (cloned: fabric.Object) {
+  //   if (cloned.left && cloned.top) {
+  //     cloned.left += 10;
+  //     cloned.top += 10;
+  //   }
+  //   canvas?.add(cloned);
+  //   cloned.canvas?.setActiveObject(cloned);
+  // });
+  target.clone(["__isText"]);
   return true;
 }

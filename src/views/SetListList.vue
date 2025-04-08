@@ -1,25 +1,14 @@
 <template>
-  <div :class="setListDeletionMode ? 'deletionMode' : ''" class="container">
+  <div :class="store.setListDeletionMode ? 'deletionMode' : ''" class="container">
     <v-card class="addSetListCard" @click="addSetList()">
       <v-icon x-large>mdi-plus</v-icon>
       <h2 class="itemName">Add Set List</h2>
     </v-card>
-    <v-card
-      v-for="setList in setLists"
-      :key="setList.id"
-      @click="showSetList(setList)"
-    >
+    <v-card v-for="setList in store.setLists" :key="setList.id" @click="showSetList(setList)">
       <v-icon x-large>mdi-playlist-music</v-icon>
       <h2 class="itemName">{{ setList.name }}</h2>
-      <v-btn
-        v-if="setListDeletionMode"
-        class="deletionButton"
-        color="primary"
-        elevation="2"
-        icon
-        small
-        @click="removeSetList(setList)"
-      >
+      <v-btn v-if="store.setListDeletionMode" class="deletionButton" color="primary" elevation="2" icon small
+        @click="removeSetList(setList)">
         <v-icon color="red"> mdi-close</v-icon>
       </v-btn>
     </v-card>
@@ -30,10 +19,7 @@
           <span>Add Set List</span>
         </v-card-title>
         <div class="addSetListDialogContent">
-          <v-text-field
-            v-model="newSetListName"
-            label="Set List name"
-          ></v-text-field>
+          <v-text-field v-model="newSetListName" label="Set List name"></v-text-field>
         </div>
         <v-card-actions>
           <v-spacer></v-spacer>
@@ -47,81 +33,74 @@
   </div>
 </template>
 
-<script lang="ts">
-import Vue from "vue";
-import Component from "vue-class-component";
-import { SetList } from "../models/SetList";
-import { EventNames, RouteNames } from "../Enums";
-import { mapFields } from "vuex-map-fields";
+<script setup lang="ts">
+import { onMounted, ref } from 'vue';
+import useStore from '../store';
+import { EventNames, RouteNames } from '../Enums';
+import type { SetList } from '../models/SetList';
+import router from '../router';
 
-@Component({
-  computed: {
-    ...mapFields(["setLists", "setListDeletionMode"]),
-  },
+const store = useStore();
+const showSetListDialog = ref(false)
+const newSetListName = ref("")
+
+onMounted(() => {
+  store.setListDeletionMode = false;
+  let basePath = store.sheetMusicFolder;
+  window.ipcRenderer.send(EventNames.LOAD_SET_LISTS, {
+    basePath,
+  });
 })
-export default class SetListList extends Vue {
-  showSetListDialog = false;
-  newSetListName = "";
-  setListDeletionMode!: boolean;
-  setLists!: SetList[];
 
-  mounted(): void {
-    this.setListDeletionMode = false;
-    let basePath = this.$store.getters.getField("sheetMusicFolder");
-    window.ipcRenderer.send(EventNames.LOAD_SET_LISTS, {
-      basePath,
-    });
-  }
 
-  saveNewSetList(): void {
-    const newSetList: SetList = {
-      id: this.getNextId(),
-      name: this.newSetListName,
-      sheets: [],
-    };
-    this.setLists.push(newSetList);
-    this.showSetListDialog = false;
-  }
+function saveNewSetList(): void {
+  const newSetList: SetList = {
+    id: getNextId(),
+    name: newSetListName.value,
+    sheets: [],
+  };
+  store.setLists.push(newSetList);
+  showSetListDialog.value = false;
+}
 
-  getNextId(): number {
-    let id = 1;
-    this.setLists.forEach((setList: SetList) => {
-      if (setList.id >= id) {
-        id = setList.id + 1;
-      }
-    });
-    return id;
-  }
-
-  addSetList(): void {
-    if (this.setListDeletionMode) {
-      return;
+function getNextId(): number {
+  let id = 1;
+  store.setLists.forEach((setList: SetList) => {
+    if (setList.id >= id) {
+      id = setList.id + 1;
     }
-    this.newSetListName = "";
-    this.showSetListDialog = true;
-  }
+  });
+  return id;
+}
 
-  removeSetList(setListToRemove: SetList): void {
-    if (!this.setListDeletionMode) {
-      return;
-    }
-    this.setLists = this.setLists.filter((setList) => {
-      return setList.id !== setListToRemove.id;
-    });
-    if (this.setLists.length === 0) {
-      this.setListDeletionMode = false;
-    }
+function addSetList(): void {
+  if (store.setListDeletionMode) {
+    return;
   }
+  newSetListName.value = "";
+  showSetListDialog.value = true;
+}
 
-  showSetList(setList: SetList): void {
-    if (this.setListDeletionMode) {
-      return;
-    }
-    this.$router.push({
-      name: RouteNames.SetList,
-      params: { id: setList.id + "" },
-    });
+function removeSetList(setListToRemove: SetList): void {
+  if (!store.setListDeletionMode) {
+    return;
   }
+  store.setLists = store.setLists.filter((setList) => {
+    return setList.id !== setListToRemove.id;
+  });
+  if (store.setLists.length === 0) {
+    store.setListDeletionMode = false;
+  }
+}
+
+function showSetList(setList: SetList): void {
+  if (store.setListDeletionMode) {
+    return;
+  }
+  router.push({
+    name: RouteNames.SetList,
+    params: { id: setList.id + "" },
+  });
 }
 </script>
 <style lang="less" scoped>
@@ -164,12 +143,15 @@ export default class SetListList extends Vue {
     padding: 16px;
     margin: 16px;
     width: calc(25% - 32px);
+
     @media (max-width: 960px) {
       width: calc(33% - 32px);
     }
+
     @media (max-width: 700px) {
       width: calc(50% - 32px);
     }
+
     @media (max-width: 400px) {
       width: calc(100% - 32px);
     }

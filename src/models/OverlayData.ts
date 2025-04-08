@@ -1,6 +1,6 @@
 export interface OverlayData {
   page: number;
-  data: any;
+  data: object;
   dataUrl?: string;
   drawHeight: number;
   drawWidth: number;

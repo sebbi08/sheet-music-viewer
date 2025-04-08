@@ -1,69 +1,36 @@
 <template>
+
   <v-app>
-    <v-app-bar app dark dense v-bind:color="editMode ? 'red' : 'primary'">
+    <v-app-bar density="compact" app dark v-bind:color="store.editMode ? 'red' : 'primary'">
       <v-btn v-if="showBackButton" icon @click="onNavBack">
         <v-icon>mdi-arrow-left</v-icon>
       </v-btn>
       <div>Sheet music viewer : {{ appVersion }}</div>
       <v-spacer></v-spacer>
-      <div :class="searchVisible ? 'searchVisible' : ''" class="searchWrapper">
-        <v-text-field
-            ref="searchWrapper"
-            v-model="searchTerm"
-            hide-details="auto"
-            label=""
-        ></v-text-field>
+      <div class="searchFieldWrapper">
+        
+        <v-text-field append-inner-icon="mdi-magnify" density="compact" ref="searchWrapper" v-model="store.searchTerm"
+        hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
       </div>
-      <v-btn
-          v-if="$route.name === sheetSelectionRouteName"
-          dark
-          icon
-          @click="showSearch"
-      >
-        <v-icon>mdi-magnify</v-icon>
+      <v-btn v-if="router.currentRoute.value.name === sheetViewerRouterName" dark icon @click="onSwitchEditMode">
+        <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
       </v-btn>
-      <v-btn
-          v-if="$route.name === sheetViewerRouterName"
-          dark
-          icon
-          @click="onSwitchEditMode"
-      >
-        <v-icon>{{ editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
-      </v-btn>
-      <v-btn
-          v-if="$route.name === setListRouteName"
-          dark
-          icon
-          @click="toggleSetListSortMode"
-      >
+      <v-btn v-if="router.currentRoute.value.name === setListRouteName" dark icon @click="toggleSetListSortMode">
         <v-icon>
-          {{ sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
+          {{ store.sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
         </v-icon>
       </v-btn>
-      <v-btn
-          v-if="$route.name === setListRouteName && !setListEditMode"
-          dark
-          icon
-          @click="startSetListEditMode"
-      >
+      <v-btn v-if="router.currentRoute.value.name === setListRouteName && !store.setListEditMode" dark icon
+        @click="startSetListEditMode">
         <v-icon>mdi-pencil</v-icon>
       </v-btn>
-      <v-btn
-          v-if="$route.name === setListListRouteName"
-          dark
-          icon
-          @click="toggleSetListDeletionMode"
-      >
-        <v-icon>{{ setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
+      <v-btn v-if="router.currentRoute.value.name === setListListRouteName" dark icon
+        @click="toggleSetListDeletionMode">
+        <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
       </v-btn>
-      <v-dialog
-          v-if="showSettingsButton"
-          v-model="dialog"
-          max-width="320"
-          persistent
-      >
-        <template v-slot:activator="{ on, attrs }">
-          <v-btn dark icon v-bind="attrs" v-on="on">
+      <v-dialog v-if="showSettingsButton" v-model="dialog" max-width="320" persistent>
+        <template v-slot:activator="{ props }">
+          <v-btn dark icon v-bind="props">
             <v-icon>mdi-cog</v-icon>
           </v-btn>
         </template>
@@ -88,173 +55,140 @@
   </v-app>
 </template>
 
-<script lang="ts">
+<script setup lang="ts">
 import { EventNames, RouteNames } from "./Enums";
-import { mapFields } from "vuex-map-fields";
-import { SheetFile } from "./models/SheetFile";
-import { SetList } from "./models/SetList";
+import { type SheetFile } from "./models/SheetFile";
+import { type SetList } from "./models/SetList";
+import { computed, type Ref, ref, useTemplateRef } from "vue";
+import useStore from "./store";
+import router from "./router";
+import { watch } from "vue";
+import { storeToRefs } from "pinia";
 
-export default {
-  name: "App",
+const dialog = ref(false);
+const appVersion = ref("");
+const sheetViewerRouterName = ref(RouteNames.SheetViewer);
+const sheetSelectionRouteName = ref(RouteNames.SheetSelection);
+const setListRouteName = ref(RouteNames.SetList);
+const setListListRouteName = ref(RouteNames.SetListList);
+const searchWrapper = useTemplateRef("searchWrapper")
 
-  data: () => ({
-    dialog: false,
-    appVersion: (window as any).appVersion,
-    sheetViewerRouterName: RouteNames.SheetViewer,
-    sheetSelectionRouteName: RouteNames.SheetSelection,
-    setListRouteName: RouteNames.SetList,
-    setListListRouteName: RouteNames.SetListList,
-  }),
 
-  mounted() {
-    window.ipcRenderer.on(
-        EventNames.SEND_VERSION,
-        (event, appVersion: string) => {
-          this.appVersion = appVersion;
-        }
-    );
-    window.ipcRenderer.send(EventNames.GET_VERSION);
 
-    window.ipcRenderer.on(
-        EventNames.FOLDER_SELECTED,
-        (event, selectedFolder: string) => {
-          this.$store.commit("updateField", {
-            path: "sheetMusicFolder",
-            value: selectedFolder,
-          });
-          localStorage.setItem("sheetMusicFolder", selectedFolder);
-          this.$router.push({
-            name: "SheetSelection",
-            params: { path: window.path.sep },
-          });
-        }
-    );
+const store = useStore();
 
-    window.ipcRenderer.on(
-        EventNames.FOLDER_LOADED,
-        (event: any, filesAndFolder: SheetFile[]): void => {
-          this.$store.commit("updateField", {
-            path: "filesAndFolder",
-            value: filesAndFolder,
-          });
-        }
-    );
-    window.ipcRenderer.on(
-        EventNames.LOAD_SET_LISTS_RESULT,
-        (event: any, setLists: SetList[]): void => {
-          this.$store.commit("updateField", {
-            path: "setLists",
-            value: setLists,
-          });
-        }
-    );
 
-    window.ipcRenderer.on(
-        EventNames.SEARCH_RESULTS,
-        (event, searchResults: SheetFile[]) => {
-          this.$store.commit("updateField", {
-            path: "searchResults",
-            value: searchResults,
-          });
-        }
-    );
-  },
-  computed: {
-    ...mapFields([
-      "searchTerm",
-      "searchVisible",
-      "editMode",
-      "setLists",
-      "setListEditMode",
-      "sortSetListEnabled",
-      "setListDeletionMode",
-    ]),
-    showBackButton: function () {
-      let currentRoute = this.$route.name;
-      switch (currentRoute) {
-        case RouteNames.SheetSelection:
-        case RouteNames.SheetViewer:
-        case RouteNames.SetListList:
-        case RouteNames.SetList:
-          return true;
-        case RouteNames.Root:
-        case RouteNames.Overview:
-        case RouteNames.FolderSetup:
-          return false;
-        default:
-          console.log("Unspecified route found");
-          return true;
-      }
-    },
-    showSettingsButton: function () {
-      let currentRoute = this.$route.name;
-      return currentRoute !== RouteNames.FolderSetup;
-    },
-  },
+window.ipcRenderer.on(
+  EventNames.SEND_VERSION,
+  (event, newAppVersion: string) => {
+    appVersion.value = newAppVersion;
+  }
+);
+window.ipcRenderer.send(EventNames.GET_VERSION);
 
-  watch: {
-    setLists: {
-      deep: true,
-      handler: function (newValue) {
-        let basePath = this.$store.getters.getField("sheetMusicFolder");
-        window.ipcRenderer.send(EventNames.SAVE_SET_LISTS, {
-          basePath,
-          setLists: newValue,
-        });
-      },
-    },
-  },
+window.ipcRenderer.on(
+  EventNames.FOLDER_SELECTED,
+  (event, selectedFolder: string) => {
 
-  methods: {
-    onNavBack: function () {
-      let clearSearch = !!this.$store.getters.getField("searchTerm");
-      if (this.$route.name === RouteNames.SheetSelection && clearSearch) {
-        this.$store.commit("clearSearch");
-        return;
-      }
-      if (this.$store.getters.getField("editMode")) {
-        this.$store.commit("toggleEditMode");
-      }
+    store.sheetMusicFolder = selectedFolder;
 
-      if (history.length === 1) {
-        this.$router.push({ name: RouteNames.Root });
-      } else {
-        this.$router.go(-1);
-      }
-    },
+    localStorage.setItem("sheetMusicFolder", selectedFolder);
+    router.push({
+      name: "SheetSelection",
+      params: { path: window.path.sep },
+    });
+  }
+);
 
-    clearSearch(): void {
-      this.$store.commit("clearSearch");
-    },
-    navToSettings: function () {
-      this.dialog = false;
-      this.$router.push({ name: RouteNames.FolderSetup });
-    },
-    onSwitchEditMode: function () {
-      this.$store.commit("toggleEditMode");
-    },
-    startSetListEditMode: function () {
-      this.$store.commit("startSetListEditMode");
-    },
-    toggleSetListDeletionMode: function () {
-      this.$store.commit("toggleSetListDeletionMode");
-    },
-    toggleSetListSortMode: function () {
-      this.$store.commit("toggleSetListSortMode");
-    },
-    showSearch: function () {
-      let searchVisible = this.$store.getters.getField("searchVisible");
-      searchVisible = !searchVisible;
-      this.$store.commit("setVisible", searchVisible);
-      if (searchVisible) {
-        (this.$refs["searchWrapper"] as HTMLInputElement)?.focus();
-      } else {
-        (this.$refs["searchWrapper"] as HTMLInputElement)?.blur();
-        this.$store.commit("clearSearch");
-      }
-    },
-  },
-};
+window.ipcRenderer.on(
+  EventNames.FOLDER_LOADED,
+  (event: any, filesAndFolder: SheetFile[]): void => {
+    store.filesAndFolder = filesAndFolder;
+
+  }
+);
+window.ipcRenderer.on(
+  EventNames.LOAD_SET_LISTS_RESULT,
+  (event: any, setLists: SetList[]): void => {
+    store.setLists = setLists;
+  }
+);
+
+window.ipcRenderer.on(
+  EventNames.SEARCH_RESULTS,
+  (event, searchResults: SheetFile[]) => {
+    store.searchResults = searchResults;
+  }
+);
+
+const showBackButton = computed(() => {
+  let currentRoute = router.currentRoute.value.name;
+  switch (currentRoute) {
+    case RouteNames.SheetSelection:
+    case RouteNames.SheetViewer:
+    case RouteNames.SetListList:
+    case RouteNames.SetList:
+      return true;
+    case RouteNames.Overview:
+    case RouteNames.FolderSetup:
+      return false;
+    default:
+      console.log(`Unspecified route found ${String(currentRoute)}`);
+
+      return true;
+  }
+})
+const showSettingsButton = computed(() => {
+  let currentRoute = router.currentRoute.value.name;
+  return currentRoute !== RouteNames.FolderSetup;
+})
+
+function onNavBack() {
+  let clearSearch = !!store.searchTerm;
+  if (router.currentRoute.value.name === RouteNames.SheetSelection && clearSearch) {
+    store.searchTerm = "";
+    return;
+  }
+  if (store.editMode) {
+    store.toggleEditMode();
+  }
+
+  if (history.length === 1) {
+    router.push({ name: RouteNames.Overview });
+  } else {
+    router.go(-1);
+  }
+}
+
+function navToSettings() {
+  dialog.value = false;
+  router.push({ name: RouteNames.FolderSetup });
+}
+function onSwitchEditMode() {
+  store.toggleEditMode();
+}
+function startSetListEditMode() {
+  store.showEditSetListDialog = true;
+}
+function toggleSetListDeletionMode() {
+  store.toggleSetListDeletionMode();
+}
+function toggleSetListSortMode() {
+  store.toggleSetListSortMode();
+}
+function showSearch() {
+  (searchWrapper.value as HTMLInputElement)?.focus();
+}
+
+const { setLists } = storeToRefs(store);
+watch(setLists, (newVal) => {
+  let basePath = store.sheetMusicFolder;
+  window.ipcRenderer.send(EventNames.SAVE_SET_LISTS, {
+    basePath,
+    setLists: JSON.parse(JSON.stringify(newVal)),
+  });
+}, { deep: true });
+
 </script>
 
 <style lang="less">
@@ -263,20 +197,10 @@ html {
   max-height: 100vh;
 }
 
-.searchWrapper {
-  overflow: hidden;
-  padding-bottom: 1px;
-
-  > div {
-    transform: translateX(100%);
-    transition: transform 200ms ease-in-out;
-  }
-
-  &.searchVisible > div {
-    transform: translateX(0);
-  }
+.searchFieldWrapper{
+  max-width: 300px;
+  min-width: 300px;
 }
-
 .v-card {
   user-select: none;
 }

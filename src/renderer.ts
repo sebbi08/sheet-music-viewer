@@ -1,44 +1,33 @@
-import "@mdi/font/css/materialdesignicons.css"
-import "roboto-fontface/css/roboto/roboto-fontface.css"
-import Vue from "vue"
-import App from "./App.vue"
-import router from "./router/index"
-import store from "./store/index"
+import "@mdi/font/css/materialdesignicons.css";
+import "roboto-fontface/css/roboto/roboto-fontface.css";
+// eslint-disable-next-line import/no-unresolved
+import "vuetify/styles";
+import { createApp } from "vue";
+import App from "./App.vue";
+import router from "./router/index";
+import { createPinia } from "pinia";
 
-import Vuetify from 'vuetify/lib'
-import de from "vuetify/src/locale/de"
+import { createVuetify } from "vuetify";
 
-import "pdfjs-dist/webpack"
+import "pdfjs-dist";
+import * as pdfjsLib from "pdfjs-dist";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error
+// eslint-disable-next-line import/no-unresolved
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?worker";
+pdfjsLib.GlobalWorkerOptions.workerPort = new pdfjsWorker();
 
-Vue.use(Vuetify);
-
-const vuetify = new Vuetify({
-    theme: {
-        options: {
-            customProperties: true,
-        },
-        themes: {
-            light: {
-                primary: "#007BFF",
-                secondary: "#424242",
-                accent: "#82B1FF",
-                error: "#FF5252",
-                info: "#2196F3",
-                success: "#4CAF50",
-                warning: "#FFC107",
-            },
-        },
-    },
-    lang: {
-        locales: { de },
-        current: "de",
-    },
+const vuetify = createVuetify({
+  theme: {
+    defaultTheme: "light",
+  },
+  locale: { locale: "de" },
 });
 
+const app = createApp(App);
 
-new Vue({
-    router,
-    store,
-    vuetify,
-    render: (h) => h(App),
-}).$mount("#app");
+app.use(createPinia());
+app.use(router);
+app.use(vuetify);
+
+app.mount("#app");

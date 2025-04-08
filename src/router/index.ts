@@ -1,23 +1,20 @@
-import Vue from "vue";
-import VueRouter, { RouteConfig } from "vue-router";
-import SheetSelection from "../views/SheetSelection.vue";
-import FolderSetup from "../views/FolderSetup.vue";
-import store from "../store";
-import SheetViewer from "../views/SheetViewer.vue";
+import { createRouter, createWebHistory, type RouterOptions } from "vue-router";
+import useStore from "../store";
 import { RouteNames } from "../Enums";
 import Overview from "../views/Overview.vue";
+import FolderSetup from "../views/FolderSetup.vue";
+import SheetSelection from "../views/SheetSelection.vue";
 import SetListList from "../views/SetListList.vue";
 import SetListVue from "../views/SetList.vue";
+import SheetViewer from "../views/SheetViewer.vue";
 
-Vue.use(VueRouter);
-
-const routes: Array<RouteConfig> = [
+const routes: RouterOptions["routes"] = [
   {
     path: "/sheetViewer/:path:",
     component: SheetViewer,
     name: RouteNames.SheetViewer,
   },
-  { path: "/", redirect: "/overview", name: RouteNames.Root },
+  { path: "/", name: RouteNames.Overview, component: Overview },
   {
     path: "/sheetSelection/:path?",
     name: RouteNames.SheetSelection,
@@ -27,11 +24,6 @@ const routes: Array<RouteConfig> = [
     path: "/folderSetup",
     name: RouteNames.FolderSetup,
     component: FolderSetup,
-  },
-  {
-    path: "/overview",
-    name: RouteNames.Overview,
-    component: Overview,
   },
   {
     path: "/SetListList",
@@ -46,16 +38,19 @@ const routes: Array<RouteConfig> = [
 ];
 
 
-const router = new VueRouter({
-  base: "/main_window",
+const router = createRouter({
+  history: createWebHistory(),
   routes,
 });
 
+
 router.beforeEach((to, from, next) => {
+  
+const store = useStore();
   if (to.name === "FolderSetup") {
     next();
   }
-  if (store.getters.getField("sheetMusicFolder") && to.name !== "FolderSetup") {
+  if (store.sheetMusicFolder && to.name !== "FolderSetup") {
     next();
   } else {
     next({ name: "FolderSetup" });
