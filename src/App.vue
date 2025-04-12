@@ -12,27 +12,54 @@
 
       <v-app-bar-title>Sheet music viewer : {{ appVersion }}</v-app-bar-title>
       <template v-slot:append>
+
         <div v-if="router.currentRoute.value.name === RouteNames.SheetSelection" class="searchFieldWrapper">
 
           <v-text-field append-inner-icon="mdi-magnify" density="compact" ref="searchWrapper" v-model="store.searchTerm"
             hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
         </div>
+
         <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon @click="onSwitchEditMode">
           <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
         </v-btn>
+
         <v-btn v-if="router.currentRoute.value.name === RouteNames.SetList" dark icon @click="toggleSetListSortMode">
           <v-icon>
             {{ store.sortSetListEnabled ? "mdi-close" : "mdi-hand-back-right" }}
           </v-icon>
         </v-btn>
+
         <v-btn v-if="router.currentRoute.value.name === RouteNames.SetList && !store.setListEditMode" dark icon
           @click="startSetListEditMode">
           <v-icon>mdi-pencil</v-icon>
         </v-btn>
+
         <v-btn v-if="router.currentRoute.value.name === RouteNames.SetListList" dark icon
           @click="toggleSetListDeletionMode">
           <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
         </v-btn>
+
+        <v-dialog v-if="router.currentRoute.value.name === RouteNames.SheetViewer" v-model="addToSetlistDialog"
+          max-width="320" persistent>
+          <template v-slot:activator="{ props }">
+            <v-btn dark icon v-bind="props">
+              <v-icon>mdi-add</v-icon>
+            </v-btn>
+          </template>
+          <v-card>
+            <v-card-title class="text-h5">Choose new root folder?</v-card-title>
+            <v-card-actions>
+              <v-spacer></v-spacer>
+              <v-btn color="green darken-1" text @click="addToSetlistDialog = false">
+                Cancel
+              </v-btn>
+              <v-btn color="green darken-1" text @click="addCurrentSheetToSetlist">
+                Add
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
+
         <v-dialog v-if="showSettingsButton" v-model="dialog" max-width="320" persistent>
           <template v-slot:activator="{ props }">
             <v-btn dark icon v-bind="props">
@@ -72,6 +99,7 @@ import { client } from "./trcpClient";
 
 
 const dialog = ref(false);
+const addToSetlistDialog = ref(false);
 const appVersion = ref("");
 const searchWrapper = useTemplateRef("searchWrapper")
 
@@ -105,7 +133,7 @@ const showBackButton = computed(() => {
 })
 const showSettingsButton = computed(() => {
   let currentRoute = router.currentRoute.value.name;
-  return currentRoute !== RouteNames.FolderSetup;
+  return currentRoute === RouteNames.Overview || currentRoute === RouteNames.SheetSelection;
 })
 
 function onNavBack() {
@@ -123,6 +151,27 @@ function onNavBack() {
   } else {
     router.go(-1);
   }
+}
+
+function addCurrentSheetToSetlist() {
+
+  const { path } = router.currentRoute.value.params
+  const relativePath = window.path.relative(store.sheetMusicFolder, path as string);
+  const fileName = window.path.basename(relativePath);
+  const folderName = window.path.dirname(relativePath);
+
+  // TODO: Find setlist
+  const setList = store.setLists.filter((setList) => setList.name === folderName);
+
+  setList.forEach(list => list.sheets.push({
+    isFile: true,
+    name: fileName,
+    path: folderName,
+    isSearch: false
+  }))
+  store.saveSetLists();
+
+  addToSetlistDialog.value = false;
 }
 
 function navToSettings() {

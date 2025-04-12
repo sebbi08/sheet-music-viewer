@@ -3,7 +3,7 @@ export declare global {
 
   interface Window {
     ipcRenderer: IpcRenderer;
-    path: {sep: string};
+    path: {sep: string, relative: (path1: string, path2: string) => string, basename: (path: string) => string, dirname: (path: string) => string};
   }
 }
 

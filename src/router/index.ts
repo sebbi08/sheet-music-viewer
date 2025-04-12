@@ -19,6 +19,7 @@ const routes: RouterOptions["routes"] = [
     path: "/sheetSelection/:path?",
     name: RouteNames.SheetSelection,
     component: SheetSelection,
+
   },
   {
     path: "/folderSetup",
