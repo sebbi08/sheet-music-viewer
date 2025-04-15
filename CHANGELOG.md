@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.9.0...v1.9.1) (2025-04-15)
+
+
+### Bug Fixes
+
+* file names with special characters ([dcf29ad](https://github.com/sebbi08/sheet-music-viewer/commit/dcf29ad696d7168f58d027de4921d81917ba7ced))
+
 # [1.9.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.8.0...v1.9.0) (2025-04-08)
 
 
