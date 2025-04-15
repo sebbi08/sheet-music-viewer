@@ -225,7 +225,7 @@ onMounted(async () => {
 
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
-    url: "local-resource://" + btoa(router.currentRoute.value.params.path as string),
+    url: "local-resource://" + btoa(encodeURIComponent(router.currentRoute.value.params.path as string)),
   });
   await renderPdf();
 

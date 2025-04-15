@@ -1,10 +1,4 @@
-import {
-  app,
-  BrowserWindow,
-  protocol,
-  dialog,
-  autoUpdater,
-} from "electron";
+import { app, BrowserWindow, protocol, dialog, autoUpdater } from "electron";
 import installExtension, { VUEJS_DEVTOOLS } from "electron-devtools-installer";
 import path from "path";
 import startup from "electron-squirrel-startup";
@@ -109,8 +103,9 @@ app.on("ready", async () => {
 function registerLocalResourceProtocol() {
   protocol.registerFileProtocol("local-resource", (request, callback) => {
     const url = request.url.replace(/^local-resource:\/\//, "");
-    // Decode URL to prevent errors when loading filenames with UTF-8 chars or chars like "#"
-    const decodedUrl = Buffer.from(url, "base64").toString("utf-8"); // Needed in case URL contains spaces
+    const decodedUrl = decodeURIComponent(
+      Buffer.from(url, "base64").toString()
+    );
     try {
       return callback(decodedUrl);
     } catch (error) {
