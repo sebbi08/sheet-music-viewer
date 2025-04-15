@@ -142,12 +142,13 @@
 </template>
 
 <script setup lang="ts">
-import { FabricObject } from "fabric"
 import * as fabric from 'fabric';
-import * as fontfaceobserver from "fontfaceobserver"
-import _, { set } from "lodash"
-import * as pdfJs from "pdfjs-dist"
-import { onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { FabricObject } from "fabric";
+import * as fontfaceobserver from "fontfaceobserver";
+import _ from "lodash";
+import * as pdfJs from "pdfjs-dist";
+import { storeToRefs } from "pinia";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   BRUSH_COLORS,
   type Icon,
@@ -155,13 +156,11 @@ import {
   MUSIC_ICONS,
   MUSIC_SVG,
   type Svg,
-} from "../Enums"
-import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements"
-import { type EditState } from "../models/EditState"
-import { type OverlayData } from "../models/OverlayData"
-import useStore from "../store";
-import { storeToRefs } from "pinia";
+} from "../Enums";
+import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
+import { type EditState, type OverlayData } from "../models/types";
 import router from "../router";
+import useStore from "../store";
 import { client } from "../trcpClient";
 
 

@@ -60,15 +60,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
-import type { SetList } from '../models/SetList';
-import type { SheetFile } from '../models/SheetFile';
-import useStore from '../store';
-import { fileNameWithoutExtension, sortAndFilterFile } from "../utils"
-import { RouteNames } from '../Enums';
-import router from '../router';
 import { storeToRefs } from 'pinia';
-import draggable from 'vuedraggable'
+import { computed, onMounted, ref, watch } from 'vue';
+import draggable from 'vuedraggable';
+import { RouteNames } from '../Enums';
+import type { SetList, SheetFile } from '../models/types';
+import router from '../router';
+import useStore from '../store';
+import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";
 
 const store = useStore();
 

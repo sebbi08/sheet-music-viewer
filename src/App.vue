@@ -59,6 +59,31 @@
       <router-view />
     </v-main>
   </v-app>
+  <dialog>
+    <v-dialog persistent v-model="showUpdateDialog" max-width="300">
+      <v-card>
+        <v-card-title class="text-h5">New version available</v-card-title>
+        <v-card-text v-if="!updateDownloaded">
+          <v-progress-circular color="primary" indeterminate></v-progress-circular> Downloading the update
+        </v-card-text>
+        <v-card-text v-if="updateDownloaded">
+          <p>Version {{ updateData.releaseName }} is ready to be installed.</p>
+          <p>Release notes:</p>
+          <p>{{ updateData.releaseNotes }}</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+
+          <v-btn color="primary" v-if="updateDownloaded" text @click="restartForUpdate">
+            Restart for update
+          </v-btn>
+          <v-btn color="secondary" text @click="showUpdateDialog = false">
+            Close
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </dialog>
 </template>
 
 <script setup lang="ts">
@@ -69,6 +94,7 @@ import router from "./router";
 import { watch } from "vue";
 import { storeToRefs } from "pinia";
 import { client } from "./trcpClient";
+import { UpdateData } from "./models/types";
 
 
 const dialog = ref(false);
@@ -149,6 +175,29 @@ const { setLists } = storeToRefs(store);
 watch(setLists, async () => {
   await store.saveSetLists();
 }, { deep: true });
+
+const showUpdateDialog = ref(false);
+const updateDownloaded = ref(false);
+const updateData = ref<Partial<UpdateData>>({});
+
+function restartForUpdate() {
+  client.restartForUpdate.mutate();
+}
+
+client.onNewVersion.subscribe(undefined, {
+  onData: () => {
+    showUpdateDialog.value = true
+  }
+})
+
+client.onNewVersionDownloaded.subscribe(undefined, {
+  onData: (args) => {
+    updateData.value = args
+    updateDownloaded.value = true;
+  }
+})
+
+client.checkForUpdates.query()
 
 </script>
 

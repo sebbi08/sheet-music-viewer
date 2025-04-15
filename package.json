@@ -125,5 +125,8 @@
         }
       ]
     ]
+  },
+  "dependencies": {
+    "superjson": "^2.2.2"
   }
 }
