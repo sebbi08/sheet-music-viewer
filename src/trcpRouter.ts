@@ -20,7 +20,9 @@ export const trcpRouter = createRouter({
   }),
 
   checkForUpdates: publicProcedure.query(() => {
-    autoUpdater.checkForUpdates();
+    if (!isDevelopment) {
+      autoUpdater.checkForUpdates();
+    }
   }),
 
   onNewVersion: publicProcedure.subscription(async function () {
@@ -142,7 +144,7 @@ export const trcpRouter = createRouter({
         console.log(e);
         setListsJson = "[]";
       }
-      return z.array(setListSchema).parse(setListsJson);
+      return z.array(setListSchema).parse(JSON.parse(setListsJson));
     }),
 
   saveSetLists: publicProcedure
