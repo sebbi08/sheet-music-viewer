@@ -1,3 +1,11 @@
+## [1.10.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.0...v1.10.1) (2025-04-24)
+
+
+### Bug Fixes
+
+* bug that prevent sheets without annotations to load ([5496c3d](https://github.com/sebbi08/sheet-music-viewer/commit/5496c3d5fabed47612ed52d15e3ec3efae96d0f4))
+* switch to web hash history mode ([c1e6aa2](https://github.com/sebbi08/sheet-music-viewer/commit/c1e6aa2fa8538a2b53966f37a7c5e4022fc149bd))
+
 # [1.10.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.9.1...v1.10.0) (2025-04-24)
 
 
