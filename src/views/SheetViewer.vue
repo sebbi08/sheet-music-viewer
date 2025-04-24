@@ -1163,6 +1163,7 @@ function copyPageToHalfPageAndBackdrop(
   flex-direction: column-reverse;
   align-items: center;
   gap: 8px;
+  z-index: 99;
 }
 
 .square-red {
