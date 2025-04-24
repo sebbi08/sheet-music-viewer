@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, type RouterOptions } from "vue-router";
+import { createRouter, createWebHashHistory, type RouterOptions } from "vue-router";
 import useStore from "../store";
 import { RouteNames } from "../Enums";
 import Overview from "../views/Overview.vue";
@@ -39,7 +39,8 @@ const routes: RouterOptions["routes"] = [
 
 
 const router = createRouter({
-  history: createWebHistory(),
+
+  history: createWebHashHistory(),
   routes,
 });
 
