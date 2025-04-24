@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.1...v1.10.2) (2025-04-24)
+
+
+### Bug Fixes
+
+* edit mod not showing buttons ([e4d582b](https://github.com/sebbi08/sheet-music-viewer/commit/e4d582b04286d8b33da661ee7f4dff9805785606))
+
 ## [1.10.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.0...v1.10.1) (2025-04-24)
 
 
