@@ -32,7 +32,7 @@
     <div v-if="editMode" class="fabContainer" :class="buttonGroupLeft ? 'fabButtonsLeft' : ''" absolute bottom right>
       <v-btn color="blue darken-2" dark @click="toggleDrawingAndInteractiveMode"
         :icon="editState.interactiveMode ? 'mdi-hand-back-right-outline' : 'mdi-pencil'"></v-btn>
-      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small @click="togglePencileAndMarkerMode"
+      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small @click="togglePencilAndMarkerMode"
         :icon="editState.pencilMode ? 'mdi-pencil' : 'mdi-marker'">
       </v-btn>
 
@@ -215,12 +215,7 @@ onMounted(async () => {
 
 
   const newOverlayData = await client.loadOverlayData.query(router.currentRoute.value.params.path as string);
-  if (!newOverlayData) {
-    overlayData = [];
-    return;
-  } else {
-    overlayData = JSON.parse(newOverlayData);
-  }
+  overlayData = newOverlayData ? JSON.parse(newOverlayData) : [];
 
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
@@ -350,7 +345,7 @@ function setWhiteColor(): void {
   });
 }
 
-function togglePencileAndMarkerMode(): void {
+function togglePencilAndMarkerMode(): void {
   if (editState.value.pencilMode) {
     setMarkerMode();
   } else {
