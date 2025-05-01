@@ -1,3 +1,4 @@
+/* eslint-disable import/no-unresolved */
 export declare global {
   import IpcRenderer = Electron.IpcRenderer;
 

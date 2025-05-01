@@ -24,13 +24,13 @@
 
 <script setup lang="ts">
 import { isArray } from 'lodash';
+import { storeToRefs } from "pinia";
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouteNames } from '../Enums';
-import type { SheetFile } from '../models/SheetFile';
+import type { SheetFile } from '../models/types';
 import router from '../router';
 import useStore from '../store';
-import { storeToRefs } from "pinia"
-import { computed, onMounted, ref, watch } from 'vue';
-import { fileNameWithoutExtension, sortAndFilterFile } from "../utils"
+import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";
 
 const store = useStore();
 const loadedRelative = ref<string | null>("");

@@ -32,7 +32,7 @@
     <div v-if="editMode" class="fabContainer" :class="buttonGroupLeft ? 'fabButtonsLeft' : ''" absolute bottom right>
       <v-btn color="blue darken-2" dark @click="toggleDrawingAndInteractiveMode"
         :icon="editState.interactiveMode ? 'mdi-hand-back-right-outline' : 'mdi-pencil'"></v-btn>
-      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small @click="togglePencileAndMarkerMode"
+      <v-btn v-if="editState.drawingMode" color="green darken-1" dark small @click="togglePencilAndMarkerMode"
         :icon="editState.pencilMode ? 'mdi-pencil' : 'mdi-marker'">
       </v-btn>
 
@@ -142,12 +142,13 @@
 </template>
 
 <script setup lang="ts">
-import { FabricObject } from "fabric"
 import * as fabric from 'fabric';
-import * as fontfaceobserver from "fontfaceobserver"
-import _, { set } from "lodash"
-import * as pdfJs from "pdfjs-dist"
-import { onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { FabricObject } from "fabric";
+import * as fontfaceobserver from "fontfaceobserver";
+import _ from "lodash";
+import * as pdfJs from "pdfjs-dist";
+import { storeToRefs } from "pinia";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   BRUSH_COLORS,
   type Icon,
@@ -155,13 +156,11 @@ import {
   MUSIC_ICONS,
   MUSIC_SVG,
   type Svg,
-} from "../Enums"
-import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements"
-import { type EditState } from "../models/EditState"
-import { type OverlayData } from "../models/OverlayData"
-import useStore from "../store";
-import { storeToRefs } from "pinia";
+} from "../Enums";
+import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
+import { type EditState, type OverlayData } from "../models/types";
 import router from "../router";
+import useStore from "../store";
 import { client } from "../trcpClient";
 
 
@@ -216,16 +215,11 @@ onMounted(async () => {
 
 
   const newOverlayData = await client.loadOverlayData.query(router.currentRoute.value.params.path as string);
-  if (!newOverlayData) {
-    overlayData = [];
-    return;
-  } else {
-    overlayData = JSON.parse(newOverlayData);
-  }
+  overlayData = newOverlayData ? JSON.parse(newOverlayData) : [];
 
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
-    url: "local-resource://" + btoa(router.currentRoute.value.params.path as string),
+    url: "local-resource://" + btoa(encodeURIComponent(router.currentRoute.value.params.path as string)),
   });
   await renderPdf();
 
@@ -351,7 +345,7 @@ function setWhiteColor(): void {
   });
 }
 
-function togglePencileAndMarkerMode(): void {
+function togglePencilAndMarkerMode(): void {
   if (editState.value.pencilMode) {
     setMarkerMode();
   } else {
@@ -1169,6 +1163,7 @@ function copyPageToHalfPageAndBackdrop(
   flex-direction: column-reverse;
   align-items: center;
   gap: 8px;
+  z-index: 99;
 }
 
 .square-red {

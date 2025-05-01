@@ -1,3 +1,32 @@
+## [1.10.2](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.1...v1.10.2) (2025-04-24)
+
+
+### Bug Fixes
+
+* edit mod not showing buttons ([e4d582b](https://github.com/sebbi08/sheet-music-viewer/commit/e4d582b04286d8b33da661ee7f4dff9805785606))
+
+## [1.10.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.0...v1.10.1) (2025-04-24)
+
+
+### Bug Fixes
+
+* bug that prevent sheets without annotations to load ([5496c3d](https://github.com/sebbi08/sheet-music-viewer/commit/5496c3d5fabed47612ed52d15e3ec3efae96d0f4))
+* switch to web hash history mode ([c1e6aa2](https://github.com/sebbi08/sheet-music-viewer/commit/c1e6aa2fa8538a2b53966f37a7c5e4022fc149bd))
+
+# [1.10.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.9.1...v1.10.0) (2025-04-24)
+
+
+### Features
+
+* improve update mechanism ([f8bdb19](https://github.com/sebbi08/sheet-music-viewer/commit/f8bdb19b20ba133bc2ce5e72fc4370057fb61da5))
+
+## [1.9.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.9.0...v1.9.1) (2025-04-15)
+
+
+### Bug Fixes
+
+* file names with special characters ([dcf29ad](https://github.com/sebbi08/sheet-music-viewer/commit/dcf29ad696d7168f58d027de4921d81917ba7ced))
+
 # [1.9.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.8.0...v1.9.0) (2025-04-08)
 
 

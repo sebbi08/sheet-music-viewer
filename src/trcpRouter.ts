@@ -1,18 +1,66 @@
 import { initTRPC } from "@trpc/server";
-import { app, dialog } from "electron";
+import { app, dialog, autoUpdater } from "electron";
 import path from "path";
 import fs from "fs-extra";
 import { z } from "zod";
-import type { SheetFile } from "./models/SheetFile";
-import { setListSchema } from "./models/SetList";
+import type { SheetFile, UpdateData } from "./models/types";
+import { setListSchema } from "./models/types";
 import { glob } from "glob";
+import { observable } from "@trpc/server/observable";
+import superjson from "superjson";
 
 const isDevelopment = !app.isPackaged;
-const { router: createRouter, procedure: publicProcedure } = initTRPC.create();
+const { router: createRouter, procedure: publicProcedure } = initTRPC.create({
+  transformer: superjson,
+});
 
 export const trcpRouter = createRouter({
   getVersion: publicProcedure.query(() => {
     return isDevelopment ? "development" : app.getVersion();
+  }),
+
+  checkForUpdates: publicProcedure.query(() => {
+    if (!isDevelopment) {
+      autoUpdater.checkForUpdates();
+    }
+  }),
+
+  onNewVersion: publicProcedure.subscription(async function () {
+    return observable<undefined>((emit) => {
+      const handler = () => emit.next(undefined);
+      autoUpdater.on("update-available", handler);
+
+      return () => {
+        autoUpdater.off("update-available", handler);
+      };
+    });
+  }),
+
+  restartForUpdate: publicProcedure.mutation(() => {
+    autoUpdater.quitAndInstall();
+  }),
+
+  onNewVersionDownloaded: publicProcedure.subscription(() => {
+    return observable<UpdateData>((emit) => {
+      const handler: (
+        event: Event,
+        releaseNotes: string,
+        releaseName: string,
+        releaseDate: Date,
+        updateURL: string
+      ) => void = (event, releaseNotes, releaseName, releaseDate) => {
+        return emit.next({
+          releaseDate,
+          releaseName,
+          releaseNotes,
+        });
+      };
+      autoUpdater.on("update-downloaded", handler);
+
+      return () => {
+        autoUpdater.off("update-downloaded", handler);
+      };
+    });
   }),
 
   selectFolder: publicProcedure.query(async () => {
@@ -96,7 +144,7 @@ export const trcpRouter = createRouter({
         console.log(e);
         setListsJson = "[]";
       }
-      return z.array(setListSchema).parse(setListsJson);
+      return z.array(setListSchema).parse(JSON.parse(setListsJson));
     }),
 
   saveSetLists: publicProcedure
@@ -130,19 +178,19 @@ export const trcpRouter = createRouter({
     }),
 
   loadOverlayData: publicProcedure.input(z.string()).query(async (opts) => {
-        const sheetPath = opts.input;
-        const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
-        let overlayData;
-        try {
-          overlayData = (await fs.readFile(overlayDataPath)).toString();
-        } catch (e) {
-          if (e instanceof Error && "code" in e && e.code !== "ENOENT") {
-            console.log("Error while loading data file");
-            console.log(e);
-          }
-          overlayData = "";
-        }
-        return overlayData;
+    const sheetPath = opts.input;
+    const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
+    let overlayData;
+    try {
+      overlayData = (await fs.readFile(overlayDataPath)).toString();
+    } catch (e) {
+      if (e instanceof Error && "code" in e && e.code !== "ENOENT") {
+        console.log("Error while loading data file");
+        console.log(e);
+      }
+      overlayData = "";
+    }
+    return overlayData;
   }),
 });
 

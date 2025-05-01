@@ -35,10 +35,10 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import useStore from '../store';
 import { RouteNames } from '../Enums';
-import type { SetList } from '../models/SetList';
+import type { SetList } from '../models/types';
 import router from '../router';
+import useStore from '../store';
 
 const store = useStore();
 const showSetListDialog = ref(false)

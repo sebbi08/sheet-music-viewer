@@ -1,10 +1,12 @@
-import { type SetList } from "../models/SetList";
-import { type SheetFile } from "../models/SheetFile";
 import { defineStore } from "pinia";
 import { client } from "../trcpClient";
+import { SetList, SheetFile } from "../models/types";
 
 let sheetMusicFolder = localStorage.getItem("sheetMusicFolder");
 sheetMusicFolder = sheetMusicFolder || "";
+
+
+
 
 const useStore = defineStore("app", {
   state: () => ({
