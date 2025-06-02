@@ -1,5 +1,7 @@
 import { app, BrowserWindow, protocol, autoUpdater } from "electron";
-import installExtension, { VUEJS_DEVTOOLS } from "electron-devtools-installer";
+import installExtension, {
+  VUEJS_DEVTOOLS_BETA,
+} from "electron-devtools-installer";
 import path from "path";
 import startup from "electron-squirrel-startup";
 // eslint-disable-next-line import/no-unresolved
@@ -49,7 +51,7 @@ if (startup) {
       },
     });
 
-    createIPCHandler({ router: trcpRouter, windows: [mainWindow]});
+    createIPCHandler({ router: trcpRouter, windows: [mainWindow] });
     mainWindow.maximize();
 
     // and load the index.html of the app.
@@ -74,7 +76,7 @@ if (startup) {
     if (isDevelopment && !process.env.IS_TEST) {
       // Install Vue Devtools
       try {
-        await installExtension(VUEJS_DEVTOOLS);
+        await installExtension(VUEJS_DEVTOOLS_BETA);
       } catch (e) {
         if (e instanceof Error) {
           console.error("Vue Devtools failed to install:", e.toString());

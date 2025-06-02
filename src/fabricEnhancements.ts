@@ -1,5 +1,9 @@
-import { type ControlActionHandler, FabricObject, type Transform } from "fabric";
-import * as fabric from 'fabric';
+import {
+  type ControlActionHandler,
+  FabricObject,
+  type Transform,
+} from "fabric";
+import * as fabric from "fabric";
 import { ACTION_ICONS } from "./Enums";
 
 export function enhanceFabricPrototype(): void {
@@ -131,7 +135,10 @@ function renderIcon(icon: HTMLImageElement) {
   };
 }
 
-function deleteObject(eventData: fabric.TPointerEvent, transform: Transform): boolean {
+function deleteObject(
+  eventData: fabric.TPointerEvent,
+  transform: Transform
+): boolean {
   const target = transform.target;
   const canvas = target.canvas;
 
@@ -145,28 +152,30 @@ function deleteObject(eventData: fabric.TPointerEvent, transform: Transform): bo
   }
 
   canvas?.remove(...toDelete);
-  // canvas?.requestRenderAll();
 
   canvas?.discardActiveObject();
   canvas?.renderAll();
-  // canvas.selection = false;
-  // setTimeout(() => {
-  //   canvas.selection = true;
-  // });
   return true;
 }
 
-function cloneObject(eventData: fabric.TPointerEvent, transform: Transform): boolean {
-  const target = transform.target;
-  // const canvas = target.canvas;
-  // target.clone(function (cloned: fabric.Object) {
-  //   if (cloned.left && cloned.top) {
-  //     cloned.left += 10;
-  //     cloned.top += 10;
-  //   }
-  //   canvas?.add(cloned);
-  //   cloned.canvas?.setActiveObject(cloned);
-  // });
-  target.clone(["__isText"]);
+async function cloneObject(
+  eventData: fabric.TPointerEvent,
+  transform: Transform
+): Promise<boolean> {
+  try {
+    const target = transform.target;
+    const canvas = target.canvas;
+    const clone = await target.clone(["__isText"]);
+    if (clone.left && clone.top) {
+      clone.left += 10;
+      clone.top += 10;
+    }
+    canvas?.add(clone);
+    clone.canvas?.setActiveObject(clone);
+  } catch (e) {
+    console.log(e)
+    return false;
+  }
+
   return true;
 }

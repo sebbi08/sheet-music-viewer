@@ -684,7 +684,7 @@ async function createFabricCanvas(): Promise<void> {
   editFabric = new fabric.Canvas(editCanvas, {
     isDrawingMode: false,
   });
-  startDrawingMode();
+  startInteractiveMode();
   let handleSelection = () => {
     if (!editFabric) return;
     if (editFabric.getActiveObjects().length > 1) {
