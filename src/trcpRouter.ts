@@ -88,7 +88,7 @@ export const trcpRouter = createRouter({
       // matches = matches.map((filepath) => filepath.split("/").join(path.sep));
 
       const filesAndFolders: SheetFile[] = matches.map((item) => {
-        const filePath = item.includes("/") ? "/" + path.dirname(item) : "";
+        const filePath = item.includes(path.sep) ? path.sep + path.dirname(item) : "";
 
         return {
           path: basePath + filePath,
