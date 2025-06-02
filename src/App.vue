@@ -43,11 +43,14 @@
           max-width="320" persistent>
           <template v-slot:activator="{ props }">
             <v-btn dark icon v-bind="props">
-              <v-icon>mdi-add</v-icon>
+              <v-icon>mdi-plus</v-icon>
             </v-btn>
           </template>
           <v-card>
-            <v-card-title class="text-h5">Choose new root folder?</v-card-title>
+            <v-card-title class="text-h5">Select Setlist?</v-card-title>
+            <v-list-item v-for="item in setLists" :key="item.id" @click="">
+              {{ item.name }}
+            </v-list-item>
             <v-card-actions>
               <v-spacer></v-spacer>
               <v-btn color="green darken-1" text @click="addToSetlistDialog = false">
@@ -221,6 +224,7 @@ function showSearch() {
 }
 
 const { setLists } = storeToRefs(store);
+store.loadSetLists();
 watch(setLists, async () => {
   await store.saveSetLists();
 }, { deep: true });
