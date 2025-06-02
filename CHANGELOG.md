@@ -1,3 +1,19 @@
+# [1.11.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.2...v1.11.0) (2025-06-02)
+
+
+### Bug Fixes
+
+* cloned item not placed on canvas ([ccc1971](https://github.com/sebbi08/sheet-music-viewer/commit/ccc197101df96cde8249265a442185126e9215e9))
+* loading ofd data from search not on top level ([797290c](https://github.com/sebbi08/sheet-music-viewer/commit/797290cddb4b360010d3bb9800b690a3df170038))
+* make text edit button blue for better visibility ([bc4dbdc](https://github.com/sebbi08/sheet-music-viewer/commit/bc4dbdc66bc11f46955d56b0c25f8e3d7ea340d8))
+* start in interactive mode to prevent initial drawing ([4efb82c](https://github.com/sebbi08/sheet-music-viewer/commit/4efb82c5d29b0df9c50cad40b3513cdfc7fb0332))
+
+
+### Features
+
+* add option to add sheet to set list from sheet viewer ([127ff03](https://github.com/sebbi08/sheet-music-viewer/commit/127ff03899a151bdfe0c6742af7f8882d5b58c88))
+* show file name when sheet is open ([3bc181b](https://github.com/sebbi08/sheet-music-viewer/commit/3bc181bfe9659eeb598e160b7272388416370794))
+
 ## [1.10.2](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.1...v1.10.2) (2025-04-24)
 
 
