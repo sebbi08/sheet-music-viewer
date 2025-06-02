@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { client } from "../trcpClient";
-import { SetList, SheetFile } from "../models/types";
+import { SetListsWrapper, SheetFile } from "../models/types";
 
 let sheetMusicFolder = localStorage.getItem("sheetMusicFolder");
 sheetMusicFolder = sheetMusicFolder || "";
@@ -13,7 +13,7 @@ const useStore = defineStore("app", {
     sheetMusicFolder: sheetMusicFolder,
     searchTerm: "",
     editMode: false,
-    setLists: new Array<SetList>(),
+    setListsWrapper: {} as SetListsWrapper,
     setListEditMode: false,
     filesAndFolder: new Array<SheetFile>(),
     searchResults: new Array<SheetFile>(),
@@ -40,14 +40,18 @@ const useStore = defineStore("app", {
       this.filesAndFolder = filesAndFolder;
     },
     async loadSetLists() {
-      const setLists = await client.loadSetLists.query(this.sheetMusicFolder);
-      this.setLists = setLists;
+      const setListsWrapper = await client.loadSetLists.query(this.sheetMusicFolder);
+      this.setListsWrapper = setListsWrapper;
     },
     async saveSetLists() {
-      await client.saveSetLists.query({
-        basePath: this.sheetMusicFolder,
-        setLists: this.setLists,
-      });
+      try {
+        await client.saveSetLists.query({
+          basePath: this.sheetMusicFolder,
+          setListsWrapper: this.setListsWrapper,
+        });
+      } catch (error) {
+        console.error("Error saving set lists:", error);
+      }
     },
     async searchForFiles(searchTerm: string) {
       const searchResults = await client.search.query({

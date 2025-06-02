@@ -2,7 +2,7 @@
   <div>
     <div class="container">
       <draggable v-model="setList.sheets" item-key="name" :disabled="!store.sortSetListEnabled">
-        <template #item="{ element }">
+        <template #item="{ element } : { element: SetListSheet }">
           <v-card @click="openSheet(element)">
             <v-icon x-large>mdi-file</v-icon>
             <div>
@@ -10,7 +10,7 @@
                 {{ fileNameWithoutExtension(element.name) }}
               </h4>
               <h5 class="itemName">
-                {{ element.path }}
+                {{ sep + element.path.join(sep) }}
               </h5>
             </div>
           </v-card>
@@ -64,18 +64,22 @@ import { storeToRefs } from 'pinia';
 import { computed, onMounted, ref, watch } from 'vue';
 import draggable from 'vuedraggable';
 import { RouteNames } from '../Enums';
-import type { SetList, SheetFile } from '../models/types';
 import router from '../router';
 import useStore from '../store';
 import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";
+import { SetList, SetListSheet, SheetFile } from '../models/types';
+import _ from "lodash";
+
+
 
 const store = useStore();
 
+const sep = ref(window.path.sep);
 const setList = ref<SetList>({ name: "", sheets: [], id: -1 });
 const currentPath = ref("");
 const pdfsAndFolders = ref<SheetFile[]>([]);
 const loadedRelative = ref<string | null>(null);
-const { filesAndFolder, showEditSetListDialog, setLists } = storeToRefs(store);
+const { filesAndFolder, showEditSetListDialog, setListsWrapper } = storeToRefs(store);
 
 const folderPath = computed(() => {
   return currentPath.value ? currentPath.value : window.path.sep;
@@ -84,9 +88,9 @@ const folderPath = computed(() => {
 
 
 
-function openSheet(item: SheetFile): void {
+function openSheet(item: SetListSheet): void {
   let basePath = store.sheetMusicFolder;
-  let path = basePath + item.path
+  let path = basePath + window.path.sep + item.path.join(window.path.sep);
   if (!path.endsWith(window.path.sep) && !item.name.startsWith(window.path.sep)) {
     path = path + window.path.sep + item.name
   } else {
@@ -110,16 +114,17 @@ function moveFolderUp(): void {
 
 function selectItem(item: SheetFile): void {
   if (item.isFile) {
+    const pathParts = currentPath.value.split(window.path.sep).filter((part) => part !== "");
     if (!isFileInSetList(item)) {
       setList.value.sheets.push({
         name: item.name,
-        path: currentPath.value,
+        path: pathParts,
         isFile: true,
         isSearch: false,
       });
     } else if (setList.value) {
       setList.value.sheets = setList.value.sheets.filter((sheet) => {
-        return !(sheet.path === currentPath.value && sheet.name === item.name);
+        return !(_.isEqual(sheet.path, pathParts) && sheet.name === item.name);
       });
     }
   } else {
@@ -132,10 +137,14 @@ function selectItem(item: SheetFile): void {
 }
 
 function isFileInSetList(sheet: SheetFile): boolean {
+  // const sheetPathRelativeToRoot = window.path.relative(
+  //   store.sheetMusicFolder,
+  //   sheet.path
+  // );
   return (
     setList.value.sheets.some((sheetInSet) => {
       return (
-        sheetInSet.name === sheet.name && sheetInSet.path === currentPath.value
+        sheetInSet.name === sheet.name && _.isEqual(sheetInSet.path, currentPath.value.split(window.path.sep).filter((part) => part !== ""))
       );
     }) || false
   );
@@ -148,9 +157,9 @@ watch(filesAndFolder, (newVal) => {
 async function loadPath() {
   let relativePath = folderPath;
   let basePath = store.sheetMusicFolder;
-  if (loadedRelative.value === relativePath.value) {
-    return;
-  }
+  // if (loadedRelative.value === relativePath.value) {
+  // return;
+  // }
   loadedRelative.value = relativePath.value;
   await store.loadFiles(basePath, relativePath.value);
 }
@@ -171,8 +180,8 @@ watch(currentPath, () => {
   loadPath();
 }, { deep: true });
 
-watch(setLists, (newVal) => {
-  setList.value = store.setLists.find(
+watch(setListsWrapper, (newVal) => {
+  setList.value = store.setListsWrapper.setLists.find(
     (setList: SetList) => setList.id === parseInt(router.currentRoute.value.params.id as string, 10)
   ) || { name: "", sheets: [], id: -1 };
 }, { deep: true });

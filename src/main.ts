@@ -9,6 +9,8 @@ import { createIPCHandler } from "electron-trpc/main";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
 
+
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (startup) {
   app.quit();

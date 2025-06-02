@@ -4,7 +4,7 @@
       <v-icon x-large>mdi-plus</v-icon>
       <h2 class="itemName">Add Set List</h2>
     </v-card>
-    <v-card v-for="setList in store.setLists" :key="setList.id" @click="showSetList(setList)">
+    <v-card v-for="setList in store.setListsWrapper.setLists" :key="setList.id" @click="showSetList(setList)">
       <v-icon x-large>mdi-playlist-music</v-icon>
       <h2 class="itemName">{{ setList.name }}</h2>
       <v-btn v-if="store.setListDeletionMode" class="deletionButton" color="transparent" elevation="0" icon small
@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouteNames } from '../Enums';
-import type { SetList } from '../models/types';
+import { SetList } from '../models/types';
 import router from '../router';
 import useStore from '../store';
 
@@ -56,13 +56,13 @@ function saveNewSetList(): void {
     name: newSetListName.value,
     sheets: [],
   };
-  store.setLists.push(newSetList);
+  store.setListsWrapper.setLists.push(newSetList);
   showSetListDialog.value = false;
 }
 
 function getNextId(): number {
   let id = 1;
-  store.setLists.forEach((setList: SetList) => {
+  store.setListsWrapper.setLists.forEach((setList: SetList) => {
     if (setList.id >= id) {
       id = setList.id + 1;
     }
@@ -82,10 +82,10 @@ function removeSetList(setListToRemove: SetList): void {
   if (!store.setListDeletionMode) {
     return;
   }
-  store.setLists = store.setLists.filter((setList) => {
+  store.setListsWrapper.setLists = store.setListsWrapper.setLists.filter((setList) => {
     return setList.id !== setListToRemove.id;
   });
-  if (store.setLists.length === 0) {
+  if (store.setListsWrapper.setLists.length === 0) {
     store.setListDeletionMode = false;
   }
 }

@@ -39,7 +39,7 @@
           <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
         </v-btn>
 
-        <v-dialog v-if="router.currentRoute.value.name === RouteNames.SheetViewer" v-model="addToSetlistDialog"
+        <v-dialog class="setListDialog" v-if="router.currentRoute.value.name === RouteNames.SheetViewer" v-model="addToSetListDialog"
           max-width="320" persistent>
           <template v-slot:activator="{ props }">
             <v-btn dark icon v-bind="props">
@@ -47,17 +47,17 @@
             </v-btn>
           </template>
           <v-card>
-            <v-card-title class="text-h5">Select Setlist?</v-card-title>
-            <v-list-item v-for="item in setLists" :key="item.id" @click="">
-              {{ item.name }}
+            <v-card-title class="text-h5">Change containing set lists?</v-card-title>
+            <v-list-item v-for="item in setListsWrapper.setLists" :key="item.id">
+              <v-checkbox density="compact" :label="item.name" v-model="selectedSetLists[item.id]"></v-checkbox>
             </v-list-item>
             <v-card-actions>
               <v-spacer></v-spacer>
-              <v-btn color="green darken-1" text @click="addToSetlistDialog = false">
+              <v-btn color="green darken-1" text @click="addToSetListDialog = false">
                 Cancel
               </v-btn>
               <v-btn color="green darken-1" text @click="addCurrentSheetToSetlist">
-                Add
+                Add/Remove
               </v-btn>
             </v-card-actions>
           </v-card>
@@ -118,19 +118,19 @@
 
 <script setup lang="ts">
 import { RouteNames } from "./Enums";
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, ref } from "vue";
 import useStore from "./store";
 import router from "./router";
 import { watch } from "vue";
 import { storeToRefs } from "pinia";
 import { client } from "./trcpClient";
 import { UpdateData } from "./models/types";
+import _ from "lodash";
 
 
 const dialog = ref(false);
-const addToSetlistDialog = ref(false);
+const addToSetListDialog = ref(false);
 const appVersion = ref("");
-const searchWrapper = useTemplateRef("searchWrapper")
 
 
 
@@ -183,25 +183,54 @@ function onNavBack() {
 }
 
 function addCurrentSheetToSetlist() {
-
   const { path } = router.currentRoute.value.params
   const relativePath = window.path.relative(store.sheetMusicFolder, path as string);
   const fileName = window.path.basename(relativePath);
-  const folderName = window.path.dirname(relativePath);
+  const folderName = relativePath.includes(window.path.sep) ? window.path.dirname(relativePath) : ""
+  const folderPath = folderName.split(window.path.sep).filter((part) => part !== "")
 
-  // TODO: Find setlist
-  const setList = store.setLists.filter((setList) => setList.name === folderName);
+  const setListsToAdd = store.setListsWrapper.setLists.filter((setList) => selectedSetLists.value[setList.id]);
+  const setListsToRemove = store.setListsWrapper.setLists.filter((setList) => !selectedSetLists.value[setList.id]);
 
-  setList.forEach(list => list.sheets.push({
-    isFile: true,
-    name: fileName,
-    path: folderName,
-    isSearch: false
-  }))
+  
+
+  setListsToAdd.forEach(list => {
+    if( list.sheets.some(sheet => sheet.name === fileName && _.isEqual(sheet.path, folderPath))) {
+      return; // Sheet already exists in the SetList
+    }
+    return list.sheets.push({
+      isFile: true,
+      name: fileName,
+      path: folderPath,
+      isSearch: false
+    });
+  })
+
+  setListsToRemove.forEach(list => {
+    const index = list.sheets.findIndex(sheet => sheet.name === fileName && _.isEqual(sheet.path, folderPath));
+    if (index !== -1) {
+      list.sheets.splice(index, 1);
+    }
+  });
   store.saveSetLists();
 
-  addToSetlistDialog.value = false;
+  addToSetListDialog.value = false;
 }
+
+const selectedSetLists = ref<Record<string, boolean>>({});
+watch(addToSetListDialog, (newValue) => {
+  if (newValue) {
+    store.setListsWrapper.setLists.forEach(setList => {
+      selectedSetLists.value[setList.id] = setList.sheets.some(sheet => {
+        const { path } = router.currentRoute.value.params;
+        const relativePath = window.path.relative(store.sheetMusicFolder, path as string);
+        const fileName = window.path.basename(relativePath);
+        const folderPath = relativePath.includes(window.path.sep) ? window.path.dirname(relativePath).split(window.path.sep) : []
+        return sheet.name === fileName && _.isEqual(sheet.path, folderPath);
+      });
+    });
+  }
+}, { immediate: true });
 
 function navToSettings() {
   dialog.value = false;
@@ -219,13 +248,10 @@ function toggleSetListDeletionMode() {
 function toggleSetListSortMode() {
   store.toggleSetListSortMode();
 }
-function showSearch() {
-  (searchWrapper.value as HTMLInputElement)?.focus();
-}
 
-const { setLists } = storeToRefs(store);
+const { setListsWrapper } = storeToRefs(store);
 store.loadSetLists();
-watch(setLists, async () => {
+watch(setListsWrapper, async () => {
   await store.saveSetLists();
 }, { deep: true });
 
@@ -258,6 +284,16 @@ client.checkForUpdates.query()
 html {
   overflow: hidden !important;
   max-height: 100vh;
+}
+
+.setListDialog {
+  .v-input__details{
+    display: none;
+  }
+  .v-list-item{
+    padding-top: 0;
+    padding-bottom: 0;
+  }
 }
 
 .searchFieldWrapper {
