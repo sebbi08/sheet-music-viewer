@@ -1,10 +1,17 @@
+import { basename, dirname, relative } from "node:path";
+
 /* eslint-disable import/no-unresolved */
 export declare global {
   import IpcRenderer = Electron.IpcRenderer;
 
   interface Window {
     ipcRenderer: IpcRenderer;
-    path: {sep: string, relative: (path1: string, path2: string) => string, basename: (path: string) => string, dirname: (path: string) => string};
+    path: {
+      sep: string;
+      relative: typeof relative;
+      basename: typeof basename;
+      dirname: typeof dirname;
+    };
   }
 }
 

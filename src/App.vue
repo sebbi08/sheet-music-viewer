@@ -10,7 +10,7 @@
 
 
 
-      <v-app-bar-title>Sheet music viewer : {{ appVersion }}</v-app-bar-title>
+      <v-app-bar-title>{{ getTitle() }}</v-app-bar-title>
       <template v-slot:append>
 
         <div v-if="router.currentRoute.value.name === RouteNames.SheetSelection" class="searchFieldWrapper">
@@ -39,8 +39,8 @@
           <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
         </v-btn>
 
-        <v-dialog class="setListDialog" v-if="router.currentRoute.value.name === RouteNames.SheetViewer" v-model="addToSetListDialog"
-          max-width="320" persistent>
+        <v-dialog class="setListDialog" v-if="router.currentRoute.value.name === RouteNames.SheetViewer"
+          v-model="addToSetListDialog" max-width="320" persistent>
           <template v-slot:activator="{ props }">
             <v-btn dark icon v-bind="props">
               <v-icon>mdi-plus</v-icon>
@@ -191,10 +191,10 @@ function addCurrentSheetToSetlist() {
   const setListsToAdd = store.setListsWrapper.setLists.filter((setList) => selectedSetLists.value[setList.id]);
   const setListsToRemove = store.setListsWrapper.setLists.filter((setList) => !selectedSetLists.value[setList.id]);
 
-  
+
 
   setListsToAdd.forEach(list => {
-    if( list.sheets.some(sheet => sheet.name === fileName && _.isEqual(sheet.path, folderPath))) {
+    if (list.sheets.some(sheet => sheet.name === fileName && _.isEqual(sheet.path, folderPath))) {
       return; // Sheet already exists in the SetList
     }
     return list.sheets.push({
@@ -277,6 +277,13 @@ client.onNewVersionDownloaded.subscribe(undefined, {
 
 client.checkForUpdates.query()
 
+
+function getTitle() {
+  if (router.currentRoute.value.name === RouteNames.SheetViewer) {
+    return window.path.basename(router.currentRoute.value.params.path as string, ".pdf");
+  }
+  return `Sheet music viewer : ${appVersion.value}`
+}
 </script>
 
 <style lang="less">
@@ -286,10 +293,11 @@ html {
 }
 
 .setListDialog {
-  .v-input__details{
+  .v-input__details {
     display: none;
   }
-  .v-list-item{
+
+  .v-list-item {
     padding-top: 0;
     padding-bottom: 0;
   }
