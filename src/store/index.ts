@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
-import { client } from "../trcpClient";
 import { SetListsWrapper, SheetFile } from "../models/types";
+import { client } from "../trcpClient";
 
 let sheetMusicFolder = localStorage.getItem("sheetMusicFolder");
 sheetMusicFolder = sheetMusicFolder || "";

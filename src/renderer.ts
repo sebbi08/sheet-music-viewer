@@ -1,11 +1,11 @@
 import "@mdi/font/css/materialdesignicons.css";
+import { createPinia } from "pinia";
 import "roboto-fontface/css/roboto/roboto-fontface.css";
+import { createApp } from "vue";
 // eslint-disable-next-line import/no-unresolved
 import "vuetify/styles";
-import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router/index";
-import { createPinia } from "pinia";
 
 import { createVuetify } from "vuetify";
 

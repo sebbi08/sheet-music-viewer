@@ -90,7 +90,7 @@ watch(router.currentRoute, () => {
 
 function selectItem(item: SheetFile): void {
   if (item.isFile) {
-    let basePath = store.sheetMusicFolder;
+    const basePath = store.sheetMusicFolder;
     let path = basePath + folderPath.value + window.path.sep + item.name;
     if (item.isSearch) {
       path = item.path + window.path.sep + item.name;
@@ -109,7 +109,7 @@ function selectItem(item: SheetFile): void {
 }
 
 async function loadPath() {
-  let basePath = store.sheetMusicFolder;
+  const basePath = store.sheetMusicFolder;
   if (loadedRelative.value === folderPath.value) {
     return;
   }

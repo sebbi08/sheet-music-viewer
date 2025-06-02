@@ -1,9 +1,9 @@
-import { app, BrowserWindow, protocol, autoUpdater } from "electron";
+import { app, autoUpdater, BrowserWindow, protocol } from "electron";
 import installExtension, {
   VUEJS_DEVTOOLS_BETA,
 } from "electron-devtools-installer";
-import path from "path";
 import startup from "electron-squirrel-startup";
+import path from "path";
 // eslint-disable-next-line import/no-unresolved
 import { createIPCHandler } from "electron-trpc/main";
 import { trcpRouter } from "./trcpRouter";

@@ -1,4 +1,4 @@
-import { type Color } from "./models/types"
+import { type Color } from "./models/types";
 
 export enum RouteNames {
   "SheetSelection" = "SheetSelection",

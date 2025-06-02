@@ -117,15 +117,14 @@
 </template>
 
 <script setup lang="ts">
-import { RouteNames } from "./Enums";
-import { computed, ref } from "vue";
-import useStore from "./store";
-import router from "./router";
-import { watch } from "vue";
-import { storeToRefs } from "pinia";
-import { client } from "./trcpClient";
-import { UpdateData } from "./models/types";
 import _ from "lodash";
+import { storeToRefs } from "pinia";
+import { computed, ref, watch } from "vue";
+import { RouteNames } from "./Enums";
+import { UpdateData } from "./models/types";
+import router from "./router";
+import useStore from "./store";
+import { client } from "./trcpClient";
 
 
 const dialog = ref(false);
@@ -144,7 +143,7 @@ client.getVersion.query().then((version) => {
 
 
 const showBackButton = computed(() => {
-  let currentRoute = router.currentRoute.value.name;
+  const currentRoute = router.currentRoute.value.name;
   switch (currentRoute) {
     case RouteNames.SheetSelection:
     case RouteNames.SheetViewer:
@@ -161,12 +160,12 @@ const showBackButton = computed(() => {
   }
 })
 const showSettingsButton = computed(() => {
-  let currentRoute = router.currentRoute.value.name;
-  return currentRoute === RouteNames.Overview || currentRoute === RouteNames.SheetSelection;
+  const currentRoute = router.currentRoute.value.name;
+  return currentRoute === RouteNames.Overview;
 })
 
 function onNavBack() {
-  let clearSearch = !!store.searchTerm;
+  const clearSearch = !!store.searchTerm;
   if (router.currentRoute.value.name === RouteNames.SheetSelection && clearSearch) {
     store.searchTerm = "";
     return;

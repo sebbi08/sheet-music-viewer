@@ -247,7 +247,7 @@ function onClick(event: MouseEvent): void {
   if (!event.target) {
     return;
   }
-  let sheetViewerWrapper = document.getElementById("sheetViewerWrapper");
+  const sheetViewerWrapper = document.getElementById("sheetViewerWrapper");
   if (!sheetViewerWrapper) {
     return;
   }
@@ -457,7 +457,7 @@ function addTextToCanvas(): void {
 
   textDialog.value = false;
 
-  let textbox = new fabric.FabricText(text.value, {
+  const textbox = new fabric.FabricText(text.value, {
     width: 100,
     height: 20,
     fontSize: 16,
@@ -482,7 +482,7 @@ function addMdiIcon(icon: Icon) {
 function addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
   if (!editFabric) return;
 
-  let iconObject = new fabric.FabricText(icon.code, {
+  const iconObject = new fabric.FabricText(icon.code, {
     fill: "red",
     fontSize: 1,
     fontWeight: 500,
@@ -509,12 +509,12 @@ function addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
 
 function addMusicSvg(svg: Svg): void {
   if (!editFabric) return;
-  let group: any[] = [];
+  const group: any[] = [];
 
   fabric.loadSVGFromURL(
     getImgUrl(svg.file),
     () => {
-      let loadedObjects = new fabric.Group(group);
+      const loadedObjects = new fabric.Group(group);
 
       loadedObjects.set({
         left: (editFabric?.width || 0) / 2,
@@ -535,7 +535,7 @@ function addMusicSvg(svg: Svg): void {
 
       editFabric?.setActiveObject(loadedObjects);
       editFabric?.renderAll();
-    },
+    }
     // function (item: any, object: any) {
     //   object.set("id", item.getAttribute("id"));
     //   group.push(object);
@@ -583,17 +583,17 @@ function startInteractiveMode(): void {
 
 function saveDrawnData(): void {
   if (!editFabric) return;
-  let fabricJson = editFabric.toObject(["__isText"]) as any;
+  const fabricJson = editFabric.toObject(["__isText"]) as any;
   let fabricDataUrl = editFabric.toDataURL();
   if (fabricJson.objects.length === 0) {
     fabricDataUrl = "";
   }
 
-  let currentPageData = overlayData.find((a: OverlayData): boolean => {
+  const currentPageData = overlayData.find((a: OverlayData): boolean => {
     return a.page === currentPage.value;
   });
-  let width = editFabric.width || 0;
-  let height = editFabric.height || 0;
+  const width = editFabric.width || 0;
+  const height = editFabric.height || 0;
   if (currentPageData) {
     delete currentPageData.dataUrl;
     currentPageData.data = fabricJson;
@@ -615,7 +615,7 @@ function saveDrawnData(): void {
 }
 
 function setEditMode(newEditState: Partial<EditState>): void {
-  let currentEditState = getEditMode();
+  const currentEditState = getEditMode();
   const combinedEditState = Object.assign(currentEditState, newEditState);
 
   if (!editFabric) {
@@ -650,14 +650,14 @@ function getEditMode(): EditState {
 }
 
 async function createFabricCanvas(): Promise<void> {
-  let sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
+  const sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
 
-  let currentPageCanvas =
+  const currentPageCanvas =
     sheetViewerWrapper?.querySelector<HTMLCanvasElement>(
       `canvas[data-page="${currentPage.value}"]`
     );
 
-  let editCanvas = document.createElement("canvas") as HTMLCanvasElement;
+  const editCanvas = document.createElement("canvas") as HTMLCanvasElement;
   editCanvas.className = editCanvasId;
 
   editCanvas.height = parseFloat(currentPageCanvas?.style.height || "") || 0;
@@ -665,12 +665,12 @@ async function createFabricCanvas(): Promise<void> {
   editCanvas.style.height = currentPageCanvas?.style.height || "0px";
   editCanvas.style.width = currentPageCanvas?.style.width || "0px";
 
-  let canvasWrapper = document.querySelector<HTMLDivElement>(
+  const canvasWrapper = document.querySelector<HTMLDivElement>(
     `#${sheetViewerWrapperId} > .canvasWrapper`
   );
   canvasWrapper?.appendChild(editCanvas);
 
-  let currentPageData = overlayData.find((a: OverlayData): boolean => {
+  const currentPageData = overlayData.find((a: OverlayData): boolean => {
     return a.page === currentPage.value;
   });
 
@@ -685,10 +685,10 @@ async function createFabricCanvas(): Promise<void> {
     isDrawingMode: false,
   });
   startInteractiveMode();
-  let handleSelection = () => {
+  const handleSelection = () => {
     if (!editFabric) return;
     if (editFabric.getActiveObjects().length > 1) {
-      let groupSelector = editFabric.getActiveObject()
+      const groupSelector = editFabric.getActiveObject()
       if (groupSelector) {
         setDefaultPropsOnFabricObject(groupSelector, () => { }, true)
         groupSelector.setCoords()
@@ -699,7 +699,7 @@ async function createFabricCanvas(): Promise<void> {
   };
 
 
-  let checkFabButtonLocation = () => {
+  const checkFabButtonLocation = () => {
     if (!editFabric) return;
     const activeObject = editFabric.getActiveObject()
     if (!activeObject) return;
@@ -755,7 +755,7 @@ function removeFabricCanvas(): void {
   editFabric?.dispose();
   editFabric = undefined;
 
-  let sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
+  const sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
   sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
   setEditMode({});
 }
@@ -773,19 +773,19 @@ function clearOverlayCanvas(): void {
 async function populateOverlayCanvas() {
   clearOverlayCanvas();
 
-  let $wrapper = document.getElementById(
+  const $wrapper = document.getElementById(
     "sheetViewerWrapper"
   ) as HTMLDivElement;
 
   for (let i = 0; i < overlayData.length; i++) {
-    let overlayJsonData = overlayData[i];
+    const overlayJsonData = overlayData[i];
     if (!overlayJsonData) continue;
-    let pageNumber = overlayJsonData.page;
+    const pageNumber = overlayJsonData.page;
 
-    let canvas = $wrapper?.querySelector(
+    const canvas = $wrapper?.querySelector(
       'canvas[data-page="' + pageNumber + '"]'
     ) as HTMLCanvasElement;
-    let halfPageCanvas = $wrapper?.querySelector(
+    const halfPageCanvas = $wrapper?.querySelector(
       'canvas[data-page="' + (pageNumber - 0.5) + '"]'
     ) as HTMLCanvasElement;
 
@@ -802,12 +802,12 @@ async function createOverlay(
   overlayData: OverlayData,
   isHalfPage: boolean
 ): Promise<void> {
-  let zIndex = canvas.style.zIndex;
-  let width = parseFloat(canvas.style.width);
-  let height = parseFloat(canvas.style.height);
-  let pageNumber = canvas.getAttribute("data-page");
+  const zIndex = canvas.style.zIndex;
+  const width = parseFloat(canvas.style.width);
+  const height = parseFloat(canvas.style.height);
+  const pageNumber = canvas.getAttribute("data-page");
 
-  let overlayCanvas = document.createElement("canvas");
+  const overlayCanvas = document.createElement("canvas");
 
   overlayCanvas.style.zIndex = zIndex;
   overlayCanvas.style.width = width + "px";
@@ -826,7 +826,7 @@ async function createOverlay(
   widthScale = parseFloat(widthScale.toFixed(2));
   heightScale = parseFloat(heightScale.toFixed(2));
 
-  let overlayFabric = new fabric.StaticCanvas(overlayCanvas);
+  const overlayFabric = new fabric.StaticCanvas(overlayCanvas);
   await overlayFabric.loadFromJSON(overlayData.data, (a, canvasObject) => {
     if (canvasObject instanceof FabricObject) {
       canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
@@ -840,8 +840,8 @@ async function createOverlay(
 
   overlayFabric.renderAll();
   if (isHalfPage) {
-    let height = overlayFabric.getHeight() / 2;
-    let width = overlayFabric.getWidth();
+    const height = overlayFabric.getHeight() / 2;
+    const width = overlayFabric.getWidth();
     overlayFabric.getContext().clearRect(0, height, width, height);
   }
 
@@ -857,12 +857,12 @@ async function renderPdf(): Promise<void> {
   pagesLoaded.value = 0;
 
   setTimeout(() => {
-    let $wrapper = document.getElementById(
+    const $wrapper = document.getElementById(
       "sheetViewerWrapper"
     ) as HTMLDivElement;
-    let renderingPromises = [];
+    const renderingPromises = [];
     for (let i = 1; i <= pageNumbers.value; i++) {
-      let $canvas = $wrapper?.querySelector(
+      const $canvas = $wrapper?.querySelector(
         'canvas[data-page="' + i + '"]'
       ) as HTMLCanvasElement;
       renderingPromises.push(
@@ -890,7 +890,7 @@ function setOverlayVisible(): void {
   document
     .querySelectorAll<HTMLCanvasElement>("canvas.overlayCanvas")
     .forEach((canvas) => {
-      let pageNumber = parseFloat(
+      const pageNumber = parseFloat(
         canvas.getAttribute("data-page-overlay") || ""
       );
       if (
@@ -922,9 +922,9 @@ async function renderPage(
   if (!pdf) {
     return;
   }
-  let scaling = 4;
-  let page = await pdf.getPage(pageNumber);
-  let scale1ViewPort = page.getViewport({
+  const scaling = 4;
+  const page = await pdf.getPage(pageNumber);
+  const scale1ViewPort = page.getViewport({
     scale: 1,
   });
 
@@ -936,7 +936,7 @@ async function renderPage(
     scale = $wrapper.clientWidth / scale1ViewPort.width;
     windowViewport = page.getViewport({ scale });
   }
-  let viewport = scale1ViewPort;
+  const viewport = scale1ViewPort;
 
   // Prepare canvas using PDF page dimensions
 
@@ -970,13 +970,13 @@ function copyPageToHalfPageAndBackdrop(
   $canvas: HTMLCanvasElement,
   $wrapper: HTMLDivElement
 ): Promise<number> {
-  let originalCanvas = $wrapper?.querySelector(
+  const originalCanvas = $wrapper?.querySelector(
     'canvas[data-page="' + pageNumber + '"]'
   ) as HTMLCanvasElement;
   if (pageNumber === 1) {
     return Promise.resolve(pageNumber);
   }
-  let halfPageCanvas = $wrapper?.querySelector(
+  const halfPageCanvas = $wrapper?.querySelector(
     'canvas[data-page="' + (pageNumber - 0.5) + '"]'
   ) as HTMLCanvasElement;
   halfPageCanvas.height = originalCanvas.height;
@@ -984,10 +984,10 @@ function copyPageToHalfPageAndBackdrop(
   halfPageCanvas.style.height = originalCanvas.style.height;
   halfPageCanvas.style.width = originalCanvas.style.width;
 
-  let halfPageContext = halfPageCanvas.getContext("2d");
+  const halfPageContext = halfPageCanvas.getContext("2d");
   halfPageContext?.drawImage(originalCanvas, 0, 0);
 
-  let backdrop = $wrapper?.querySelector(
+  const backdrop = $wrapper?.querySelector(
     'div[data-page-backdrop="' + (pageNumber - 0.5) + '"]'
   ) as HTMLDivElement;
   if (backdrop) {
@@ -1006,8 +1006,8 @@ function copyPageToHalfPageAndBackdrop(
         resolve(pageNumber);
         return;
       }
-      let height = originalCanvas.height / 2;
-      let width = originalCanvas.width;
+      const height = originalCanvas.height / 2;
+      const width = originalCanvas.width;
       halfPageContext.clearRect(0, height, width, height);
       resolve(pageNumber);
     }, 500);

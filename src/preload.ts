@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 // eslint-disable-next-line import/no-unresolved
 import { exposeElectronTRPC } from "electron-trpc/main";
-import { basename, relative, sep,dirname } from "node:path";
+import { basename, dirname, relative, sep } from "node:path";
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object

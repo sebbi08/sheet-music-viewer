@@ -1,11 +1,11 @@
 import { createRouter, createWebHashHistory, type RouterOptions } from "vue-router";
-import useStore from "../store";
 import { RouteNames } from "../Enums";
-import Overview from "../views/Overview.vue";
+import useStore from "../store";
 import FolderSetup from "../views/FolderSetup.vue";
-import SheetSelection from "../views/SheetSelection.vue";
-import SetListList from "../views/SetListList.vue";
+import Overview from "../views/Overview.vue";
 import SetListVue from "../views/SetList.vue";
+import SetListList from "../views/SetListList.vue";
+import SheetSelection from "../views/SheetSelection.vue";
 import SheetViewer from "../views/SheetViewer.vue";
 
 const routes: RouterOptions["routes"] = [

@@ -1,18 +1,18 @@
 import { observable } from "@trpc/server/observable";
 import { app, autoUpdater, dialog } from "electron";
-import path from "path";
 import fs from "fs-extra";
+import { glob } from "glob";
+import path from "path";
 import { z } from "zod";
 import {
-  UpdateData,
-  setListsWrapperSchema,
-  SetListsWrapper,
-  SetListV1,
   SetList,
   SetListSheet,
+  SetListsWrapper,
+  setListsWrapperSchema,
+  SetListV1,
   SheetFile,
+  UpdateData,
 } from "./models/types";
-import { glob } from "glob";
 
 const isDevelopment = !app.isPackaged;
 

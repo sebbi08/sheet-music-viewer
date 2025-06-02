@@ -1,9 +1,9 @@
+import * as fabric from "fabric";
 import {
   type ControlActionHandler,
   FabricObject,
   type Transform,
 } from "fabric";
-import * as fabric from "fabric";
 import { ACTION_ICONS } from "./Enums";
 
 export function enhanceFabricPrototype(): void {

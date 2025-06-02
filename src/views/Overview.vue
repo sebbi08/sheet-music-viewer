@@ -12,8 +12,8 @@
 </template>
 
 <script setup lang="ts">
-import router from '../router';
 import { RouteNames } from '../Enums';
+import router from '../router';
 
 
 function goToSetLists(): void {

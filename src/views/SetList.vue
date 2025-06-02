@@ -60,15 +60,15 @@
 </template>
 
 <script setup lang="ts">
+import _ from "lodash";
 import { storeToRefs } from 'pinia';
 import { computed, onMounted, ref, watch } from 'vue';
 import draggable from 'vuedraggable';
 import { RouteNames } from '../Enums';
+import { SetList, SetListSheet, SheetFile } from '../models/types';
 import router from '../router';
 import useStore from '../store';
 import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";
-import { SetList, SetListSheet, SheetFile } from '../models/types';
-import _ from "lodash";
 
 
 
@@ -89,7 +89,7 @@ const folderPath = computed(() => {
 
 
 function openSheet(item: SetListSheet): void {
-  let basePath = store.sheetMusicFolder;
+  const basePath = store.sheetMusicFolder;
   let path = basePath + window.path.sep + item.path.join(window.path.sep);
   if (!path.endsWith(window.path.sep) && !item.name.startsWith(window.path.sep)) {
     path = path + window.path.sep + item.name
@@ -107,7 +107,7 @@ function moveFolderUp(): void {
   if (currentPath.value === "" || currentPath.value === "/") {
     return;
   }
-  let split = currentPath.value.split(window.path.sep);
+  const split = currentPath.value.split(window.path.sep);
   split.pop();
   currentPath.value = split.join(window.path.sep);
 }
@@ -155,8 +155,8 @@ watch(filesAndFolder, (newVal) => {
 })
 
 async function loadPath() {
-  let relativePath = folderPath;
-  let basePath = store.sheetMusicFolder;
+  const relativePath = folderPath;
+  const basePath = store.sheetMusicFolder;
   // if (loadedRelative.value === relativePath.value) {
   // return;
   // }
