@@ -8,11 +8,12 @@
     "start": "electron-forge start",
     "package": "electron-forge package --arch x64",
     "make": "electron-forge make --arch x64",
-    "publish": "electron-forge publish --arch x64",
+    "publish": "npm run buildPublisher && electron-forge publish --arch x64",
     "semantic-release": "semantic-release --no-ci",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "electron-forge publish --arch x64 --from-dry-run",
-    "release": "npx semantic-release --no-ci && git push && npm run publish"
+    "release": "npx semantic-release --no-ci && git push && npm run publish",
+    "buildPublisher": "npx tsc --esModuleInterop true -t esnext --moduleResolution node .\\publisher\\PublisherERS.ts"
   },
   "keywords": [],
   "author": {

@@ -3,13 +3,13 @@ import {
   PublisherOptions,
 } from "@electron-forge/publisher-base";
 import { ForgeArch, ForgePlatform } from "@electron-forge/shared-types";
+import axios, { AxiosRequestConfig } from "axios";
 import debug from "debug";
 import FormData from "form-data";
-import * as fs from "fs-extra";
-import axios, { AxiosRequestConfig } from "axios";
+import fs from "fs";
 
-import { PublisherERSConfig } from "./Config";
 import { basename } from "node:path";
+import { PublisherERSConfig } from "./Config";
 
 const d = debug("electron-forge:publish:ers");
 
