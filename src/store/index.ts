@@ -5,9 +5,6 @@ import { client } from "../trcpClient";
 let sheetMusicFolder = localStorage.getItem("sheetMusicFolder");
 sheetMusicFolder = sheetMusicFolder || "";
 
-
-
-
 const useStore = defineStore("app", {
   state: () => ({
     sheetMusicFolder: sheetMusicFolder,
@@ -40,10 +37,18 @@ const useStore = defineStore("app", {
       this.filesAndFolder = filesAndFolder;
     },
     async loadSetLists() {
-      const setListsWrapper = await client.loadSetLists.query(this.sheetMusicFolder);
+      if (!this.sheetMusicFolder) {
+        return;
+      }
+      const setListsWrapper = await client.loadSetLists.query(
+        this.sheetMusicFolder
+      );
       this.setListsWrapper = setListsWrapper;
     },
     async saveSetLists() {
+      if (!this.sheetMusicFolder) {
+        return;
+      }
       try {
         await client.saveSetLists.query({
           basePath: this.sheetMusicFolder,

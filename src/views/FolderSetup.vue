@@ -18,12 +18,14 @@ const store = useStore();
 async function selectFolder() {
   const selectedFolder = await client.selectFolder.query()
   store.sheetMusicFolder = selectedFolder;
+  store.loadSetLists();
+  store.saveSetLists();
 
-    localStorage.setItem("sheetMusicFolder", selectedFolder);
-    router.push({
-      name: "SheetSelection",
-      params: { path: window.path.sep },
-    });
+  localStorage.setItem("sheetMusicFolder", selectedFolder);
+  router.push({
+    name: "SheetSelection",
+    params: { path: window.path.sep },
+  });
 }
 </script>
 

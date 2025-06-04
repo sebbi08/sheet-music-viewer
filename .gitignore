@@ -90,3 +90,4 @@ dist
 .webpack
 .vite
 publisher/*.js
+publisher/*.map
