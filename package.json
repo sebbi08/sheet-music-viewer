@@ -64,7 +64,7 @@
     "electron-trpc": "^0.7.1",
     "eslint": "9.28.0",
     "eslint-plugin-import": "2.31.0",
-    "fabric": "6.6.7",
+    "fabric": "6.7.0",
     "fontfaceobserver": "2.3.0",
     "form-data": "4.0.2",
     "fs-extra": "11.3.0",
