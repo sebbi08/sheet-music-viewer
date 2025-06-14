@@ -62,7 +62,7 @@
     "electron-log": "5.4.1",
     "electron-squirrel-startup": "1.0.1",
     "electron-trpc": "^0.7.1",
-    "eslint": "9.28.0",
+    "eslint": "9.29.0",
     "eslint-plugin-import": "2.31.0",
     "fabric": "6.7.0",
     "fontfaceobserver": "2.3.0",
