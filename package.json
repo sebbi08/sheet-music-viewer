@@ -73,7 +73,7 @@
     "lodash": "4.17.21",
     "material-design-icons": "3.0.1",
     "node-fetch": "3.3.2",
-    "pdfjs-dist": "5.3.31",
+    "pdfjs-dist": "5.3.93",
     "pinia": "^3.0.2",
     "roboto-fontface": "0.10.0",
     "sass": "1.89.2",
