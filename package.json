@@ -57,7 +57,7 @@
     "core-js": "3.44.0",
     "debug": "4.4.1",
     "dotenv": "^16.5.0",
-    "electron": "37.2.1",
+    "electron": "37.2.2",
     "electron-devtools-installer": "4.0.0",
     "electron-log": "5.4.1",
     "electron-squirrel-startup": "1.0.1",
