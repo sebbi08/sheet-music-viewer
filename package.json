@@ -91,7 +91,7 @@
     "vue-tsc": "2.2.12",
     "vuedraggable": "4.1.0",
     "vuetify": "3.9.7",
-    "zod": "^3.25.48"
+    "zod": "^4.0.0"
   },
   "release": {
     "branches": [
