@@ -57,7 +57,7 @@
     "core-js": "3.45.1",
     "debug": "4.4.3",
     "dotenv": "^17.2.2",
-    "electron": "38.1.1",
+    "electron": "38.1.2",
     "electron-devtools-installer": "4.0.0",
     "electron-log": "5.4.3",
     "electron-squirrel-startup": "1.0.1",
@@ -90,7 +90,7 @@
     "vue-router": "4.5.1",
     "vue-tsc": "3.0.7",
     "vuedraggable": "4.1.0",
-    "vuetify": "3.10.1",
+    "vuetify": "3.10.2",
     "zod": "^4.1.7"
   },
   "release": {
