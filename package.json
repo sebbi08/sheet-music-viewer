@@ -90,7 +90,7 @@
     "vue-router": "4.5.1",
     "vue-tsc": "3.0.8",
     "vuedraggable": "4.1.0",
-    "vuetify": "3.10.4",
+    "vuetify": "3.10.5",
     "zod": "^4.1.7"
   },
   "release": {
