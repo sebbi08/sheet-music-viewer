@@ -40,7 +40,7 @@
     "@semantic-release/release-notes-generator": "14.1.0",
     "@trpc/client": "10.45.2",
     "@trpc/server": "10.45.2",
-    "@tsconfig/node22": "22.0.2",
+    "@tsconfig/node22": "22.0.3",
     "@types/debug": "4.1.12",
     "@types/electron-squirrel-startup": "1.0.2",
     "@types/fontfaceobserver": "2.1.3",
