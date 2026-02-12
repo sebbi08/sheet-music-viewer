@@ -39,7 +39,7 @@
     "@semantic-release/npm": "12.0.2",
     "@semantic-release/release-notes-generator": "14.1.0",
     "@trpc/client": "10.45.2",
-    "@trpc/server": "10.45.2",
+    "@trpc/server": "10.45.3",
     "@tsconfig/node22": "22.0.5",
     "@types/debug": "4.1.12",
     "@types/electron-squirrel-startup": "1.0.2",
