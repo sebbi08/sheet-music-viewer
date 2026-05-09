@@ -1,3 +1,10 @@
+## [1.13.3](https://github.com/sebbi08/sheet-music-viewer/compare/v1.13.2...v1.13.3) (2026-05-09)
+
+
+### Bug Fixes
+
+* release trigger ([31fda0b](https://github.com/sebbi08/sheet-music-viewer/commit/31fda0b10e0e0f70e83dadf07cfca646ac3f11a6))
+
 ## [1.13.2](https://github.com/sebbi08/sheet-music-viewer/compare/v1.13.1...v1.13.2) (2026-05-09)
 
 
