@@ -1,7 +1,7 @@
 {
   "name": "sheet-music-viewer",
   "productName": "sheet-music-viewer",
-  "version": "1.13.5",
+  "version": "1.13.6",
   "description": "App to display music sheets",
   "main": ".vite/build/main.js",
   "scripts": {
