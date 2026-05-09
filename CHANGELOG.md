@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.11.0...v1.12.0) (2026-05-09)
+
+
+### Features
+
+* updated dependencies and fix image in PDF rendering ([6a5cc04](https://github.com/sebbi08/sheet-music-viewer/commit/6a5cc04a1a28c2e42370a236ecf725901f77f476))
+
 # [1.11.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.10.2...v1.11.0) (2025-06-02)
 
 
