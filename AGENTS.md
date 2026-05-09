@@ -41,6 +41,12 @@ npm test               # placeholder, no real tests
 - `semantic-release` plugins: commit-analyzer, release-notes-generator, npm (publish disabled), changelog, git, github
 - `@electron-forge/publisher-github` for publishing artifacts to GitHub Releases
 
+## Commit Convention
+
+- Follows [Conventional Commits](https://www.conventionalcommits.org/) for semantic-release
+- Enforced via `commitlint` on `commit-msg` hook (managed by `simple-git-hooks`)
+- Format: `<type>[(scope)]: <description>` — types: feat, fix, chore, docs, refactor, etc.
+
 ## Notes
 
 - The `Noten/` folder (local sheet music data) and `.env` are gitignored
