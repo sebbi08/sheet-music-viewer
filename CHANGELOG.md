@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.12.0...v1.13.0) (2026-05-09)
+
+
+### Features
+
+* change release to github ([c01e230](https://github.com/sebbi08/sheet-music-viewer/commit/c01e230a73768ab78ee8064d06a641b42f723ca2))
+
 # [1.12.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.11.0...v1.12.0) (2026-05-09)
 
 
