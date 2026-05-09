@@ -5,11 +5,9 @@ import installExtension, {
 import startup from "electron-squirrel-startup";
 import path from "path";
 // eslint-disable-next-line import/no-unresolved
-import { createIPCHandler } from "electron-trpc/main";
+import { createIPCHandler } from "trpc-electron/main";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
-
-
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (startup) {
