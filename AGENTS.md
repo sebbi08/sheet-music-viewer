@@ -29,9 +29,9 @@ npm test               # placeholder, no real tests
 ## Release Process
 
 - **Manual trigger**: `npm run release` — loads `.env`, runs `semantic-release --no-ci`, pushes, then runs `electron-forge publish`
-- `semantic-release` bumps version, updates CHANGELOG.md, creates a **GitHub Release** (via `@semantic-release/github`), commits, pushes
+- **Automatic via CI**: semantic-release runs on push to `master`, bumps version, creates a **GitHub Release** (via `@semantic-release/github`), commits, pushes
+- CI (`build.yml`) then triggers on the resulting tag (`v*`) and uploads build artifacts to the GitHub Release via `@electron-forge/publisher-github`
 - `.env` file must contain `GH_TOKEN` (or `GITHUB_TOKEN`) for GitHub authentication
-- CI (`build.yml`) triggers on tags (`v*`) and uploads build artifacts to the GitHub Release via `@electron-forge/publisher-github`
 - Only `master` branch is used
 
 ## Key Dependencies
