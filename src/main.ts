@@ -5,7 +5,7 @@ import installExtension, {
 import startup from "electron-squirrel-startup";
 import path from "path";
 import { createIPCHandler } from "trpc-electron/main";
-import updateElectronApp from "update-electron-app";
+import { updateElectronApp } from "update-electron-app";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
 
