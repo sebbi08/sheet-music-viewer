@@ -10,8 +10,6 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     permissions:
       contents: write
-    outputs:
-      published: ${{ steps.check-tag.outputs.published }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,22 +19,22 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npx semantic-release
+      - name: Run semantic-release
+        id: release
+        run: |
+          OLD_VERSION=$(node -p "require('./package.json').version")
+          npx semantic-release
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+            echo "No new release was published"
+            exit 1
+          fi
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - id: check-tag
-        run: |
-          git fetch --tags
-          VERSION=$(node -p "require('./package.json').version")
-          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-            echo "published=true" >> $GITHUB_OUTPUT
-          else
-            echo "published=false" >> $GITHUB_OUTPUT
-          fi
 
   publish:
     needs: release
-    if: needs.release.outputs.published == 'true'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
