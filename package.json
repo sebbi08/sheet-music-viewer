@@ -8,10 +8,9 @@
     "start": "electron-forge start",
     "package": "electron-forge package --arch x64",
     "make": "electron-forge make --arch x64",
-    "publish": "node -r dotenv/config -e \"const{execSync}=require('child_process');execSync('electron-forge publish --arch x64',{stdio:'inherit'})\"",
+    "publish": "electron-forge publish --arch x64",
     "semantic-release": "semantic-release --no-ci",
     "lint": "eslint --ext .ts,.tsx .",
-    "release": "npx semantic-release --no-ci && git push && npm run publish",
     "test": "echo 'true'"
   },
   "keywords": [],

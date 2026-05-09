@@ -13,26 +13,26 @@ jobs:
     outputs:
       published: ${{ steps.check-tag.outputs.published }}
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: current
-    - run: npm ci
-    - run: npx semantic-release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - id: check-tag
-      run: |
-        git fetch --tags
-        VERSION=$(node -p "require('./package.json').version")
-        if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-          echo "published=true" >> $GITHUB_OUTPUT
-        else
-          echo "published=false" >> $GITHUB_OUTPUT
-        fi
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - id: check-tag
+        run: |
+          git fetch --tags
+          VERSION=$(node -p "require('./package.json').version")
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "published=true" >> $GITHUB_OUTPUT
+          else
+            echo "published=false" >> $GITHUB_OUTPUT
+          fi
 
   publish:
     needs: release
@@ -43,18 +43,16 @@ jobs:
     strategy:
       matrix:
         os:
-          - ubuntu-latest
           - windows-latest
-          - macos-14
     steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: master
-    - name: Use Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: current
-    - run: npm ci
-    - run: npm run publish
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
