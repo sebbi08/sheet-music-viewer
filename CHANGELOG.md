@@ -1,3 +1,10 @@
+## [1.13.5](https://github.com/sebbi08/sheet-music-viewer/compare/v1.13.4...v1.13.5) (2026-05-09)
+
+
+### Bug Fixes
+
+* invalid import ([0fcfcc8](https://github.com/sebbi08/sheet-music-viewer/commit/0fcfcc839293af9ad138607287d760a1375b9984))
+
 ## [1.13.4](https://github.com/sebbi08/sheet-music-viewer/compare/v1.13.3...v1.13.4) (2026-05-09)
 
 
