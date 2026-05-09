@@ -15,22 +15,36 @@ const compat = new FlatCompat({
     allConfig: js.configs.all
 });
 
-export default defineConfig([{
-    extends: fixupConfigRules(compat.extends(
-        "eslint:recommended",
-        "plugin:@typescript-eslint/eslint-recommended",
-        "plugin:@typescript-eslint/recommended",
-        "plugin:import/recommended",
-        "plugin:import/electron",
-        "plugin:import/typescript",
-    )),
-
-    languageOptions: {
-        globals: {
-            ...globals.browser,
-            ...globals.node,
+export default defineConfig([
+    {
+        ignores: [
+            ".vite/**",
+            "node_modules/**",
+            "dist/**",
+            "out/**",
+            "publisher/**",
+        ],
+    },
+    {
+        extends: fixupConfigRules(compat.extends(
+            "eslint:recommended",
+            "plugin:@typescript-eslint/eslint-recommended",
+            "plugin:@typescript-eslint/recommended",
+        )),
+        rules: {
+            "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+            "import/no-unresolved": "off",
+            "no-undef": "off",
+            "@typescript-eslint/no-require-imports": "off",
         },
 
-        parser: tsParser,
+        languageOptions: {
+            globals: {
+                ...globals.browser,
+                ...globals.node,
+            },
+
+            parser: tsParser,
+        },
     },
-}]);
+]);

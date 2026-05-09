@@ -219,7 +219,8 @@ onMounted(async () => {
 
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
-    url: "local-resource://" + btoa(encodeURIComponent(router.currentRoute.value.params.path as string)),
+    url: "local-resource://file.html?url=" + btoa(encodeURIComponent(router.currentRoute.value.params.path as string)),
+    wasmUrl: `https://unpkg.com/pdfjs-dist@${pdfJs.version}/wasm/`
   });
   await renderPdf();
 
@@ -955,6 +956,7 @@ async function renderPage(
   if (!canvasContext) return;
   canvasContext?.scale(scaling, scaling);
   const renderContext = {
+    canvas: $canvas,
     canvasContext,
     viewport,
     background: "#ffffff",

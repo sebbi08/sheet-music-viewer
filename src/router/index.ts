@@ -46,18 +46,12 @@ const router = createRouter({
 });
 
 
-router.beforeEach((to, from, next) => {
-  
-const store = useStore();
-  if (to.name === "FolderSetup") {
-    next();
+router.beforeEach((to) => {
+  const store = useStore();
+  if (to.name === "FolderSetup" || store.sheetMusicFolder) {
     return;
   }
-  if (store.sheetMusicFolder && to.name !== "FolderSetup") {
-    next();
-  } else {
-    next({ name: "FolderSetup" });
-  }
+  return { name: "FolderSetup" };
 });
 
 export default router;

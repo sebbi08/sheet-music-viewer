@@ -1,10 +1,9 @@
-import { app, autoUpdater, BrowserWindow, protocol } from "electron";
+import { app, autoUpdater, BrowserWindow, net, protocol } from "electron";
 import installExtension, {
   VUEJS_DEVTOOLS_BETA,
 } from "electron-devtools-installer";
 import startup from "electron-squirrel-startup";
 import path from "path";
-// eslint-disable-next-line import/no-unresolved
 import { createIPCHandler } from "trpc-electron/main";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
@@ -36,6 +35,15 @@ if (startup) {
   // Scheme must be registered before the app is ready
   protocol.registerSchemesAsPrivileged([
     { scheme: "app", privileges: { secure: true, standard: true } },
+    {
+      scheme: "local-resource",
+      privileges: {
+        secure: true,
+        standard: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+      },
+    },
   ]);
 
   let mainWindow: BrowserWindow | null;
@@ -59,7 +67,7 @@ if (startup) {
       mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     } else {
       mainWindow.loadFile(
-        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
+        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
       );
     }
 
@@ -87,19 +95,13 @@ if (startup) {
   });
 
   function registerLocalResourceProtocol() {
-    protocol.registerFileProtocol("local-resource", (request, callback) => {
-      const url = request.url.replace(/^local-resource:\/\//, "");
+    protocol.handle("local-resource", (request) => {
+      const fileURl = request.url.split("url=")[1];
       const decodedUrl = decodeURIComponent(
-        Buffer.from(url, "base64").toString()
+        Buffer.from(fileURl || "", "base64").toString(),
       );
-      try {
-        return callback(decodedUrl);
-      } catch (error) {
-        console.error(
-          "ERROR: registerLocalResourceProtocol: Could not get file path:",
-          error
-        );
-      }
+      const filePath = decodedUrl.replace(/\\/g, "/");
+      return net.fetch(`file:///${filePath}`);
     });
   }
 

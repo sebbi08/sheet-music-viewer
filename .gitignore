@@ -91,3 +91,5 @@ dist
 .vite
 publisher/*.js
 publisher/*.map
+Noten
+opencode.json

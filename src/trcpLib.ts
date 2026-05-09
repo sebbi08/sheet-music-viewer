@@ -1,4 +1,3 @@
-import { observable } from "@trpc/server/observable";
 import { app, autoUpdater, dialog } from "electron";
 import fs from "fs-extra";
 import { glob } from "glob";
@@ -11,7 +10,6 @@ import {
   setListsWrapperSchema,
   SetListV1,
   SheetFile,
-  UpdateData,
 } from "./models/types";
 
 const isDevelopment = !app.isPackaged;
@@ -28,42 +26,11 @@ export function checkForUpdates() {
     autoUpdater.checkForUpdates();
   }
 }
-export async function updateAvailableNotifier() {
-  return observable<undefined>((emit) => {
-    const handler = () => emit.next(undefined);
-    autoUpdater.on("update-available", handler);
-
-    return () => {
-      autoUpdater.off("update-available", handler);
-    };
-  });
-}
 
 export function quitAndInstallUpdates() {
   autoUpdater.quitAndInstall();
 }
-export function updateDownloadedNotifier() {
-  return observable<UpdateData>((emit) => {
-    const handler: (
-      event: Event,
-      releaseNotes: string,
-      releaseName: string,
-      releaseDate: Date,
-      updateURL: string
-    ) => void = (event, releaseNotes, releaseName, releaseDate) => {
-      return emit.next({
-        releaseDate,
-        releaseName,
-        releaseNotes,
-      });
-    };
-    autoUpdater.on("update-downloaded", handler);
 
-    return () => {
-      autoUpdater.off("update-downloaded", handler);
-    };
-  });
-}
 export async function openFolderDialog() {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
@@ -104,7 +71,7 @@ export const loadFilesAndFolderInputSchema = z.object({
   relativePath: z.string(),
 });
 export async function loadFilesAndFolder(
-  opts: input<typeof loadFilesAndFolderInputSchema>
+  opts: input<typeof loadFilesAndFolderInputSchema>,
 ) {
   const {
     input: { basePath, relativePath },
@@ -148,14 +115,14 @@ export const saveSetListsInputSchema = z.object({
   basePath: z.string(),
 });
 export async function saveSetLists(
-  opts: input<typeof saveSetListsInputSchema>
+  opts: input<typeof saveSetListsInputSchema>,
 ) {
   const {
     input: { setListsWrapper, basePath },
   } = opts;
   await fs.writeFile(
     path.join(basePath, ".set-lists.json"),
-    JSON.stringify(setListsWrapper, null, 2)
+    JSON.stringify(setListsWrapper, null, 2),
   );
 }
 export const saveOverlayDataInputSchema = z.object({
@@ -164,7 +131,7 @@ export const saveOverlayDataInputSchema = z.object({
 });
 
 export async function saveOverlayData(
-  opts: input<typeof saveOverlayDataInputSchema>
+  opts: input<typeof saveOverlayDataInputSchema>,
 ) {
   const sheetPath = opts.input.path;
   const overlayData = opts.input.data;
@@ -198,7 +165,7 @@ function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
     "." + overlayDataPath.replace(path.extname(overlayDataPath), ".data");
   overlayDataPath = sheetPath.replace(
     path.basename(sheetPath),
-    overlayDataPath
+    overlayDataPath,
   );
 
   return overlayDataPath;
@@ -213,14 +180,12 @@ function migrateSetListsToV2(setListsJson: string): string {
       setLists: setListsV1.map<SetList>((setList) => {
         return {
           ...setList,
-          sheets: setList.sheets.map<SetListSheet>(
-            (sheet) => {
-              return {
-                ...sheet,
-                path: sheet.path.split(sheet.path.charAt(0)).filter((v) => !!v),
-              };
-            }
-          ),
+          sheets: setList.sheets.map<SetListSheet>((sheet) => {
+            return {
+              ...sheet,
+              path: sheet.path.split(sheet.path.charAt(0)).filter((v) => !!v),
+            };
+          }),
         };
       }),
     };
