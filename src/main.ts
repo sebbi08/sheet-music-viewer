@@ -14,7 +14,11 @@ if (startup) {
   app.quit();
 } else {
   if (!isDevelopment) {
-    updateElectronApp({ repo: "sebbi08/sheet-music-viewer" });
+    updateElectronApp({
+      repo: "sebbi08/sheet-music-viewer",
+      notifyUser: false,
+      updateInterval: "5min",
+    });
   }
 
   // Scheme must be registered before the app is ready
