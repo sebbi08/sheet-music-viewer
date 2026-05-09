@@ -1,10 +1,11 @@
-import { app, autoUpdater, BrowserWindow, net, protocol } from "electron";
+import { app, BrowserWindow, net, protocol } from "electron";
 import installExtension, {
   VUEJS_DEVTOOLS_BETA,
 } from "electron-devtools-installer";
 import startup from "electron-squirrel-startup";
 import path from "path";
 import { createIPCHandler } from "trpc-electron/main";
+import updateElectronApp from "update-electron-app";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
 
@@ -13,23 +14,7 @@ if (startup) {
   app.quit();
 } else {
   if (!isDevelopment) {
-    const server = "https://update.sebmahr.de";
-    let platform = process.platform as string;
-    if (platform === "win32") {
-      if (process.arch === "x64") {
-        platform = "win64";
-      }
-    }
-    const url = `${server}/update/${platform}/${app.getVersion()}`;
-    autoUpdater.setFeedURL({ url });
-    setInterval(() => {
-      autoUpdater.checkForUpdates();
-    }, 60_000);
-
-    autoUpdater.on("error", (message) => {
-      console.error("There was a problem updating the application");
-      console.error(message);
-    });
+    updateElectronApp({ repo: "sebbi08/sheet-music-viewer" });
   }
 
   // Scheme must be registered before the app is ready

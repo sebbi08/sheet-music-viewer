@@ -4,10 +4,9 @@ import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { VitePlugin } from "@electron-forge/plugin-vite";
+import { PublisherGithub } from "@electron-forge/publisher-github";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
-import { config as dotenv } from "dotenv";
-dotenv();
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
@@ -56,14 +55,13 @@ const config: ForgeConfig = {
     }),
   ],
   publishers: [
-    {
-      name: './publisher/PublisherERS.js',
-      config: {
-        baseUrl: "https://update.sebmahr.de",
-        username: "sebbi",
-        password: process.env.PASSWORD || "",
-      }
-    }
+    new PublisherGithub({
+      repository: {
+        owner: "sebbi08",
+        name: "sheet-music-viewer",
+      },
+      draft: false,
+    }),
   ],
 };
 
