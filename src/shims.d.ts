@@ -11,6 +11,9 @@ export declare global {
       basename: typeof basename;
       dirname: typeof dirname;
     };
+    shell: {
+      openExternal: (url: string) => Promise<void>
+    };
   }
 }
 

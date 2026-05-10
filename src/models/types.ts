@@ -10,7 +10,7 @@ export type SheetFile = z.infer<typeof sheetFileSchema>;
 
 export const setListSheetSchema = sheetFileSchema.extend({
   path: z.array(z.string()),
-})
+});
 
 export type SetListSheet = z.infer<typeof setListSheetSchema>;
 
@@ -57,7 +57,6 @@ export interface Color {
 }
 
 export interface UpdateData {
-  releaseDate: Date;
   releaseName: string;
   releaseNotes: string;
 }

@@ -1,6 +1,6 @@
 // See the Electron documentation for details on how to use preload scripts:
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, shell } from "electron";
  
 import { basename, dirname, relative, sep } from "node:path";
 import { exposeElectronTRPC } from "trpc-electron/main";
@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld("path", {
   relative: relative,
   basename,
   dirname
+});
+
+contextBridge.exposeInMainWorld("shell", {
+  openExternal: (url: string) => shell.openExternal(url)
 });
 
 process.once("loaded", async () => {

@@ -90,7 +90,7 @@
     </v-main>
   </v-app>
   <dialog>
-    <v-dialog persistent v-model="showUpdateDialog" max-width="300">
+    <v-dialog persistent v-model="showUpdateDialog" max-width="500">
       <v-card>
         <v-card-title class="text-h5">New version available</v-card-title>
         <v-card-text v-if="!updateDownloaded">
@@ -99,7 +99,7 @@
         <v-card-text v-if="updateDownloaded">
           <p>Version {{ updateData.releaseName }} is ready to be installed.</p>
           <p>Release notes:</p>
-          <p>{{ updateData.releaseNotes }}</p>
+          <div v-html="marked.parse(updateData.releaseNotes || '')" @click="onReleaseNotesClick"></div>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
@@ -118,6 +118,7 @@
 
 <script setup lang="ts">
 import _ from "lodash";
+import { marked } from "marked";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { RouteNames } from "./Enums";
@@ -262,6 +263,15 @@ function restartForUpdate() {
   client.restartForUpdate.mutate();
 }
 
+function onReleaseNotesClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  const link = target.closest("a");
+  if (link) {
+    event.preventDefault();
+    window.shell.openExternal(link.href);
+  }
+}
+
 client.onNewVersion.subscribe(undefined, {
   onData: () => {
     showUpdateDialog.value = true
@@ -269,7 +279,16 @@ client.onNewVersion.subscribe(undefined, {
 })
 
 client.onNewVersionDownloaded.subscribe(undefined, {
-  onData: (args) => {
+  onData: async (args) => {
+    const version = `v${args.releaseName}`;
+
+    const body = await fetch(`https://api.github.com/repos/sebbi08/sheet-music-viewer/releases/tags/${version}`)
+      .then(res => res.json())
+      .then(data => data.body as string)
+      .catch(() => "No release notes found");
+
+    args.releaseNotes = body;
+
     updateData.value = args
     updateDownloaded.value = true;
   }

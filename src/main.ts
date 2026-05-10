@@ -2,6 +2,7 @@ import { app, BrowserWindow, net, protocol } from "electron";
 import installExtension, {
   VUEJS_DEVTOOLS_BETA,
 } from "electron-devtools-installer";
+import log from "electron-log/main";
 import startup from "electron-squirrel-startup";
 import path from "path";
 import { createIPCHandler } from "trpc-electron/main";
@@ -13,11 +14,15 @@ const isDevelopment = !app.isPackaged;
 if (startup) {
   app.quit();
 } else {
+  // Initialize the logger to be available in renderer process
+  log.initialize();
+
   if (!isDevelopment) {
     updateElectronApp({
       repo: "sebbi08/sheet-music-viewer",
       notifyUser: false,
       updateInterval: "5min",
+      logger: log,
     });
   }
 

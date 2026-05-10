@@ -12,7 +12,8 @@
     "semantic-release": "semantic-release --no-ci",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "echo 'true'",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "postinstall": "patch-package"
   },
   "keywords": [],
   "author": {
@@ -63,7 +64,7 @@
     "dotenv": "^17.4.2",
     "electron": "42.0.1",
     "electron-devtools-installer": "4.0.0",
-    "electron-log": "5.4.3",
+    "electron-log": "^5.4.3",
     "electron-squirrel-startup": "1.0.1",
     "eslint": "9.35.0",
     "eslint-plugin-import": "2.32.0",
@@ -74,8 +75,10 @@
     "glob": "13.0.6",
     "less": "4.6.4",
     "lodash": "4.18.1",
+    "marked": "^15.0.12",
     "material-design-icons": "3.0.1",
     "node-fetch": "3.3.2",
+    "patch-package": "^8.0.1",
     "pdfjs-dist": "5.7.284",
     "pinia": "^3.0.4",
     "roboto-fontface": "0.10.0",
