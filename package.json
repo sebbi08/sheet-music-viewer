@@ -88,7 +88,7 @@
     "simple-git-hooks": "^2.13.1",
     "ts-node": "10.9.2",
     "typeface-roboto": "1.1.13",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "unplugin-fonts": "2.0.0",
     "unplugin-vue-components": "32.1.0",
     "vite": "8.0.14",
