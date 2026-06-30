@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.14.1...v1.15.0) (2026-06-30)
+
+
+### Features
+
+* added wasm folders to bundle ([ee248d2](https://github.com/sebbi08/sheet-music-viewer/commit/ee248d205724c76f61a5ebaa6a2877bfb6784a36))
+
 ## [1.14.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.14.0...v1.14.1) (2026-05-10)
 
 
