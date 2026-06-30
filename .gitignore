@@ -93,3 +93,4 @@ publisher/*.js
 publisher/*.map
 Noten
 opencode.json
+public/pdfjs/

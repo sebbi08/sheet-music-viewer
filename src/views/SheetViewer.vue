@@ -177,6 +177,7 @@ let pdfLoadingTask: pdfJs.PDFDocumentLoadingTask | undefined;
 let editFabric: fabric.Canvas | undefined;
 const sheetViewerWrapperId = "sheetViewerWrapper";
 const editCanvasId = "";
+const pdfJsAssetBaseUrl = new URL("./pdfjs/", window.location.href).toString();
 let overlayData: OverlayData[] = [];
 const musicSymbolDialog = ref(false);
 let overlayFabrics: fabric.StaticCanvas[] = [];
@@ -220,7 +221,9 @@ onMounted(async () => {
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
     url: "local-resource://file.html?url=" + btoa(encodeURIComponent(router.currentRoute.value.params.path as string)),
-    wasmUrl: `https://unpkg.com/pdfjs-dist@${pdfJs.version}/wasm/`
+    wasmUrl: new URL("wasm/", pdfJsAssetBaseUrl).toString(),
+    cMapUrl: new URL("cmaps/", pdfJsAssetBaseUrl).toString(),
+    standardFontDataUrl: new URL("standard_fonts/", pdfJsAssetBaseUrl).toString(),
   });
   await renderPdf();
 
