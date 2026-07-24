@@ -80,7 +80,7 @@
     "node-fetch": "3.3.2",
     "patch-package": "^8.0.1",
     "pdfjs-dist": "5.7.284",
-    "pinia": "^3.0.4",
+    "pinia": "^4.0.0",
     "roboto-fontface": "0.10.0",
     "sass": "1.99.0",
     "sass-embedded": "1.99.0",
