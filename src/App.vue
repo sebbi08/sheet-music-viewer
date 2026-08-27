@@ -122,7 +122,7 @@ import { marked } from "marked";
 import { storeToRefs } from "pinia";
 import { computed, ref, watch } from "vue";
 import { RouteNames } from "./Enums";
-import { UpdateData } from "./models/types";
+import type { UpdateData } from "./models/types";
 import router from "./router";
 import useStore from "./store";
 import { client } from "./trcpClient";

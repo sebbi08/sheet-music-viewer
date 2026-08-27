@@ -3,22 +3,22 @@ import { autoUpdater } from "electron/main";
 import { on } from "events";
 import superjson from "superjson";
 import { z } from "zod";
-import { setListsWrapperSchema, UpdateData } from "./models/types";
+import { setListsWrapperSchema, type UpdateData } from "./models/types";
 import {
-  checkForUpdates,
-  getAppVersion,
-  loadFilesAndFolder,
-  loadFilesAndFolderInputSchema,
-  loadOverlayData,
-  loadSetLists,
-  openFolderDialog,
-  quitAndInstallUpdates,
-  saveOverlayData,
-  saveOverlayDataInputSchema,
-  saveSetLists,
-  saveSetListsInputSchema,
-  searchForSheet,
-  searchForSheetParams,
+    checkForUpdates,
+    getAppVersion,
+    loadFilesAndFolder,
+    loadFilesAndFolderInputSchema,
+    loadOverlayData,
+    loadSetLists,
+    openFolderDialog,
+    quitAndInstallUpdates,
+    saveOverlayData,
+    saveOverlayDataInputSchema,
+    saveSetLists,
+    saveSetListsInputSchema,
+    searchForSheet,
+    searchForSheetParams,
 } from "./trcpLib";
 
 const { router: createRouter, procedure: publicProcedure } = initTRPC.create({

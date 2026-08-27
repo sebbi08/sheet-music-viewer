@@ -36,7 +36,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouteNames } from '../Enums';
-import { SetList } from '../models/types';
+import type { SetList } from '../models/types';
 import router from '../router';
 import useStore from '../store';
 

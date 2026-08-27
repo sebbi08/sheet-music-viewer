@@ -65,7 +65,7 @@ import { storeToRefs } from 'pinia';
 import { computed, onMounted, ref, watch } from 'vue';
 import draggable from 'vuedraggable';
 import { RouteNames } from '../Enums';
-import { SetList, SetListSheet, SheetFile } from '../models/types';
+import type { SetList, SetListSheet, SheetFile } from '../models/types';
 import router from '../router';
 import useStore from '../store';
 import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";

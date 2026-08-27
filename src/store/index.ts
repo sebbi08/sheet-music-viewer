@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { SetListsWrapper, SheetFile } from "../models/types";
+import type { SetListsWrapper, SheetFile } from "../models/types";
 import { client } from "../trcpClient";
 
 let sheetMusicFolder = localStorage.getItem("sheetMusicFolder");
@@ -41,7 +41,7 @@ const useStore = defineStore("app", {
         return;
       }
       const setListsWrapper = await client.loadSetLists.query(
-        this.sheetMusicFolder
+        this.sheetMusicFolder,
       );
       this.setListsWrapper = setListsWrapper;
     },

@@ -12,13 +12,13 @@ export declare global {
       dirname: typeof dirname;
     };
     shell: {
-      openExternal: (url: string) => Promise<void>
+      openExternal: (url: string) => Promise<void>;
     };
   }
 }
 
 declare module "vuex" {
   export * from "vuex/types/helpers.d.ts";
-  export * from "vuex/types/index.d.ts";
-  export * from "vuex/types/logger.d.ts";
+    export * from "vuex/types/index.d.ts";
+    export * from "vuex/types/logger.d.ts";
 }

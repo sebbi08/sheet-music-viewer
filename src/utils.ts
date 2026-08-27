@@ -1,4 +1,4 @@
-import { SheetFile } from "./models/types";
+import type { SheetFile } from "./models/types";
 
 export function fileNameWithoutExtension(fileName: string): string {
   const indexOfExtension = fileName.lastIndexOf(".");

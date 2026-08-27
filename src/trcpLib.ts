@@ -4,12 +4,12 @@ import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
 import {
-  SetList,
-  SetListSheet,
-  SetListsWrapper,
-  setListsWrapperSchema,
-  SetListV1,
-  SheetFile,
+    type SetList,
+    type SetListSheet,
+    type SetListsWrapper,
+    setListsWrapperSchema,
+    type SetListV1,
+    type SheetFile,
 } from "./models/types";
 
 const isDevelopment = !app.isPackaged;
