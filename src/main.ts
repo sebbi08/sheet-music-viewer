@@ -4,6 +4,7 @@ import installExtension, {
 } from "electron-devtools-installer";
 import log from "electron-log/main";
 import startup from "electron-squirrel-startup";
+import { readFile } from "node:fs/promises";
 import path from "path";
 import { createIPCHandler } from "trpc-electron/main";
 import { updateElectronApp } from "update-electron-app";
@@ -28,7 +29,15 @@ if (startup) {
 
   // Scheme must be registered before the app is ready
   protocol.registerSchemesAsPrivileged([
-    { scheme: "app", privileges: { secure: true, standard: true } },
+    {
+      scheme: "app",
+      privileges: {
+        secure: true,
+        standard: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+      },
+    },
     {
       scheme: "local-resource",
       privileges: {
@@ -75,6 +84,7 @@ if (startup) {
   // Some APIs can only be used after this event occurs.
   app.on("ready", async () => {
     registerLocalResourceProtocol();
+    registerAppProtocol();
     if (isDevelopment && !process.env.IS_TEST) {
       // Install Vue Devtools
       try {
@@ -96,6 +106,48 @@ if (startup) {
       );
       const filePath = decodedUrl.replace(/\\/g, "/");
       return net.fetch(`file:///${filePath}`);
+    });
+  }
+
+  function registerAppProtocol() {
+    protocol.handle("app", async (request) => {
+      try {
+        const { host, pathname } = new URL(request.url);
+        if (host !== "bundle") {
+          return new Response("Not found", { status: 404 });
+        }
+
+        // Only serve files that are inside the packaged renderer directory.
+        const rendererRoot = path.normalize(
+          path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`),
+        );
+        const filePath = path.normalize(
+          path.join(rendererRoot, decodeURIComponent(pathname)),
+        );
+        if (!filePath.startsWith(rendererRoot + path.sep)) {
+          return new Response("Not found", { status: 404 });
+        }
+
+        const data = await readFile(filePath);
+        const contentTypeByExtension: Record<string, string> = {
+          ".wasm": "application/wasm",
+          ".js": "text/javascript",
+          ".mjs": "text/javascript",
+        };
+        const contentType =
+          contentTypeByExtension[path.extname(filePath)] ??
+          "application/octet-stream";
+
+        return new Response(new Uint8Array(data), {
+          headers: {
+            "content-type": contentType,
+            "access-control-allow-origin": "*",
+          },
+        });
+      } catch (error) {
+        log.error("Failed to serve app:// resource", error);
+        return new Response("Not found", { status: 404 });
+      }
     });
   }
 

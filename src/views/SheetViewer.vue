@@ -177,7 +177,11 @@ let pdfLoadingTask: pdfJs.PDFDocumentLoadingTask | undefined;
 let editFabric: fabric.Canvas | undefined;
 const sheetViewerWrapperId = "sheetViewerWrapper";
 const editCanvasId = "";
-const pdfJsAssetBaseUrl = new URL("./pdfjs/", window.location.href).toString();
+// In dev, Vite serves the copied pdf.js assets; in the packaged app they are
+// served from the asar via the custom "app" protocol.
+const pdfJsAssetBaseUrl = window.location.protocol.startsWith("http")
+  ? new URL("./pdfjs/", window.location.href).toString()
+  : "app://bundle/pdfjs/";
 let overlayData: OverlayData[] = [];
 const musicSymbolDialog = ref(false);
 let overlayFabrics: fabric.StaticCanvas[] = [];
