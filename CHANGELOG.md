@@ -1,3 +1,10 @@
+## [1.15.1](https://github.com/sebbi08/sheet-music-viewer/compare/v1.15.0...v1.15.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* serve pdf.js wasm assets in dev and packaged app ([f41efa5](https://github.com/sebbi08/sheet-music-viewer/commit/f41efa54397c31d5b66b382caa7519da527d23ef))
+
 # [1.15.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.14.1...v1.15.0) (2026-06-30)
 
 
