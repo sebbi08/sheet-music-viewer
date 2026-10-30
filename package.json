@@ -3,7 +3,7 @@
   "productName": "sheet-music-viewer",
   "version": "1.15.1",
   "description": "App to display music sheets",
-  "main": ".vite/build/main.js",
+  "main": ".vite/build/main.cjs",
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package --arch x64",
@@ -34,7 +34,7 @@
     "@electron-forge/plugin-fuses": "8.0.1",
     "@electron-forge/plugin-vite": "8.0.1",
     "@electron-forge/publisher-github": "^8.0.0",
-    "@electron/fuses": "1.8.0",
+    "@electron/fuses": "2.1.3",
     "@eslint/compat": "^2.1.0",
     "@mdi/font": "7.4.47",
     "@semantic-release/changelog": "7.0.0",
