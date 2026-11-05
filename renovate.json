@@ -5,6 +5,7 @@
   "platformAutomerge": false,
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
+  "prCreation": "not-pending",
   "packageRules": [
     {
       "description": "Patch- und Pin-Updates gesammelt in einem PR. Renovate mergt ihn selbst, sobald alle CI-Checks grün sind; ohne Checks wird nicht gemergt.",
