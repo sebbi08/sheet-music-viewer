@@ -27,6 +27,26 @@ export interface SheetSession {
   captureView(page: number): Promise<Capture>;
   captureEdit(page: number): Promise<Capture>;
   toggleEdit(): Promise<void>;
+  /**
+   * In edit mode: adds a text object through the text dialog (an empty `text` draws nothing, but changes
+   * the page's data, so leaving edit mode saves it).
+   */
+  addText(text: string): Promise<void>;
+  /** Leaves the sheet with the app bar's back button (the SheetViewer unmounts). */
+  leaveSheet(): Promise<void>;
+  /** Opens the same sheet again (after `leaveSheet`) and waits until it is rendered. */
+  reopenSheet(): Promise<void>;
+  /**
+   * Replaces the native "unsaved markup" dialog of the main process: every call is recorded and answered
+   * with the button at `response` (0 retry, 1 discard and close, 2 cancel). Headless runs cannot click it.
+   */
+  stubMessageBox(response: number): Promise<void>;
+  /** Messages of the stubbed dialogs shown so far. */
+  messageBoxCalls(): Promise<string[]>;
+  /** Asks the main process to close the window, like the title bar's close button. */
+  requestWindowClose(): Promise<void>;
+  /** Number of open app windows (devtools excluded). */
+  windowCount(): Promise<number>;
   /** Sets the window's content size and waits until the sheet and its markup are rendered again. */
   resizeContent(width: number, height: number): Promise<void>;
   networkRequests(): string[];
@@ -260,17 +280,20 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
     await page.evaluate((f) => localStorage.setItem("sheetMusicFolder", f), folder);
     await page.reload();
     await page.waitForFunction(() => (document.querySelector("#app") as { __vue_app__?: unknown } | null)?.__vue_app__);
-    // Same route and path format as SheetSelection.selectItem.
-    await page.evaluate((p) => {
-      const app = (document.querySelector("#app") as unknown as {
-        __vue_app__: { config: { globalProperties: { $router: { push(to: unknown): Promise<unknown> } } } };
-      }).__vue_app__;
-      return app.config.globalProperties.$router.push({ name: "SheetViewer", params: { path: p } });
-    }, path.resolve(folder, pdfPath));
-    await page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached" });
-    await page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: WAIT_TIMEOUT_MS });
-    await page.waitForTimeout(RESIZE_DEBOUNCE_MS);
-    await refreshRequests();
+    const showSheet = async () => {
+      // Same route and path format as SheetSelection.selectItem.
+      await page.evaluate((p) => {
+        const app = (document.querySelector("#app") as unknown as {
+          __vue_app__: { config: { globalProperties: { $router: { push(to: unknown): Promise<unknown> } } } };
+        }).__vue_app__;
+        return app.config.globalProperties.$router.push({ name: "SheetViewer", params: { path: p } });
+      }, path.resolve(folder, pdfPath));
+      await page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached" });
+      await page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: WAIT_TIMEOUT_MS });
+      await page.waitForTimeout(RESIZE_DEBOUNCE_MS);
+      await refreshRequests();
+    };
+    await showSheet();
 
     const currentPage = () => page.evaluate(rendererCurrentPage);
     const editButton = page.locator("header .v-btn").filter({ has: page.locator(".mdi-pencil, .mdi-close") });
@@ -320,6 +343,46 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
         await page.waitForSelector("#sheetViewerWrapper .canvas-container", { state: wasEditing ? "detached" : "attached" });
         await refreshRequests();
       },
+      async addText(text) {
+        await page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-format-text") }).click();
+        const dialog = page.locator(".v-overlay--active .v-card").filter({ hasText: "Add Text" });
+        await dialog.waitFor({ state: "visible" });
+        await dialog.locator("input").fill(text);
+        await dialog.getByRole("button", { name: "Ok" }).click();
+        await dialog.waitFor({ state: "detached" });
+        await refreshRequests();
+      },
+      async leaveSheet() {
+        await page.locator("header .v-btn").filter({ has: page.locator(".mdi-arrow-left") }).click();
+        await page.waitForSelector("#sheetViewerWrapper", { state: "detached" });
+        await refreshRequests();
+      },
+      reopenSheet: showSheet,
+      async stubMessageBox(response) {
+        await electronApp.evaluate(({ dialog }, r) => {
+          const g = globalThis as { __smvMessageBoxes?: string[] };
+          g.__smvMessageBoxes ??= [];
+          const stub = async (...args: unknown[]) => {
+            const options = args[args.length - 1] as { message?: string };
+            g.__smvMessageBoxes?.push(options.message ?? "");
+            return { response: r, checkboxChecked: false };
+          };
+          Object.defineProperty(dialog, "showMessageBox", { value: stub, configurable: true, writable: true });
+        }, response);
+      },
+      messageBoxCalls: () =>
+        electronApp.evaluate(() => [...((globalThis as { __smvMessageBoxes?: string[] }).__smvMessageBoxes ?? [])]),
+      async requestWindowClose() {
+        await electronApp.evaluate(({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()
+            .find((w) => !w.webContents.getURL().startsWith("devtools:"))
+            ?.close();
+        });
+      },
+      windowCount: () =>
+        electronApp.evaluate(
+          ({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.webContents.getURL().startsWith("devtools:")).length,
+        ),
       async resizeContent(width, height) {
         const size = { width, height };
         const hasSize = () => page.evaluate((s) => window.innerWidth === s.width && window.innerHeight === s.height, size);
@@ -375,7 +438,8 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
           };
         }),
       async close() {
-        // Quitting does not leave edit mode, so nothing is saved.
+        // Quitting does not leave edit mode; an open edit canvas with changes would be saved first (and
+        // a failing save would ask through the native dialog, which a headless run cannot answer).
         await refreshRequests();
         await electronApp.close();
         removeProfile();

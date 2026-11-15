@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { PDFDocument } from "pdf-lib";
 import { expect, test } from "vitest";
 import { OCG_NAME } from "../../src/models/markupConstants";
+import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import { baselineImagePath } from "./baseline";
 import { copyCorpus, legacyDataPath, listCorpus, repoRoot } from "./corpus";
 import { currentApp, openSheet } from "./electronDriver";
@@ -81,22 +83,32 @@ else {
           );
         }
 
-        // 2. Edit mode on the last marked page and leave it: saves again, the file does not grow.
+        // 2. Edit mode on the last marked page and leave it without a change: the PDF is not rewritten.
         const lastPage = entry.markedPages[entry.markedPages.length - 1];
         const edit = await first.captureEdit(lastPage);
         save(`${lastPage}-edit-with.png`, edit.with);
+        const unchanged = fs.readFileSync(pdfFile);
         const before = fs.statSync(pdfFile).mtimeMs;
+        await first.toggleEdit();
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        expect(fs.statSync(pdfFile).mtimeMs, "PDF rewritten after leaving edit mode without a change").toBe(before);
+        expect(fs.readFileSync(pdfFile).equals(unchanged)).toBe(true);
+
+        // 3. With a change (an empty text box draws nothing) it saves again; our update is replaced, so the
+        // file grows by the new object only, not by another copy of the update.
+        await first.toggleEdit();
+        await first.addText("");
         await first.toggleEdit();
         await waitUntil("save after leaving edit mode", () => fs.statSync(pdfFile).mtimeMs !== before);
         const resavedSize = fs.statSync(pdfFile).size;
-        console.log(`${PDF}: ${resavedSize} bytes after saving again (was ${migratedSize})`);
-        expect(Math.abs(resavedSize - migratedSize)).toBeLessThan(migratedSize * 0.001);
+        console.log(`${PDF}: ${resavedSize} bytes after saving again (was ${migratedSize}, original ${originalSize})`);
+        expect(Math.abs(resavedSize - migratedSize)).toBeLessThan((migratedSize - originalSize) * 0.1);
         expect(first.networkRequests()).toEqual([]);
       } finally {
         await first.close();
       }
 
-      // 3. Reopen: markup comes from the PDF and looks the same.
+      // 4. Reopen: markup comes from the PDF and looks the same.
       const second = await openSheet(app, folder, PDF);
       try {
         expect(fs.existsSync(dataFile)).toBe(false);
@@ -113,7 +125,7 @@ else {
         await second.close();
       }
 
-      // 4. "Another viewer": pdf.js with annotations shows the stamp; hiding our group removes it.
+      // 5. "Another viewer": pdf.js with annotations shows the stamp; hiding our group removes it.
       const bytes = new Uint8Array(fs.readFileSync(pdfFile));
       for (const page of entry.markedPages) {
         const width = (views.get(page) as Img).width;
@@ -199,6 +211,77 @@ if (entry) {
         await second.close();
       }
     } finally {
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  /** chmod-based read-only files do not stop root. */
+  const isRoot = process.getuid?.() === 0;
+  const SAVE_FAILED = "konnten nicht gespeichert werden";
+  const SAVED_LATER = "wurden jetzt gespeichert";
+
+  /** Texts of the text objects saved for `page` in the PDF. */
+  const savedTexts = async (pdfFile: string, page: number) => {
+    const markup = readMarkup(await PDFDocument.load(fs.readFileSync(pdfFile), { updateMetadata: false }));
+    const objects = (markup.pages.find((p) => p.page === page)?.payload.fabric.objects ?? []) as { text?: string }[];
+    return objects.map((o) => o.text).filter((t) => t !== undefined);
+  };
+
+  async function waitForSnackbarContaining(session: { snackbarText(): Promise<string> }, part: string, timeoutMs = 30_000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const text = await session.snackbarText();
+      if (text.includes(part) || Date.now() > deadline) return text;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
+  test.skipIf(isRoot)(`a failed save keeps the markup when leaving the sheet and closing, then saves it: ${PDF}`, async () => {
+    const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
+    const pdfFile = path.join(folder, PDF);
+    try {
+      const session = await openSheet(await currentApp(), folder, PDF);
+      try {
+        // The migration writes into the PDF: from now on it has embedded data, so there is no sidecar fallback.
+        await waitUntil("migration (.data removed)", () => !fs.existsSync(legacyDataPath(pdfFile)));
+        fs.chmodSync(pdfFile, 0o444); // like a PDF that another program holds open
+        const locked = fs.readFileSync(pdfFile);
+
+        await session.toggleEdit();
+        await session.addText("F1 pending");
+        await session.toggleEdit();
+        expect(await waitForSnackbarContaining(session, SAVE_FAILED)).toContain(SAVE_FAILED);
+
+        // Leaving the sheet: the change stays pending (outside the SheetViewer) and the message stays (app level).
+        await session.leaveSheet();
+        expect(await session.snackbarText()).toContain(SAVE_FAILED);
+        expect(fs.readFileSync(pdfFile).equals(locked)).toBe(true);
+        expect(fs.existsSync(legacyDataPath(pdfFile)), "no sidecar for a PDF with embedded data").toBe(false);
+
+        // Closing the window: saving fails again, so the user is asked; "Abbrechen" keeps the window open.
+        await session.stubMessageBox(2);
+        await session.requestWindowClose();
+        const deadline = Date.now() + 30_000;
+        while ((await session.messageBoxCalls()).length === 0 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        expect(await session.messageBoxCalls()).toEqual(["Markierungen konnten nicht gespeichert werden."]);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        expect(await session.windowCount(), "window closed although the markup is unsaved").toBe(1);
+        expect(fs.readFileSync(pdfFile).equals(locked)).toBe(true);
+
+        // Writable again and the sheet reopened: the pending change wins over the file and is saved.
+        fs.chmodSync(pdfFile, 0o644);
+        await session.reopenSheet();
+        await waitUntil("pending change saved", () => !fs.readFileSync(pdfFile).equals(locked));
+        expect(await savedTexts(pdfFile, 1)).toContain("F1 pending");
+        expect(await waitForSnackbarContaining(session, SAVED_LATER)).toContain(SAVED_LATER);
+        expect(session.networkRequests()).toEqual([]);
+      } finally {
+        await session.close();
+      }
+    } finally {
+      if (fs.existsSync(pdfFile)) fs.chmodSync(pdfFile, 0o644);
       fs.rmSync(folder, { recursive: true, force: true });
     }
   });

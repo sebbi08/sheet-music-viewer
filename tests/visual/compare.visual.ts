@@ -23,7 +23,8 @@ import { renderPdfPageAsCaptured } from "./pdfRender";
  * Spec section 8: the new app against the old app (reference = the old app's edit mode), per corpus
  * PDF, on a copy of the corpus (the new app migrates on open):
  *   A  V1.with ↔ R.with                         view right after the migration
- *   B  V2.with ↔ R.with                         view after saving every marked page and reopening
+ *   B  V2.with ↔ R.with                         view after saving every marked page (an invisible change
+ *                                               forces the save) and reopening
  *   C  mask(P_on − P_off) ↔ mask(R.with − R.without)   pdf.js ("another viewer") with our layer shown;
  *      Sebastian's decision of 2026-11-15: position per object, i.e. the largest coverage-weighted
  *      centroid offset of a single markup object ≤ 1.5 px (not the global centroid, which moves when
@@ -291,10 +292,19 @@ for (const { pdfPath, markedPages } of corpus) {
           v1.set(page, await session.captureView(page));
         }
 
-        // Edit mode on and off saves the page again: fabric → payload → PDF.
+        // Edit mode on and off saves the page again: fabric → payload → PDF. Leaving edit mode without a
+        // change saves nothing, so an empty text box (it draws nothing) makes every page go through the
+        // whole canvas → points conversion again.
         for (const page of markedPages) {
           await session.gotoPage(page);
+          const untouched = fs.statSync(pdfFile).mtimeMs;
           await session.toggleEdit();
+          await session.toggleEdit();
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          expect.soft(fs.statSync(pdfFile).mtimeMs, `page ${page}: PDF rewritten after leaving edit mode without a change`).toBe(untouched);
+
+          await session.toggleEdit();
+          await session.addText("");
           const before = fs.statSync(pdfFile).mtimeMs;
           await session.toggleEdit();
           await waitUntil(`save of page ${page}`, () => fs.statSync(pdfFile).mtimeMs !== before);
