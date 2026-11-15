@@ -43,6 +43,12 @@ export interface PageChange {
 type Matrix = [number, number, number, number, number, number];
 
 /**
+ * Lets other work of the Electron main process (IPC, window events) run between the expensive steps of a
+ * save, which otherwise blocks it for the whole save (~0.3 s per page with a page-sized PNG).
+ */
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
  * `cm` matrix that draws the (display-oriented) image over the unrotated rect of size `w`×`h` so that it
  * appears upright on a page with `/Rotate rotation`. Like pdf.js, angles are taken modulo 360 and
  * angles that are no multiple of 90 count as 0.
@@ -298,6 +304,7 @@ export async function buildMarkedPdf(current: Uint8Array, changes: PageChange[])
   const { baseLength, originalLength } = chooseBase(current, shown.meta);
 
   const base = current.subarray(0, baseLength);
+  if (baseLength !== current.length) await yieldToEventLoop();
   const doc = baseLength === current.length ? full : await loadUnencrypted(base);
   reserveObjectNumbers(base, doc.context); // before any object is created or copied
   const existing = doc === full ? shown : readMarkup(doc); // what the base itself contains
@@ -343,7 +350,10 @@ export async function buildMarkedPdf(current: Uint8Array, changes: PageChange[])
 
     // Foreign annotations, direct dictionaries and orphans stay, in order; only our stamp is replaced.
     const annots = annotEntries(context, page.node).filter((entry) => !sameRef(entry, ours));
-    if (target.kind === "new") annots.push(await createStamp(doc, page, target.payload, target.png, ocg));
+    if (target.kind === "new") {
+      await yieldToEventLoop(); // embedding a page-sized PNG takes a few hundred ms
+      annots.push(await createStamp(doc, page, target.payload, target.png, ocg));
+    }
     if (target.kind === "keep") {
       // The stamp was in our replaced update: take it over from the full file, at its previous rect.
       const { rect, appearanceRef, dataRef } = target.markup;
@@ -359,6 +369,7 @@ export async function buildMarkedPdf(current: Uint8Array, changes: PageChange[])
     context.obj({ Version: MARKUP_FORMAT_VERSION, OriginalLength: originalLength, UpdateStart: baseLength }),
   );
 
+  await yieldToEventLoop();
   const created = context
     .enumerateIndirectObjects()
     .map(([ref]) => ref)
