@@ -7,9 +7,14 @@
 const TAIL_WINDOW = 4096;
 
 function latin1(bytes: Uint8Array, start: number, end: number): string {
-  return Buffer.from(bytes.buffer, bytes.byteOffset + start, Math.max(0, end - start)).toString(
-    "latin1",
-  );
+  const e = Math.min(Math.max(0, end), bytes.length);
+  const s = Math.min(Math.max(0, start), e);
+  return Buffer.from(bytes.buffer, bytes.byteOffset + s, e - s).toString("latin1");
+}
+
+function assertOffset(bytes: Uint8Array, offset: number): void {
+  if (!Number.isInteger(offset) || offset < 0 || offset >= bytes.length)
+    throw new Error(`xref offset ${offset} is outside the file`);
 }
 
 /** Value of the last `startxref` in the file. Throws if there is none. */
@@ -34,6 +39,7 @@ export function isValidSectionEnd(bytes: Uint8Array, length: number): boolean {
 
 /** `table` if an `xref` keyword (after whitespace) stands at `offset`, otherwise `stream`. */
 export function getXrefKind(bytes: Uint8Array, offset: number): "table" | "stream" {
+  assertOffset(bytes, offset);
   return /^\s*xref/.test(latin1(bytes, offset, offset + 32)) ? "table" : "stream";
 }
 

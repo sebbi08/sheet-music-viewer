@@ -52,3 +52,29 @@ test("readXrefEntries offsets point at objects", async () => {
       );
   }
 });
+
+test("out-of-range offsets fail with a clear error", async () => {
+  const pdf = await makePdf({ xref: "table" });
+  for (const off of [pdf.length, pdf.length + 100, -1, 1.5]) {
+    expect(() => getXrefKind(pdf, off)).toThrow(/outside the file/);
+    expect(() => getSectionTrailer(pdf, off)).toThrow(/outside the file/);
+  }
+});
+
+test("offset near the end does not throw RangeError", async () => {
+  const pdf = await makePdf({ xref: "table" });
+  expect(getXrefKind(pdf, pdf.length - 3)).toBe("stream");
+  expect(() => getSectionTrailer(pdf, pdf.length - 3)).toThrow(/xref stream not found/);
+});
+
+test("subarray input never reads neighbouring bytes of the shared buffer", () => {
+  const text = "xref\n0 0\ntrailer\n<< /Size 1 >>\nstartxref\n0\n%%EOF";
+  const shared = new Uint8Array(Buffer.from(text + " /Prev 999 xref", "latin1"));
+  const view = shared.subarray(0, text.length);
+  expect(getSectionTrailer(view, 0)).toEqual({ prev: null, size: 1 });
+  // A view cut after "xre" must not see the "f" that follows in the shared buffer.
+  const cut = new Uint8Array(Buffer.from("xref", "latin1")).subarray(0, 3);
+  expect(getXrefKind(cut, 0)).toBe("stream");
+  expect(isValidSectionEnd(shared.subarray(0, text.length - 1), text.length - 1)).toBe(false);
+  expect(() => findLastStartXref(shared.subarray(0, 20))).toThrow();
+});
