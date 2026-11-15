@@ -189,7 +189,8 @@ function readMeta(doc: PDFDocument): MarkupMeta | null {
 
 /**
  * Reads our stamps (at most one per page: if a page has several valid ones, the topmost, i.e. last in
- * `/Annots`, wins), orphaned stamps, `/SMV_Markup` metadata and our OCG. Only referenced annotations are
+ * `/Annots`, wins and the others are reported as orphans, so they get repaired instead of silently
+ * vanishing), orphaned stamps, `/SMV_Markup` metadata and our OCG. Only referenced annotations are
  * considered (ours are always indirect objects).
  */
 export function readMarkup(doc: PDFDocument): ReadMarkupResult {
@@ -199,15 +200,21 @@ export function readMarkup(doc: PDFDocument): ReadMarkupResult {
   const orphans: ReadMarkupResult["orphans"] = [];
   doc.getPages().forEach((page, index) => {
     let found: ExistingMarkupPage | null = null;
+    const pageOrphans: PDFRef[] = [];
     for (const entry of annotEntries(context, page.node)) {
       if (!(entry instanceof PDFRef)) continue;
       const result = classifyAnnot(context, entry, ocgRef);
-      if (result.kind === "orphan") orphans.push({ page: index + 1, annotRef: entry });
+      if (result.kind === "orphan") pageOrphans.push(entry);
       if (result.kind !== "ours") continue;
+      if (found) pageOrphans.push(found.annotRef); // a duplicate below the topmost valid stamp
       const { rect, payload, appearanceRef, dataRef } = result;
       found = { page: index + 1, pageRef: page.ref, annotRef: entry, rect, payload, appearanceRef, dataRef };
     }
     if (found) pages.push(found);
+    // In /Annots order; the same annotation listed twice is one orphan.
+    const order = annotEntries(context, page.node);
+    const unique = [...new Set(pageOrphans)].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    for (const annotRef of unique) if (annotRef !== found?.annotRef) orphans.push({ page: index + 1, annotRef });
   });
   return { pages, orphans, meta: readMeta(doc), ocgRef };
 }

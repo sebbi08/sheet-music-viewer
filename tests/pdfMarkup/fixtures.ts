@@ -1,6 +1,10 @@
 import { inflateSync, deflateSync, crc32 } from "node:zlib";
-import { PDFArray, PDFDocument, PDFName, StandardFonts, degrees } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, StandardFonts, degrees } from "pdf-lib";
+import { SMV_DATA_KEY } from "../../src/models/markupConstants";
 import type { MarkupPayload } from "../../src/models/markup";
+import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
+import { readMarkup } from "../../src/pdfMarkup/readMarkup";
+import { inspectWithPdfjs } from "./pdfjs";
 
 export type Box = [number, number, number, number];
 
@@ -172,4 +176,58 @@ export function readXrefEntries(bytes: Uint8Array, offset: number): Map<number, 
     }
   }
   return entries;
+}
+
+/** Number of `startxref` keywords, i.e. of cross-reference sections the file ends up with. */
+export function countStartXref(bytes: Uint8Array): number {
+  return Buffer.from(bytes).toString("latin1").split("startxref").length - 1;
+}
+
+const loadDoc = (bytes: Uint8Array) => PDFDocument.load(bytes, { updateMetadata: false });
+
+/** Appends an update as another program would: sets `/Info /Title` (creating `/Info` if needed). */
+export async function appendForeignUpdate(bytes: Uint8Array, title = "Edited elsewhere"): Promise<Uint8Array> {
+  const doc = await loadDoc(bytes);
+  const ctx = doc.context;
+  reserveObjectNumbers(bytes, ctx);
+  let info = ctx.trailerInfo.Info;
+  if (info instanceof PDFRef) {
+    ctx.lookup(info, PDFDict).set(PDFName.of("Title"), PDFHexString.fromText(title));
+  } else {
+    info = ctx.register(ctx.obj({ Title: PDFHexString.fromText(title) }));
+    ctx.trailerInfo.Info = info;
+  }
+  return writeIncrementalUpdate(bytes, ctx, [info as PDFRef]).bytes;
+}
+
+/** Removes `/SMV_Data` from our stamp on the first marked page, via a foreign incremental update. */
+export async function stripSmvData(bytes: Uint8Array): Promise<Uint8Array> {
+  const doc = await loadDoc(bytes);
+  reserveObjectNumbers(bytes, doc.context);
+  const { annotRef } = readMarkup(doc).pages[0];
+  doc.context.lookup(annotRef, PDFDict).delete(PDFName.of(SMV_DATA_KEY));
+  return writeIncrementalUpdate(bytes, doc.context, [annotRef]).bytes;
+}
+
+/** pdf.js' id of an annotation that is an indirect object (`Ref.toString()`). */
+export const pdfjsId = (ref: PDFRef) =>
+  ref.generationNumber === 0 ? `${ref.objectNumber}R` : `${ref.objectNumber}R${ref.generationNumber}`;
+
+/**
+ * Per page, every annotation pdf.js sees. pdf.js 6.5 does not expose `/NM`, so `isOurs` matches the
+ * annotation's id against the refs of our valid stamps found by `readMarkup`.
+ */
+export async function annotationsPerPage(
+  bytes: Uint8Array,
+): Promise<{ subtype: string; rect: number[]; isOurs: boolean }[][]> {
+  const ours = new Set(readMarkup(await loadDoc(bytes)).pages.map((p) => pdfjsId(p.annotRef)));
+  const { value } = await inspectWithPdfjs(bytes, async (doc) => {
+    const pages: { subtype: string; rect: number[]; isOurs: boolean }[][] = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const annots = (await (await doc.getPage(p)).getAnnotations()) as { subtype: string; rect: number[]; id: string }[];
+      pages.push(annots.map((a) => ({ subtype: a.subtype, rect: a.rect, isOurs: ours.has(a.id) })));
+    }
+    return pages;
+  });
+  return value;
 }

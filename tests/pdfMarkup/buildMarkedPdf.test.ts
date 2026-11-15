@@ -21,7 +21,7 @@ import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
 import { corpusDir } from "../visual/corpus";
 import { renderPdfPage } from "../visual/pdfRender";
-import { makePdf, makePng, markEncrypted, payload } from "./fixtures";
+import { appendForeignUpdate, makePdf, makePng, markEncrypted, payload } from "./fixtures";
 import { inspectWithPdfjs } from "./pdfjs";
 
 const load = (bytes: Uint8Array) => PDFDocument.load(bytes, { updateMetadata: false });
@@ -220,13 +220,15 @@ describe("rendering in other viewers (pdf.js)", () => {
 });
 
 describe("appending on top of an earlier save", () => {
+  // A foreign update after ours forces appending (otherwise our update is replaced, see buildMarkedPdf.base.test.ts).
   test("replaces our stamp, reuses the OCG and keeps /OriginalLength", async () => {
     const orig = await makePdf({ xref: "stream", pages: 2, foreignAnnot: true });
     const first = await buildMarkedPdf(orig, [mark(1, payload(1)), mark(2, payload(2))]);
     const firstOcg = readMarkup(await load(first)).ocgRef;
-    const second = await buildMarkedPdf(first, [mark(1, payload(3))]);
+    const edited = await appendForeignUpdate(first);
+    const second = await buildMarkedPdf(edited, [mark(1, payload(3))]);
 
-    expect(hasPrefix(second, first)).toBe(true);
+    expect(hasPrefix(second, edited)).toBe(true);
     const doc = await load(second);
     const r = readMarkup(doc);
     expect(r.ocgRef).toEqual(firstOcg);
@@ -235,7 +237,7 @@ describe("appending on top of an earlier save", () => {
       [1, payload(3)],
       [2, payload(2)],
     ]);
-    expect(r.meta).toEqual({ originalLength: orig.length, updateStart: first.length });
+    expect(r.meta).toEqual({ originalLength: orig.length, updateStart: edited.length });
 
     const { value, recovered } = await pdfjsAnnots(second);
     expect(recovered).toBe(false);
@@ -269,7 +271,7 @@ describe("orphaned stamps", () => {
     ["invalid JSON", "{not json"],
     ["schema mismatch", JSON.stringify({ version: 2, width: 1, height: 1, fabric: { objects: [] } })],
     ["missing data", null],
-  ])("%s is reported as orphan, never thrown, and never removed", async (_name, data) => {
+  ])("%s is reported as orphan, never thrown, and repaired instead of removed", async (_name, data) => {
     const first = await buildMarkedPdf(await makePdf({ xref: "table", pages: 2 }), [mark(1)]);
     const broken = await corrupt(first, data);
     const before = readMarkup(await load(broken));
@@ -277,9 +279,15 @@ describe("orphaned stamps", () => {
     expect(before.orphans).toEqual([{ page: 1, annotRef: expect.any(PDFRef) }]);
 
     const out = await buildMarkedPdf(broken, [mark(1, payload(2)), mark(2, null)]);
-    const after = readMarkup(await load(out));
-    expect(after.orphans).toEqual(before.orphans);
+    const doc = await load(out);
+    const after = readMarkup(doc);
+    expect(after.orphans).toEqual([]); // repaired: orphan /NM, out of our OCG
     expect(after.pages.map((p) => [p.page, p.payload])).toEqual([[1, payload(2)]]);
+    const orphan = before.orphans[0].annotRef;
+    expect(doc.getPage(0).node.lookup(PDFName.of("Annots"), PDFArray).asArray()).toEqual([orphan, after.pages[0].annotRef]);
+    const annot = doc.context.lookup(orphan, PDFDict);
+    expect(annot.lookup(PDFName.of("NM"), PDFString).decodeText()).toBe(ORPHAN_NM);
+    expect(annot.has(PDFName.of("OC"))).toBe(false);
   });
 
   test("a stamp in our OCG without our /NM is an orphan", async () => {
