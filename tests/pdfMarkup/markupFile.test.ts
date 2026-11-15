@@ -5,11 +5,13 @@ import { PDFDocument, PDFName, PDFRef } from "pdf-lib";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SMV_CATALOG_KEY } from "../../src/models/markupConstants";
 import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
-import { getSidecarPath, loadMarkupFromFile, saveMarkupToFile } from "../../src/pdfMarkup/markupFile";
+import { buildMarkedPdf } from "../../src/pdfMarkup/buildMarkedPdf";
+import { getSidecarPath, loadMarkupFromFile, saveMarkupToFile, setLockRetryDelays } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import {
   annotationsPerPage,
   makePdf,
+  makePng,
   markEncrypted,
   page1,
   page2,
@@ -20,6 +22,7 @@ import {
 
 const readMarkupOf = async (file: string) =>
   readMarkup(await PDFDocument.load(fs.readFileSync(file), { updateMetadata: false }));
+const pngOf = (change: { pngBase64: string }) => new Uint8Array(Buffer.from(change.pngBase64, "base64"));
 const tempFiles = (dir: string) => fs.readdirSync(dir).filter((f) => f.includes("smv-tmp"));
 /** chmod-based read-only tests do not work as root (root ignores permission bits). */
 const isRoot = process.getuid?.() === 0;
@@ -190,22 +193,117 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
   });
 
-  test("rename failure (EBUSY) reports an error, PDF unchanged, no temp left", async () => {
-    const pdf = await writeFixture(dir, "b.pdf", await makePdf({ xref: "stream", pages: 2 }));
+  describe("locked files (Windows: another program has the PDF open)", () => {
+    const locked = (code = "EBUSY") => Object.assign(new Error(`${code}: resource busy or locked`), { code });
+    let previousDelays: readonly number[];
+    beforeEach(() => {
+      previousDelays = setLockRetryDelays([1, 1, 1, 1, 1]);
+    });
+    afterEach(() => {
+      setLockRetryDelays(previousDelays);
+    });
+
+    test("the default retries take about 3 s in total", () => {
+      const sum = previousDelays.reduce((a, b) => a + b, 0);
+      expect(sum).toBeGreaterThanOrEqual(2500);
+      expect(sum).toBeLessThanOrEqual(3500);
+    });
+
+    test("a rename that fails twice (EBUSY, EPERM) is retried and the save succeeds", async () => {
+      const pdf = await writeFixture(dir, "b.pdf", await makePdf({ xref: "stream", pages: 2 }));
+      await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockRejectedValueOnce(locked("EBUSY"))
+        .mockRejectedValueOnce(locked("EPERM"));
+
+      expect(await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).toEqual({
+        status: "pdf",
+      });
+      expect(rename).toHaveBeenCalledTimes(3);
+      expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1, 2]);
+      expect(tempFiles(dir)).toEqual([]);
+    });
+
+    test("opening the temp file is retried while it is locked (EACCES)", async () => {
+      const pdf = await writeFixture(dir, "t.pdf", await makePdf({ xref: "table" }));
+      const open = vi.spyOn(fs.promises, "open").mockRejectedValueOnce(locked("EACCES"));
+      expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe("pdf");
+      expect(open).toHaveBeenCalledTimes(2);
+    });
+
+    test("a PDF with embedded data that stays locked: error, PDF unchanged, no temp, no sidecar", async () => {
+      const pdf = await writeFixture(dir, "e.pdf", await makePdf({ xref: "stream", pages: 2 }));
+      await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+      const before = fs.readFileSync(pdf);
+      const rename = vi.spyOn(fs.promises, "rename").mockRejectedValue(locked());
+
+      const result = await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false });
+      expect(result.status).toBe("error");
+      expect(result.message).toContain("EBUSY");
+      expect(rename).toHaveBeenCalledTimes(6); // first attempt + 5 retries
+      expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+      expect(tempFiles(dir)).toEqual([]);
+      expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+
+      // Unlocked again: the next save works.
+      rename.mockRestore();
+      expect((await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).status).toBe("pdf");
+      expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1, 2]);
+    });
+
+    test("a PDF without embedded data that stays locked falls back to the sidecar, PDF unchanged", async () => {
+      const pdf = await writeFixture(dir, "n.pdf", await makePdf({ xref: "table" }));
+      const before = fs.readFileSync(pdf);
+      const realRename = fs.promises.rename.bind(fs.promises);
+      // Only the PDF is locked; the sidecar can be written.
+      vi.spyOn(fs.promises, "rename").mockImplementation((from, to) =>
+        String(to) === pdf ? Promise.reject(locked("EPERM")) : realRename(from, to),
+      );
+
+      expect(await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).toEqual({
+        status: "sidecar",
+      });
+      expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+      expect(tempFiles(dir)).toEqual([]);
+      expect(await loadMarkupFromFile(pdf)).toMatchObject({ source: "sidecar", pages: [{ page: 1, payload: payload(1) }] });
+    });
+
+    test("other errors are not retried", async () => {
+      const pdf = await writeFixture(dir, "x.pdf", await makePdf({ xref: "table", pages: 2 }));
+      await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+      const rename = vi.spyOn(fs.promises, "rename").mockRejectedValue(locked("EIO"));
+      expect((await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).status).toBe("error");
+      expect(rename).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("the read-back verification compares the data of every page, not only the page set", async () => {
+    const pdf = await writeFixture(dir, "h.pdf", await makePdf({ xref: "table", pages: 2 }));
     await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
     const before = fs.readFileSync(pdf);
-    vi.spyOn(fs.promises, "rename").mockRejectedValueOnce(Object.assign(new Error("busy"), { code: "EBUSY" }));
+    // The temp file reads back with the right pages, but page 2 has other data than the one saved.
+    const wrong = await buildMarkedPdf(new Uint8Array(before), [{ page: 2, payload: payload(7), png: pngOf(page2()) }]);
+    const realReadFile = fs.promises.readFile.bind(fs.promises);
+    vi.spyOn(fs.promises, "readFile").mockImplementation(((file: fs.PathLike, ...rest: unknown[]) =>
+      String(file).endsWith(".smv-tmp")
+        ? Promise.resolve(Buffer.from(wrong))
+        : (realReadFile as (...args: unknown[]) => Promise<Buffer>)(file, ...rest)) as typeof fs.promises.readFile);
 
     const result = await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false });
     expect(result.status).toBe("error");
-    expect(result.message).toContain("busy");
+    expect(result.message).toContain("pages [2]");
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect(tempFiles(dir)).toEqual([]);
-    expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+  });
 
-    // The next save works again.
-    expect((await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).status).toBe("pdf");
-    expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1, 2]);
+  test("the read-back verification ignores key order and unknown keys of the saved payload", async () => {
+    const pdf = await writeFixture(dir, "k.pdf", await makePdf({ xref: "table" }));
+    const { version, width, height, fabric } = payload(3);
+    const reordered = { fabric, height, width, version, unknownKey: true } as unknown as ReturnType<typeof payload>;
+    expect(
+      (await saveMarkupToFile({ path: pdf, pages: [{ ...page1(), payload: reordered }], deleteLegacySidecar: false })).status,
+    ).toBe("pdf");
   });
 
   test("a failed read-back verification reports an error, PDF unchanged, no temp left", async () => {

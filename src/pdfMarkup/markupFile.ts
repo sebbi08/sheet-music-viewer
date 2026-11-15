@@ -1,14 +1,16 @@
 /**
  * File layer of the markup feature, used by the Electron main process (spec sections 1 and 7): loads and
  * saves markup through the PDF itself, written atomically (temp file in the same folder, verified, then
- * renamed). Encrypted and non-writable PDFs without embedded data fall back to a v1 `.data` sidecar; once
- * a PDF has embedded data, a failed write is reported and the PDF stays byte-identical. No Electron
- * imports: this module is unit-tested in Node.
+ * renamed). Encrypted and non-writable PDFs without embedded data fall back to a v1 `.data` sidecar, and so
+ * do PDFs without embedded data that stay locked (EBUSY/EPERM/EACCES) after the retries; once a PDF has
+ * embedded data, a failed write is reported and the PDF stays byte-identical. No Electron imports: this
+ * module is unit-tested in Node.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { EncryptedPDFError, PDFDocument } from "pdf-lib";
 import {
+  markupPayloadSchema,
   sidecarV1Schema,
   type LoadMarkupResult,
   type LoadedMarkupPage,
@@ -55,7 +57,37 @@ function serialized<T>(file: string, task: () => Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------------------------------------
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const isNotFound = (e: unknown) => e instanceof Error && "code" in e && e.code === "ENOENT";
+const errorCode = (e: unknown) => (e instanceof Error && "code" in e ? e.code : undefined);
+const isNotFound = (e: unknown) => errorCode(e) === "ENOENT";
+
+/**
+ * Windows reports a file that another program (Acrobat, a virus scanner, a sync client) holds open as
+ * EBUSY, EPERM or EACCES; usually only for a moment.
+ */
+const isLockedError = (e: unknown) => ["EBUSY", "EPERM", "EACCES"].includes(String(errorCode(e)));
+
+/** Waits between the attempts of a locked file operation: about 3 s in total. */
+let lockRetryDelaysMs: readonly number[] = [50, 100, 200, 400, 750, 1500];
+
+/** For tests: sets the waits between attempts (an empty list = no retry) and returns the previous ones. */
+export function setLockRetryDelays(delaysMs: readonly number[]): readonly number[] {
+  const previous = lockRetryDelaysMs;
+  lockRetryDelaysMs = delaysMs;
+  return previous;
+}
+
+/** Runs `operation`, repeating it while it fails because the file is locked (see `isLockedError`). */
+async function retryWhileLocked<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await operation();
+    } catch (e) {
+      const delay = lockRetryDelaysMs[attempt];
+      if (delay === undefined || !isLockedError(e)) throw e;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
 
 type Inspection = { encrypted: true } | { encrypted: false; markup: ReadMarkupResult };
 
@@ -92,7 +124,8 @@ async function isWritable(file: string): Promise<boolean> {
 /**
  * Replaces `target` atomically: writes `.<name>.smv-tmp` in the same folder (flushed to disk, with the
  * target's permissions), lets `verify` check the bytes read back from it, then renames it over `target`.
- * On any failure the temp file is removed and `target` is untouched.
+ * Opening the temp file and the rename are retried while the file is locked. On any failure the temp
+ * file is removed and `target` is untouched.
  */
 async function atomicReplace(
   target: string,
@@ -105,7 +138,7 @@ async function atomicReplace(
       (s) => s.mode & 0o777,
       () => null,
     );
-    const handle = await fs.promises.open(temp, "w");
+    const handle = await retryWhileLocked(() => fs.promises.open(temp, "w"));
     try {
       await handle.writeFile(bytes);
       if (mode !== null) await handle.chmod(mode).catch(() => undefined);
@@ -114,22 +147,43 @@ async function atomicReplace(
       await handle.close();
     }
     if (verify) await verify(await fs.promises.readFile(temp));
-    await fs.promises.rename(temp, target);
+    await retryWhileLocked(() => fs.promises.rename(temp, target));
   } catch (e) {
     await fs.promises.rm(temp, { force: true }).catch(() => undefined);
     throw e;
   }
 }
 
-/** Fails unless the PDF `written` contains our markup on exactly the pages in `expected`. */
-async function verifyPages(written: Uint8Array, expected: Set<number>): Promise<void> {
+/** JSON with sorted object keys, so equal data gives equal text whatever the key order. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v !== null && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
+/** Page -> canonical JSON of the payload the page must have after a save. */
+type ExpectedPages = Map<number, string>;
+
+/** The payload as our reader returns it (schema-normalized), as canonical JSON. */
+const expectedPayload = (payload: MarkupPayload) => canonicalJson(markupPayloadSchema.parse(payload));
+
+const expectedFromMarkup = (markup: ReadMarkupResult): ExpectedPages =>
+  new Map(markup.pages.map((p) => [p.page, canonicalJson(p.payload)]));
+
+/** Fails unless the PDF `written` contains our markup on exactly the pages in `expected`, each with its payload. */
+async function verifyPages(written: Uint8Array, expected: ExpectedPages): Promise<void> {
   const inspection = await inspectPdf(written);
   if (!inspection || inspection.encrypted) throw new Error("verification failed: the written PDF is unreadable");
-  const actual = inspection.markup.pages.map((p) => p.page);
-  if (actual.length !== expected.size || !actual.every((page) => expected.has(page)))
+  const actual = inspection.markup.pages;
+  if (actual.length !== expected.size || !actual.every((p) => expected.has(p.page)))
     throw new Error(
-      `verification failed: expected markup on pages [${[...expected].join(", ")}], found [${actual.join(", ")}]`,
+      `verification failed: expected markup on pages [${[...expected.keys()].join(", ")}], found [${actual.map((p) => p.page).join(", ")}]`,
     );
+  const differing = actual.filter((p) => canonicalJson(p.payload) !== expected.get(p.page)).map((p) => p.page);
+  if (differing.length > 0)
+    throw new Error(`verification failed: the markup data of pages [${differing.join(", ")}] differs from what was saved`);
 }
 
 const toLoadedPages = (markup: ReadMarkupResult): LoadedMarkupPage[] =>
@@ -226,7 +280,7 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   const inspection = await inspectPdf(bytes);
 
   if (inspection && !inspection.encrypted && inspection.markup.orphans.length > 0 && (await isWritable(realPath))) {
-    const expected = new Set(inspection.markup.pages.map((p) => p.page));
+    const expected = expectedFromMarkup(inspection.markup);
     try {
       const repaired = await buildMarkedPdf(bytes, []);
       await atomicReplace(realPath, repaired, (written) => verifyPages(written, expected));
@@ -274,12 +328,19 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
       throw e;
     }
 
-    const expected = new Set(inspection.markup.pages.map((p) => p.page));
+    const expected = expectedFromMarkup(inspection.markup);
     for (const { page, payload } of input.pages) {
-      if (payload) expected.add(page);
+      if (payload) expected.set(page, expectedPayload(payload));
       else expected.delete(page);
     }
-    await atomicReplace(realPath, marked, (written) => verifyPages(written, expected));
+    try {
+      await atomicReplace(realPath, marked, (written) => verifyPages(written, expected));
+    } catch (e) {
+      // Still locked after the retries (spec section 1): a PDF without embedded data falls back to the
+      // sidecar, which the migration picks up later; with embedded data the error is reported.
+      if (isLockedError(e) && !hasEmbeddedData(inspection)) return await fallback(input, inspection);
+      throw e;
+    }
 
     if (input.deleteLegacySidecar) {
       await fs.promises.rm(getSidecarPath(input.path), { force: true }).catch((e: unknown) => {
@@ -292,7 +353,10 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
   }
 }
 
-/** Encrypted, unparseable or not writable: sidecar only if the PDF has no embedded data, never two competing states. */
+/**
+ * Encrypted, unparseable, not writable or locked: sidecar only if the PDF has no embedded data, never two
+ * competing states.
+ */
 async function fallback(input: SaveMarkupInput, inspection: Inspection | null): Promise<SaveMarkupResult> {
   if (hasEmbeddedData(inspection))
     return { status: "error", message: "The PDF already contains markup but cannot be written (read-only?)." };
