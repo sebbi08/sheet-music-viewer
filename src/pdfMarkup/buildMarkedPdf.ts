@@ -66,6 +66,9 @@ function num(n: number): string {
   return String(rounded === 0 ? 0 : rounded);
 }
 
+const decodedText = (object: PDFObject | undefined) =>
+  object instanceof PDFString || object instanceof PDFHexString ? object.decodeText() : undefined;
+
 const sameRef = (a: PDFObject | undefined, b: PDFRef | null | undefined) =>
   b != null && a instanceof PDFRef && a.objectNumber === b.objectNumber && a.generationNumber === b.generationNumber;
 
@@ -318,12 +321,14 @@ export async function buildMarkedPdf(current: Uint8Array, changes: PageChange[])
   changed.add(context.trailerInfo.Root as PDFRef);
   const ocg = ensureOcg(doc, existing.ocgRef, changed);
 
-  // Orphans stay visible as plain images: out of our OCG (hidden in the app) and renamed, so they are
-  // foreign from now on. A foreign /OC (another program's layer) is respected.
+  // Orphans stay visible as plain images: out of our OCG (hidden in the app) and, if they carry our /NM,
+  // renamed, so they are foreign from now on. A foreign /OC (another program's layer) and a foreign /NM
+  // (an annotation that only had our /OC) are respected.
   for (const { annotRef } of existing.orphans) {
     const annot = context.lookup(annotRef, PDFDict);
     if (sameRef(annot.get(PDFName.of("OC")), existing.ocgRef)) annot.delete(PDFName.of("OC"));
-    annot.set(PDFName.of("NM"), PDFString.of(ORPHAN_NM));
+    if (decodedText(context.lookup(annot.get(PDFName.of("NM")))) === ANNOT_NM)
+      annot.set(PDFName.of("NM"), PDFString.of(ORPHAN_NM));
     changed.add(annotRef);
   }
 

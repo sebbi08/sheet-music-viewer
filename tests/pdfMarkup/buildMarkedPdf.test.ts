@@ -305,6 +305,22 @@ describe("orphaned stamps", () => {
     expect(r.orphans).toHaveLength(1);
   });
 
+  test("repairing an orphan that only had our /OC removes /OC and keeps its foreign /NM", async () => {
+    const first = await buildMarkedPdf(await makePdf({ xref: "table" }), [mark(1)]);
+    const renamed = await patch(first, (doc) => {
+      const { annotRef } = readMarkup(doc).pages[0];
+      doc.context.lookup(annotRef, PDFDict).set(PDFName.of("NM"), PDFString.of("acrobat-stamp-42"));
+      return [annotRef];
+    });
+    const orphan = readMarkup(await load(renamed)).orphans[0].annotRef;
+
+    const doc = await load(await buildMarkedPdf(renamed, []));
+    expect(readMarkup(doc).orphans).toEqual([]);
+    const annot = doc.context.lookup(orphan, PDFDict);
+    expect(annot.lookup(PDFName.of("NM"), PDFString).decodeText()).toBe("acrobat-stamp-42");
+    expect(annot.has(PDFName.of("OC"))).toBe(false);
+  });
+
   /** Rewrites our stamp on page 1 the way an orphan repair does: orphan /NM, optionally still in our OCG. */
   async function repair(bytes: Uint8Array, keepOc: boolean) {
     return patch(bytes, (doc) => {
