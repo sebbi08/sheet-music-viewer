@@ -1,5 +1,4 @@
 import vue from "@vitejs/plugin-vue";
-import ViteFonts from "unplugin-fonts/vite";
 import Components from "unplugin-vue-components/vite";
 import { defineConfig } from "vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
@@ -36,16 +35,6 @@ export default defineConfig({
     // https://github.com/vuetifyjs/vuetify-loader/tree/master/packages/vite-plugin#readme
     Vuetify(),
     Components(),
-    ViteFonts({
-      google: {
-        families: [
-          {
-            name: "Roboto",
-            styles: "wght@100;300;400;500;700;900",
-          },
-        ],
-      },
-    }),
   ],
   css: {
     preprocessorOptions: {

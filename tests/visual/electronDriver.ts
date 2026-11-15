@@ -18,6 +18,8 @@ export interface SheetSession {
   captureEdit(page: number): Promise<{ with: Img; without: Img }>;
   toggleEdit(): Promise<void>;
   networkRequests(): string[];
+  /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
+  fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
   close(): Promise<void>;
 }
 
@@ -282,6 +284,16 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
         await refreshRequests();
       },
       networkRequests: () => [...requests],
+      fontStatus: () =>
+        page.evaluate(async () => {
+          const weights = [100, 300, 400, 500, 700, 900];
+          await Promise.all(weights.map((w) => document.fonts.load(`${w} 16px Roboto`)));
+          const title = document.querySelector("header .v-toolbar-title") ?? document.body;
+          return {
+            appBarFamily: getComputedStyle(title).fontFamily,
+            robotoLoaded: weights.every((w) => document.fonts.check(`${w} 16px Roboto`)),
+          };
+        }),
       async close() {
         // Quitting does not leave edit mode, so nothing is saved.
         await refreshRequests();

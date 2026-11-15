@@ -95,7 +95,6 @@
     "ts-node": "10.9.2",
     "typeface-roboto": "1.1.13",
     "typescript": "6.0.3",
-    "unplugin-fonts": "2.1.0",
     "unplugin-vue-components": "32.1.0",
     "vite": "8.3.8",
     "vite-plugin-static-copy": "^4.1.1",
