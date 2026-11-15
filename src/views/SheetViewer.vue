@@ -166,7 +166,7 @@ import {
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
 import { displayTransform, legacyToPayload, payloadFromCanvas, transformFabricJson } from "../markup/fabricTransform";
 import { renderMarkupPng } from "../markup/renderPng";
-import type { MarkupPayload, Rect, SaveMarkupInput, SaveMarkupResult } from "../models/markup";
+import { type MarkupPayload, markupPayloadSchema, type Rect, type SaveMarkupInput, type SaveMarkupResult } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
 import { type EditState, type OverlayData } from "../models/types";
 import router from "../router";
@@ -178,6 +178,7 @@ type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptio
 
 const SIDECAR_HINT =
   "Diese PDF kann nicht beschrieben werden. Markierungen werden in einer Begleitdatei gespeichert.";
+const LEGACY_UNREADABLE = "Die alte Markierungsdatei konnte nicht gelesen werden und bleibt unverändert liegen.";
 const SAVE_ERROR =
   "Markierungen konnten nicht in die PDF gespeichert werden (ist sie in einem anderen Programm geöffnet?). Beim nächsten Speichern wird es erneut versucht.";
 
@@ -301,42 +302,91 @@ onBeforeUnmount(() => {
   }
 })
 
-/** Old `.data` file (screen pixels + drawWidth/drawHeight) -> points, then written into the PDF (spec section 7). */
+/**
+ * Old `.data` file (screen pixels + drawWidth/drawHeight) -> points, then written into the PDF (spec
+ * section 7). If any part of it cannot be read, the readable pages are still shown and saved, but the
+ * file is never deleted (`deleteLegacySidecar` stays false); embedded data wins on the next load.
+ */
 async function migrateLegacyOverlayData(text: string): Promise<void> {
-  let entries: unknown;
+  let entries: unknown = null;
   try {
     // The old app treated an empty file as no markup.
     entries = text.trim() === "" ? [] : JSON.parse(text);
   } catch (e) {
-    // Not readable: leave the file alone (saves then fail instead of deleting it).
     console.warn("Could not parse the legacy markup file", e);
-    return;
   }
   if (!Array.isArray(entries)) {
-    console.warn("Unexpected legacy markup file content");
+    showSnackbar(LEGACY_UNREADABLE);
     return;
   }
+
+  let unreadable = false;
   const seen = new Set<number>();
-  for (const entry of entries as OverlayData[]) {
+  for (const raw of entries as unknown[]) {
+    const entry = raw as Partial<OverlayData> | null;
     const page = entry?.page;
+    if (typeof page !== "number" || !Number.isInteger(page) || page < 1) {
+      unreadable = true;
+      continue;
+    }
     // Like the old edit mode, the first entry of a page wins; pages the PDF lacks were never shown.
-    if (!Number.isInteger(page) || page < 1 || page > pdf.numPages || seen.has(page)) continue;
+    if (page > pdf.numPages || seen.has(page)) continue;
     seen.add(page);
-    dirtyPages.add(page);
-    const objects = (entry.data as { objects?: unknown[] } | undefined)?.objects;
-    if (!Array.isArray(objects) || objects.length === 0) continue;
-    if (!(entry.drawWidth > 0 && entry.drawHeight > 0)) continue;
+    const objects = (entry?.data as { objects?: unknown } | undefined)?.objects;
+    if (objects === undefined || (Array.isArray(objects) && objects.length === 0)) {
+      dirtyPages.add(page); // no markup on this page
+      continue;
+    }
     const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
-    markupPages.set(page, { rect: null, payload: legacyToPayload(entry, viewport) });
+    const payload = toLegacyPayload(entry as OverlayData, objects, viewport);
+    if (!payload) {
+      unreadable = true;
+      continue;
+    }
+    markupPages.set(page, { rect: null, payload });
+    dirtyPages.add(page);
   }
-  deleteLegacyOnNextSave = true;
+
+  if (unreadable) {
+    showSnackbar(LEGACY_UNREADABLE);
+  } else {
+    deleteLegacyOnNextSave = true;
+  }
   void persistMarkup();
 }
 
+/** null if the entry cannot be converted into a valid payload. */
+function toLegacyPayload(entry: OverlayData, objects: unknown, viewport: pdfJs.PageViewport): MarkupPayload | null {
+  const validSize = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
+  if (!Array.isArray(objects) || !validSize(entry.drawWidth) || !validSize(entry.drawHeight)) return null;
+  try {
+    const parsed = markupPayloadSchema.safeParse(legacyToPayload(entry, viewport));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const snackbarQueue: string[] = [];
+
+/** Shows `text`, or queues it while another message is open; repeats of a pending message are dropped. */
 function showSnackbar(text: string): void {
-  snackbarText.value = text;
+  if ((snackbar.value && snackbarText.value === text) || snackbarQueue.includes(text)) return;
+  snackbarQueue.push(text);
+  if (!snackbar.value) showNextSnackbar();
+}
+
+function showNextSnackbar(): void {
+  const next = snackbarQueue.shift();
+  if (next === undefined) return;
+  snackbarText.value = next;
   snackbar.value = true;
 }
+
+watch(snackbar, (open) => {
+  // Short pause so the closed snackbar can animate out before the next one opens.
+  if (!open && snackbarQueue.length > 0) setTimeout(showNextSnackbar, 300);
+});
 
 /** Queues a save of all dirty pages; saves run one after another and never reject. */
 function persistMarkup(): Promise<void> {
@@ -390,11 +440,20 @@ function viewRectOf(rect: Rect | null, viewport: pdfJs.PageViewport): Rect | nul
   return [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
 }
 
-/** fabric JSON of `entry` in the CSS pixels of a canvas `cssWidth` wide showing the whole page. */
-function fabricJsonForDisplay(entry: MarkupEntry, viewport: pdfJs.PageViewport, cssWidth: number) {
+/**
+ * fabric JSON of `entry` in the pixels of a canvas covering the whole page. `canvasWidth`/`canvasHeight`
+ * are its real integer size (the canvas attributes set from the truncated CSS size of the page; fabric's
+ * logical size, unaffected by retina scaling).
+ */
+function fabricJsonForDisplay(
+  entry: MarkupEntry,
+  viewport: pdfJs.PageViewport,
+  canvasWidth: number,
+  canvasHeight: number,
+) {
   return transformFabricJson(
     entry.payload.fabric,
-    displayTransform(viewRectOf(entry.rect, viewport), entry.payload, viewport, cssWidth),
+    displayTransform(viewRectOf(entry.rect, viewport), entry.payload, viewport, canvasWidth, canvasHeight),
   );
 }
 
@@ -752,7 +811,7 @@ function saveDrawnData(): void {
   if (!editFabric) return;
   const page = currentPage.value;
   const viewport = pageViewports.get(page);
-  if (!viewport || !editFabric.width) return;
+  if (!viewport || !editFabric.width || !editFabric.height) return;
   const fabricJson = editFabric.toObject(["__isText"]) as { objects: unknown[] };
 
   if (fabricJson.objects.length === 0) {
@@ -760,7 +819,7 @@ function saveDrawnData(): void {
     if (!markupPages.has(page) && !dirtyPages.has(page)) return;
     markupPages.delete(page);
   } else {
-    markupPages.set(page, { rect: null, payload: payloadFromCanvas(fabricJson, editFabric.width, viewport) });
+    markupPages.set(page, { rect: null, payload: payloadFromCanvas(fabricJson, editFabric.width, editFabric.height, viewport) });
   }
   dirtyPages.add(page);
   void persistMarkup();
@@ -875,7 +934,7 @@ async function createFabricCanvas(): Promise<void> {
   })
 
   if (!currentPageData || !viewport) return;
-  const fabricJson = fabricJsonForDisplay(currentPageData, viewport, editFabric.width);
+  const fabricJson = fabricJsonForDisplay(currentPageData, viewport, editFabric.width, editFabric.height);
 
   return new Promise(async (resolve) => {
 
@@ -958,7 +1017,7 @@ async function createOverlay(
   canvas.insertAdjacentElement("afterend", overlayCanvas);
 
   const overlayFabric = new fabric.StaticCanvas(overlayCanvas);
-  await overlayFabric.loadFromJSON(fabricJsonForDisplay(entry, viewport, overlayFabric.width));
+  await overlayFabric.loadFromJSON(fabricJsonForDisplay(entry, viewport, overlayFabric.width, overlayFabric.height));
 
 
   overlayFabric.renderAll();

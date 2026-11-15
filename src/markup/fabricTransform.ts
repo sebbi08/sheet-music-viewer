@@ -32,35 +32,46 @@ export function transformFabricJson<T extends { objects: unknown[] }>(json: T, t
   return { ...json, objects };
 }
 
-/** Payload (points) -> canvas CSS pixels. `viewRect` null = whole page. */
+/**
+ * Payload (points) -> canvas pixels. `viewRect` null = whole page. `canvasWidth`/`canvasHeight` are the
+ * real (integer) canvas size covering the page; each axis is scaled by its own canvas side, which is
+ * what the old edit mode did and what the user drew on (differs from uniform scaling by < 0.1 %).
+ */
 export function displayTransform(
   viewRect: Rect | null,
   payload: MarkupPayload,
   viewport: Size,
-  cssWidth: number,
+  canvasWidth: number,
+  canvasHeight: number,
 ): Transform2D {
   const vr = viewRect ?? [0, 0, viewport.width, viewport.height];
-  const k = cssWidth / viewport.width;
+  const kx = canvasWidth / viewport.width;
+  const ky = canvasHeight / viewport.height;
   return {
-    sx: ((vr[2] - vr[0]) / payload.width) * k,
-    sy: ((vr[3] - vr[1]) / payload.height) * k,
-    tx: vr[0] * k,
-    ty: vr[1] * k,
+    sx: ((vr[2] - vr[0]) / payload.width) * kx,
+    sy: ((vr[3] - vr[1]) / payload.height) * ky,
+    tx: vr[0] * kx,
+    ty: vr[1] * ky,
   };
 }
 
-/** Canvas CSS pixels -> payload in points. */
+/** Canvas pixels (canvas covering the whole page, real integer size) -> payload in points; inverse of `displayTransform(null, …)`. */
 export function payloadFromCanvas(
   json: { objects: unknown[] },
-  cssWidth: number,
+  canvasWidth: number,
+  canvasHeight: number,
   viewport: Size,
 ): MarkupPayload {
-  const inv = viewport.width / cssWidth;
   return {
     version: 1,
     width: viewport.width,
     height: viewport.height,
-    fabric: transformFabricJson(json, { sx: inv, sy: inv, tx: 0, ty: 0 }),
+    fabric: transformFabricJson(json, {
+      sx: viewport.width / canvasWidth,
+      sy: viewport.height / canvasHeight,
+      tx: 0,
+      ty: 0,
+    }),
   };
 }
 

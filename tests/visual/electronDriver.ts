@@ -18,6 +18,8 @@ export interface SheetSession {
   captureEdit(page: number): Promise<{ with: Img; without: Img }>;
   toggleEdit(): Promise<void>;
   networkRequests(): string[];
+  /** Text of the open snackbar, "" if none is shown. */
+  snackbarText(): Promise<string>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
   close(): Promise<void>;
@@ -284,6 +286,8 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
         await refreshRequests();
       },
       networkRequests: () => [...requests],
+      snackbarText: () =>
+        page.evaluate(() => (document.querySelector(".v-snackbar .v-snackbar__content")?.textContent ?? "").trim()),
       fontStatus: () =>
         page.evaluate(async () => {
           const weights = [100, 300, 400, 500, 700, 900];

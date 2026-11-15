@@ -84,6 +84,29 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
   });
 
+  test("a corrupt legacy sidecar does not block saving into a writable PDF and stays untouched", async () => {
+    const pdf = await writeFixture(dir, "c.pdf", await makePdf({ xref: "table", pages: 2 }));
+    const corrupt = '[{"page": 1, "data": {"objects": [ broken';
+    fs.writeFileSync(getSidecarPath(pdf), corrupt);
+    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: corrupt });
+
+    // The renderer keeps deleteLegacySidecar false for a file it could not read.
+    expect(await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).toEqual({
+      status: "pdf",
+    });
+    expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(corrupt);
+
+    // Embedded data wins from now on; the corrupt file is no longer reported.
+    expect(await loadMarkupFromFile(pdf)).toMatchObject({ source: "pdf", legacyOverlayData: null, pages: [{ page: 2 }] });
+    // Removing all markup restores the original PDF, so the untouched corrupt file is reported again.
+    expect(
+      (await saveMarkupToFile({ path: pdf, pages: [{ page: 2, payload: null, pngBase64: null }], deleteLegacySidecar: false }))
+        .status,
+    ).toBe("pdf");
+    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: corrupt });
+    expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(corrupt);
+  });
+
   test("embedded data wins over a sidecar", async () => {
     const pdf = await writeFixture(dir, "w.pdf", await makePdf({ xref: "table", pages: 2 }));
     expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe("pdf");
