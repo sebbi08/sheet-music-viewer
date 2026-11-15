@@ -11,7 +11,6 @@ import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import {
   annotationsPerPage,
   makePdf,
-  makePng,
   markEncrypted,
   page1,
   page2,
