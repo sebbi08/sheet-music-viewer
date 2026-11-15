@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { inflateSync, deflateSync, crc32 } from "node:zlib";
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, StandardFonts, degrees } from "pdf-lib";
 import { SMV_DATA_KEY } from "../../src/models/markupConstants";
@@ -230,4 +232,20 @@ export async function annotationsPerPage(
     return pages;
   });
   return value;
+}
+
+/** A page entry for `saveMarkupToFile`: `payload(page)` plus a tiny PNG as Base64. */
+export const pageChange = (page: number) => ({
+  page,
+  payload: payload(page),
+  pngBase64: Buffer.from(makePng(4, 4)).toString("base64"),
+});
+export const page1 = () => pageChange(1);
+export const page2 = () => pageChange(2);
+
+/** Writes `bytes` to `dir/name` and returns the path. */
+export async function writeFixture(dir: string, name: string, bytes: Uint8Array): Promise<string> {
+  const file = path.join(dir, name);
+  await fs.promises.writeFile(file, bytes);
+  return file;
 }

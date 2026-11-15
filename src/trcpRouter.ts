@@ -3,7 +3,9 @@ import { autoUpdater } from "electron/main";
 import { on } from "events";
 import superjson from "superjson";
 import { z } from "zod";
+import { saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
+import { loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
 import {
     checkForUpdates,
     getAppVersion,
@@ -86,4 +88,10 @@ export const trcpRouter = createRouter({
     .query(saveOverlayData),
 
   loadOverlayData: publicProcedure.input(z.string()).query(loadOverlayData),
+
+  loadMarkup: publicProcedure.input(z.string()).query(({ input }) => loadMarkupFromFile(input)),
+
+  saveMarkup: publicProcedure
+    .input(saveMarkupInputSchema)
+    .mutation(({ input }) => saveMarkupToFile(input)),
 });
