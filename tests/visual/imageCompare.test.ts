@@ -1,6 +1,15 @@
 import { expect, test } from "vitest";
 import { makePdf } from "../pdfMarkup/fixtures";
-import { decodePng, diffRatio, encodePng, type Img, markupMask, maskMetrics, sideBySide } from "./imageCompare";
+import {
+  decodePng,
+  diffRatio,
+  encodePng,
+  type Img,
+  markupMask,
+  maskMetrics,
+  maxObjectOffset,
+  sideBySide,
+} from "./imageCompare";
 import { renderPdfPage } from "./pdfRender";
 
 /** RGBA image, black where px() returns 1, white elsewhere. */
@@ -36,6 +45,21 @@ test("mask metrics detect a 1px shift", () => {
   const m = maskMetrics(a, b, 40);
   expect(m.centroidOffsetPx).toBeCloseTo(1);
   expect(m.iou).toBeCloseTo(90 / 110);
+});
+
+test("per-object offset ignores edge pixels gained by objects far apart, but sees a shifted object", () => {
+  const w = 200;
+  const box = (x0: number, y0: number, size: number) => (x: number, y: number) =>
+    +(x >= x0 && x < x0 + size && y >= y0 && y < y0 + size);
+  const blank = solid(w, 50, () => 0);
+  const ref = markupMask(solid(w, 50, (x, y) => box(10, 10, 20)(x, y) | box(150, 10, 20)(x, y)), blank);
+  // The right object grows by one pixel on every side: same position, more edge pixels.
+  const grown = markupMask(solid(w, 50, (x, y) => box(10, 10, 20)(x, y) | box(149, 9, 22)(x, y)), blank);
+  expect(maskMetrics(grown, ref, w).centroidOffsetPx).toBeGreaterThan(1);
+  expect(maxObjectOffset(grown, ref, w)).toEqual({ maxOffsetPx: 0, objects: 2 });
+  // The left object moves by 2 px.
+  const moved = markupMask(solid(w, 50, (x, y) => box(12, 10, 20)(x, y) | box(150, 10, 20)(x, y)), blank);
+  expect(maxObjectOffset(moved, ref, w).maxOffsetPx).toBeCloseTo(2);
 });
 
 test("empty vs non-empty mask", () => {

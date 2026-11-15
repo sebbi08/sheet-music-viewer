@@ -7,8 +7,29 @@ npm start              # dev mode (hot-reload)
 npm run make           # build distributables (all platforms, x64 only)
 npm run package        # package only (no installer)
 npm run lint           # eslint --ext .ts,.tsx .
-npm test               # placeholder, no real tests
+npm test               # vitest unit tests (tests/**/*.test.ts); Noten/ cases skip without the corpus
+npm run test:visual    # visual comparison new app vs old app (see below)
 ```
+
+### Visual tests (`npm run test:visual`)
+
+- Compares the new app against the old app (commit `8301b5d`, override with
+  `VISUAL_BASELINE_REF`) on every `Noten/*.pdf` that has a legacy `.data` file (spec section 8).
+  Needs the local `Noten/` corpus with `.data` files; without it the tests are skipped.
+- Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on open).
+- Builds both apps (`electron-forge package`; the old one in a git worktree below
+  `test-results/visual/worktrees/`). The old app's reference images are cached in
+  `test-results/visual/baseline/<ref>/` and recaptured when the PDF, its `.data` or the commit
+  change. An uncached run takes several minutes.
+- Outputs go to `test-results/visual/` (gitignored): `diff/<pdf>/<page>-<check>.png`
+  (reference | new | diff | markup masks) for every violation, `compare-summary.md` with all
+  numbers. `VISUAL_DIFF_ALL=1` writes the images of passing checks, too.
+- Headless by default on Linux (`--ozone-platform=headless`, no display needed);
+  `VISUAL_HEADED=1` shows the windows for debugging. **Windows:** Ozone is Linux-only, so Chromium
+  ignores that flag and the driver does not hide the windows: each app start shows a 1200×1600
+  window for a few seconds. Do not click into or resize them during the run. Not yet tried on
+  Windows: if the OS keeps the window smaller than 1200×1600 (small screen), the run stops with
+  `timed out waiting for window content 1200x1600`.
 
 ## Architecture
 

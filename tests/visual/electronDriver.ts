@@ -12,12 +12,29 @@ export interface AppUnderTest {
   root: string;
 }
 
+/**
+ * A page captured with and without its markup layer. The images have the page canvas's CSS size
+ * rounded down to whole pixels; `cssSize` is the unrounded CSS size the page is drawn at.
+ */
+export interface Capture {
+  with: Img;
+  without: Img;
+  cssSize: { width: number; height: number };
+}
+
 export interface SheetSession {
   gotoPage(page: number): Promise<void>;
-  captureView(page: number): Promise<{ with: Img; without: Img }>;
-  captureEdit(page: number): Promise<{ with: Img; without: Img }>;
+  captureView(page: number): Promise<Capture>;
+  captureEdit(page: number): Promise<Capture>;
   toggleEdit(): Promise<void>;
+  /** Sets the window's content size and waits until the sheet and its markup are rendered again. */
+  resizeContent(width: number, height: number): Promise<void>;
   networkRequests(): string[];
+  /**
+   * Proves that the network log is armed: the renderer requests a unique https URL, which must show
+   * up in `networkRequests()` (the request is cancelled). Returns the URL, so a test can exclude it.
+   */
+  probeNetworkLog(): Promise<string>;
   /** Text of the open snackbar, "" if none is shown. */
   snackbarText(): Promise<string>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
@@ -25,7 +42,7 @@ export interface SheetSession {
   close(): Promise<void>;
 }
 
-const WINDOW = { width: 1200, height: 1600 };
+export const WINDOW = { width: 1200, height: 1600 };
 const RESIZE_DEBOUNCE_MS = 600;
 const STABLE_FOR_MS = 1000;
 const MARKUP_GRACE_MS = 6000; // > fontfaceobserver's default 3 s timeout before fabric loads objects
@@ -100,7 +117,9 @@ function rendererCurrentPage(): number {
  * overlay shows up in the image. `ink` tells whether the topmost layer has any visible pixel.
  * Returns null while a layer is missing or empty-sized.
  */
-function rendererComposite(layerSelectors: string[]): { url: string; ink: boolean } | null {
+function rendererComposite(
+  layerSelectors: string[],
+): { url: string; ink: boolean; cssWidth: number; cssHeight: number } | null {
   const layers = layerSelectors.map((s) => document.querySelector<HTMLCanvasElement>(s));
   const base = layers[0];
   if (!base || layers.some((l) => !l)) return null;
@@ -119,7 +138,7 @@ function rendererComposite(layerSelectors: string[]): { url: string; ink: boolea
   const pixels = top.getContext("2d")?.getImageData(0, 0, top.width, top.height).data ?? new Uint8ClampedArray();
   let ink = false;
   for (let i = 3; i < pixels.length && !ink; i += 4) ink = pixels[i] !== 0;
-  return { url: out.toDataURL("image/png"), ink };
+  return { url: out.toDataURL("image/png"), ink, cssWidth: baseRect.width, cssHeight: baseRect.height };
 }
 
 // --- node side ---
@@ -140,23 +159,41 @@ async function waitFor<T>(what: string, probe: () => Promise<T | null | undefine
  * is only accepted after it has stayed unchanged for MARKUP_GRACE_MS (e.g. a page whose only
  * object is an empty text box).
  */
-async function captureStable(page: Page, what: string, layers: string[]): Promise<Img> {
+async function captureStable(
+  page: Page,
+  what: string,
+  layers: string[],
+): Promise<{ img: Img; cssSize: { width: number; height: number } }> {
   const expectMarkup = layers.length > 1;
   let last = "";
   let stableSince = 0;
-  const dataUrl = await waitFor(what, async () => {
-    const shot = await page.evaluate(rendererComposite, layers);
-    if (!shot) return null;
-    if (shot.url !== last) {
-      last = shot.url;
+  const shot = await waitFor(what, async () => {
+    const current = await page.evaluate(rendererComposite, layers);
+    if (!current) return null;
+    const key = `${current.cssWidth}x${current.cssHeight}:${current.url}`;
+    if (key !== last) {
+      last = key;
       stableSince = Date.now();
       return null;
     }
     const stableFor = Date.now() - stableSince;
-    const needed = expectMarkup && !shot.ink ? MARKUP_GRACE_MS : STABLE_FOR_MS;
-    return stableFor >= needed ? shot.url : null;
+    const needed = expectMarkup && !current.ink ? MARKUP_GRACE_MS : STABLE_FOR_MS;
+    return stableFor >= needed ? current : null;
   });
-  return decodePng(Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64"));
+  return {
+    img: decodePng(Buffer.from(shot.url.slice(shot.url.indexOf(",") + 1), "base64")),
+    cssSize: { width: shot.cssWidth, height: shot.cssHeight },
+  };
+}
+
+/** One page with (page canvas + markup layer) and without (page canvas alone) its markup. */
+async function capturePair(page: Page, what: string, pageLayer: string, markupLayer: string): Promise<Capture> {
+  const withMarkup = await captureStable(page, `${what} with markup`, [pageLayer, markupLayer]);
+  const without = await captureStable(page, `${what} without markup`, [pageLayer]);
+  if (withMarkup.cssSize.width !== without.cssSize.width || withMarkup.cssSize.height !== without.cssSize.height) {
+    throw new Error(`${what}: the page size changed between the two captures`);
+  }
+  return { with: withMarkup.img, without: without.img, cssSize: without.cssSize };
 }
 
 /** Starts the app with an isolated profile, shows `pdfPath` (absolute or relative to `folder`) in the SheetViewer. */
@@ -251,13 +288,12 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
         await refreshRequests();
       },
       async captureView(pageNumber) {
-        const result = {
-          with: await captureStable(page, `view of page ${pageNumber}`, [
-            `#sheetViewerWrapper canvas[data-page="${pageNumber}"]`,
-            `#sheetViewerWrapper canvas[data-page-overlay="${pageNumber}"]`,
-          ]),
-          without: await captureStable(page, `page ${pageNumber}`, [`#sheetViewerWrapper canvas[data-page="${pageNumber}"]`]),
-        };
+        const result = await capturePair(
+          page,
+          `view of page ${pageNumber}`,
+          `#sheetViewerWrapper canvas[data-page="${pageNumber}"]`,
+          `#sheetViewerWrapper canvas[data-page-overlay="${pageNumber}"]`,
+        );
         await refreshRequests();
         return result;
       },
@@ -269,13 +305,12 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
           await session.gotoPage(pageNumber);
         }
         if (!editing) await session.toggleEdit();
-        const result = {
-          with: await captureStable(page, `edit view of page ${pageNumber}`, [
-            `#sheetViewerWrapper canvas[data-page="${pageNumber}"]`,
-            "#sheetViewerWrapper .canvas-container canvas.lower-canvas",
-          ]),
-          without: await captureStable(page, `page ${pageNumber}`, [`#sheetViewerWrapper canvas[data-page="${pageNumber}"]`]),
-        };
+        const result = await capturePair(
+          page,
+          `edit view of page ${pageNumber}`,
+          `#sheetViewerWrapper canvas[data-page="${pageNumber}"]`,
+          "#sheetViewerWrapper .canvas-container canvas.lower-canvas",
+        );
         await refreshRequests();
         return result;
       },
@@ -285,7 +320,48 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
         await page.waitForSelector("#sheetViewerWrapper .canvas-container", { state: wasEditing ? "detached" : "attached" });
         await refreshRequests();
       },
+      async resizeContent(width, height) {
+        const size = { width, height };
+        const hasSize = () => page.evaluate((s) => window.innerWidth === s.width && window.innerHeight === s.height, size);
+        if (await hasSize()) return;
+        if ((await page.locator("#sheetViewerWrapper .canvas-container").count()) > 0) {
+          throw new Error("cannot resize while editing");
+        }
+        // The resize handler renders every page again and then replaces all markup overlays.
+        // Tagging the current overlays tells the new set apart from the old one.
+        const overlays = await page.evaluate(() => {
+          const all = document.querySelectorAll<HTMLCanvasElement>("#sheetViewerWrapper .overlayCanvas");
+          all.forEach((c) => (c.dataset.smvStale = "1"));
+          return all.length;
+        });
+        await electronApp.evaluate(({ BrowserWindow }, s) => {
+          const win = BrowserWindow.getAllWindows().find((w) => !w.webContents.getURL().startsWith("devtools:"));
+          if (!win) throw new Error("app window not found");
+          win.setContentSize(s.width, s.height);
+        }, size);
+        await waitFor(`window content ${width}x${height}`, hasSize);
+        await page.waitForTimeout(RESIZE_DEBOUNCE_MS);
+        await waitFor(`sheet rendered again at ${width}x${height}`, () =>
+          page.evaluate((count) => {
+            if (document.querySelector("#sheetViewerWrapper .overlay")) return false;
+            const all = [...document.querySelectorAll<HTMLCanvasElement>("#sheetViewerWrapper .overlayCanvas")];
+            return all.length === count && all.every((c) => c.dataset.smvStale === undefined);
+          }, overlays),
+        );
+        await refreshRequests();
+      },
       networkRequests: () => [...requests],
+      async probeNetworkLog() {
+        // https: the app's own scheme is secure, so Chromium would block plain http as mixed content
+        // before it reaches the session. The log cancels the request, so the fetch fails.
+        const url = `https://smv-network-canary.invalid/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await page.evaluate((u) => fetch(u).then(() => "loaded", () => "failed"), url);
+        await refreshRequests();
+        if (!requests.includes(url)) {
+          throw new Error(`network log not armed: canary ${url} missing from ${JSON.stringify(requests)}`);
+        }
+        return url;
+      },
       snackbarText: () =>
         page.evaluate(() => (document.querySelector(".v-snackbar .v-snackbar__content")?.textContent ?? "").trim()),
       fontStatus: () =>

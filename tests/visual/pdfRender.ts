@@ -11,11 +11,43 @@ const assetDir = (name: string) => path.join(pdfjsRoot, name) + path.sep;
 /**
  * Renders one page (1-based) with pdf.js at `cssWidth` pixels wide on a white background,
  * the way another PDF viewer would show it.
+ *
+ * The image is the rendered size rounded to whole pixels.
  */
 export async function renderPdfPage(
   bytes: Uint8Array,
   page: number,
   cssWidth: number,
+  opts: { hideOcgNamed?: string; annotations: boolean },
+): Promise<Img> {
+  return render(bytes, page, (viewport) => {
+    const scale = cssWidth / viewport.width;
+    return { scale, width: Math.round(viewport.width * scale), height: Math.round(viewport.height * scale) };
+  }, opts);
+}
+
+/**
+ * Renders one page like the app shows it in a capture (`Capture.cssSize` from electronDriver): drawn
+ * at the unrounded CSS width, the image is the CSS size rounded down to whole pixels. Pixel and mask
+ * comparisons with captures of the app then line up exactly, without a 1 px size or scale difference.
+ */
+export async function renderPdfPageAsCaptured(
+  bytes: Uint8Array,
+  page: number,
+  cssSize: { width: number; height: number },
+  opts: { hideOcgNamed?: string; annotations: boolean },
+): Promise<Img> {
+  return render(bytes, page, (viewport) => ({
+    scale: cssSize.width / viewport.width,
+    width: Math.floor(cssSize.width),
+    height: Math.floor(cssSize.height),
+  }), opts);
+}
+
+async function render(
+  bytes: Uint8Array,
+  page: number,
+  layout: (scale1: { width: number; height: number }) => { scale: number; width: number; height: number },
   opts: { hideOcgNamed?: string; annotations: boolean },
 ): Promise<Img> {
   const loadingTask = getDocument({
@@ -29,9 +61,8 @@ export async function renderPdfPage(
   try {
     const doc = await loadingTask.promise;
     const pdfPage = await doc.getPage(page);
-    const viewport = pdfPage.getViewport({ scale: cssWidth / pdfPage.getViewport({ scale: 1 }).width });
-    const width = Math.round(viewport.width);
-    const height = Math.round(viewport.height);
+    const { scale, width, height } = layout(pdfPage.getViewport({ scale: 1 }));
+    const viewport = pdfPage.getViewport({ scale });
     const canvas = createCanvas(width, height);
 
     const optionalContentConfig = await doc.getOptionalContentConfig();
