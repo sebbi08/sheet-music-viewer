@@ -23,6 +23,7 @@ export default defineConfig([
             "dist/**",
             "out/**",
             "publisher/**",
+            "test-results/**",
         ],
     },
     {

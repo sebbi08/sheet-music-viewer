@@ -94,3 +94,4 @@ publisher/*.map
 Noten
 opencode.json
 public/pdfjs/
+test-results/
