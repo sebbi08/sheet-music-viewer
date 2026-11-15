@@ -16,6 +16,11 @@ export const useNotices = defineStore("notices", {
       this.text = text;
       this.open = true;
     },
+    /** Removes `text` if it is shown or waiting (e.g. a progress message that is over). */
+    hide(text: string) {
+      this.waiting = this.waiting.filter((t) => t !== text);
+      if (this.open && this.text === text) this.dismiss();
+    },
     dismiss() {
       this.open = false;
       // Short pause so the closed snackbar can animate out before the next one opens.

@@ -45,6 +45,13 @@ export interface SheetSession {
   messageBoxCalls(): Promise<string[]>;
   /** Asks the main process to close the window, like the title bar's close button. */
   requestWindowClose(): Promise<void>;
+  /**
+   * Makes the renderer's close guard hang: the markup queue reports unsaved changes and its flush never
+   * settles (like a save stuck on an unreachable share). Only the main process can end a close then.
+   */
+  hangCloseSave(): Promise<void>;
+  /** Waits until the Electron process has exited; false after `timeoutMs`. */
+  waitForExit(timeoutMs: number): Promise<boolean>;
   /** Number of open app windows (devtools excluded). */
   windowCount(): Promise<number>;
   /** Sets the window's content size and waits until the sheet and its markup are rendered again. */
@@ -67,6 +74,8 @@ const RESIZE_DEBOUNCE_MS = 600;
 const STABLE_FOR_MS = 1000;
 const MARKUP_GRACE_MS = 6000; // > fontfaceobserver's default 3 s timeout before fabric loads objects
 const WAIT_TIMEOUT_MS = 120_000;
+/** How long `close()` waits for the app to quit before it kills it. */
+const CLOSE_TIMEOUT_MS = 60_000;
 const isWindows = process.platform === "win32";
 const npx = isWindows ? "npx.cmd" : "npx";
 
@@ -216,8 +225,18 @@ async function capturePair(page: Page, what: string, pageLayer: string, markupLa
   return { with: withMarkup.img, without: without.img, cssSize: without.cssSize };
 }
 
+export interface OpenSheetOptions {
+  /** Extra environment variables for the app (e.g. `SMV_EXIT_GUARD_TIMEOUT_MS`). */
+  env?: Record<string, string>;
+}
+
 /** Starts the app with an isolated profile, shows `pdfPath` (absolute or relative to `folder`) in the SheetViewer. */
-export async function openSheet(app: AppUnderTest, folder: string, pdfPath: string): Promise<SheetSession> {
+export async function openSheet(
+  app: AppUnderTest,
+  folder: string,
+  pdfPath: string,
+  options: OpenSheetOptions = {},
+): Promise<SheetSession> {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "smv-visual-profile-"));
   // IS_TEST keeps the unpackaged app from installing Vue devtools (a download). An inherited
   // ELECTRON_RUN_AS_NODE (set e.g. by VS Code terminals) would start Electron as plain Node.
@@ -239,14 +258,24 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
       // server needed. VISUAL_HEADED=1 shows the window for debugging.
       ...(headed ? [] : ["--ozone-platform=headless", "--disable-gpu"]),
     ],
-    env: { ...(headed ? inherited : withoutDisplay), IS_TEST: "1" } as Record<string, string>,
+    env: { ...(headed ? inherited : withoutDisplay), ...options.env, IS_TEST: "1" } as Record<string, string>,
     cwd: app.root,
   }).catch((error: unknown) => {
     removeProfile();
     throw error;
   });
+  const exited = new Promise<void>((resolve) => {
+    const child = electronApp.process();
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.once("exit", () => resolve());
+  });
+  let hasExited = false;
+  void exited.then(() => {
+    hasExited = true;
+  });
   let requests: string[] = [];
   const refreshRequests = async () => {
+    if (hasExited) return;
     requests = await electronApp.evaluate(() => [...((globalThis as { __smvRequests?: string[] }).__smvRequests ?? [])]);
   };
   try {
@@ -379,6 +408,30 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
             ?.close();
         });
       },
+      async hangCloseSave() {
+        await page.evaluate(() => {
+          const app = (document.querySelector("#app") as unknown as {
+            __vue_app__: { config: { globalProperties: { $pinia: { _s: Map<string, { queue: object }> } } } };
+          }).__vue_app__;
+          const queue = app.config.globalProperties.$pinia._s.get("markupSaves")?.queue as
+            | { flush: () => Promise<boolean>; hasPending: () => boolean }
+            | undefined;
+          if (!queue) throw new Error("markupSaves store not found");
+          queue.hasPending = () => true;
+          queue.flush = () => new Promise<boolean>(() => undefined);
+        });
+      },
+      async waitForExit(timeoutMs) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), timeoutMs);
+        });
+        try {
+          return await Promise.race([exited.then(() => true), timedOut]);
+        } finally {
+          clearTimeout(timer);
+        }
+      },
       windowCount: () =>
         electronApp.evaluate(
           ({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.webContents.getURL().startsWith("devtools:")).length,
@@ -441,7 +494,15 @@ export async function openSheet(app: AppUnderTest, folder: string, pdfPath: stri
         // Quitting does not leave edit mode; an open edit canvas with changes would be saved first (and
         // a failing save would ask through the native dialog, which a headless run cannot answer).
         await refreshRequests();
-        await electronApp.close();
+        if (!hasExited) {
+          // A close the app keeps blocking (e.g. a broken close guard) must not hang the run.
+          const closing = electronApp.close().catch(() => undefined);
+          if (!(await session.waitForExit(CLOSE_TIMEOUT_MS))) {
+            electronApp.process().kill("SIGKILL");
+            await closing;
+            throw new Error(`the app did not quit within ${CLOSE_TIMEOUT_MS} ms and was killed`);
+          }
+        }
         removeProfile();
       },
     };

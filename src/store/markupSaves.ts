@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
 import { renderMarkupPng } from "../markup/renderPng";
+import { createCloseGuard } from "../markup/closeGuard";
 import { MarkupSaveQueue, type SaveEvent } from "../markup/saveQueue";
 import { client } from "../trcpClient";
 import { useNotices } from "./notices";
@@ -57,53 +58,30 @@ export const useMarkupSaves = defineStore("markupSaves", () => {
     captureOpenEdits = capture;
   }
 
+  const closeGuard = createCloseGuard({
+    queue,
+    captureOpenEdits: () => captureOpenEdits?.(),
+    ask: (files, forExit) => client.askUnsavedMarkup.mutate({ files, forExit }),
+    resume: () => client.resumeExit.mutate(),
+    showNotice: (text) => notices.show(text),
+    hideNotice: (text) => notices.hide(text),
+  });
+
   /**
-   * Before the window closes or the app restarts for an update: saves everything (waiting for saves in
-   * flight); if that fails, asks the user (retry / discard / cancel). `true` = may close.
+   * Before the app restarts for an update: saves everything (waiting for saves in flight); if that fails,
+   * asks the user (retry / discard / cancel). `true` = may restart.
    */
-  async function prepareToClose(): Promise<boolean> {
-    captureOpenEdits?.();
-    for (;;) {
-      if (await queue.flush()) return true;
-      const choice = await client.askUnsavedMarkup
-        .mutate({ files: queue.pendingPaths().map(fileName) })
-        .catch((e: unknown) => {
-          console.warn("Could not ask about unsaved markup", e);
-          return "cancel" as const;
-        });
-      if (choice === "discard") {
-        queue.discard();
-        return true;
-      }
-      if (choice === "cancel") return false;
-    }
-  }
+  const prepareToClose = () => closeGuard.prepareToClose();
 
   let guardInstalled = false;
-  /** Blocks closing/reloading the window while markup is unsaved, until it is saved or discarded. */
+  /**
+   * Blocks closing/reloading the window while markup is unsaved, until it is saved or discarded. Main
+   * (`src/exitGuard.ts`) steps in with its own dialog if this does not finish in time.
+   */
   function installCloseGuard(): void {
     if (guardInstalled) return;
     guardInstalled = true;
-    let mayClose = false;
-    let guarding = false;
-    window.addEventListener("beforeunload", (event) => {
-      if (mayClose) return;
-      captureOpenEdits?.();
-      if (!queue.hasPending()) return;
-      event.preventDefault();
-      event.returnValue = false;
-      if (guarding) return;
-      guarding = true;
-      void prepareToClose().then(async (ok) => {
-        guarding = false;
-        if (ok) {
-          mayClose = true;
-          await client.resumeExit.mutate();
-        } else {
-          await client.cancelExit.mutate();
-        }
-      });
-    });
+    window.addEventListener("beforeunload", (event) => closeGuard.onBeforeUnload(event));
   }
 
   return { queue, setEditCapture, prepareToClose, installCloseGuard };

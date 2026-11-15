@@ -3,7 +3,7 @@ import { autoUpdater } from "electron/main";
 import { on } from "events";
 import superjson from "superjson";
 import { z } from "zod";
-import { askUnsavedMarkup, cancelExit, resumeExit } from "./exitGuard";
+import { askUnsavedMarkup, restartForUpdate, resumeExit } from "./exitGuard";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
 import { loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
@@ -14,7 +14,6 @@ import {
     loadFilesAndFolderInputSchema,
     loadSetLists,
     openFolderDialog,
-    quitAndInstallUpdates,
     saveSetLists,
     saveSetListsInputSchema,
     searchForSheet,
@@ -40,7 +39,8 @@ export const trcpRouter = createRouter({
     }
   }),
 
-  restartForUpdate: publicProcedure.mutation(quitAndInstallUpdates),
+  /** Through the exit guard, so a blocked restart is continued as an update restart (src/exitGuard.ts). */
+  restartForUpdate: publicProcedure.mutation(() => restartForUpdate()),
 
   onNewVersionDownloaded: publicProcedure.subscription(async function* (opts) {
     // 1. Create an async iterable for the "update-downloaded" event.
@@ -90,8 +90,7 @@ export const trcpRouter = createRouter({
 
   /** Closing with unsaved markup (see src/exitGuard.ts). */
   askUnsavedMarkup: publicProcedure
-    .input(z.object({ files: z.array(z.string()) }))
-    .mutation(({ input }) => askUnsavedMarkup(input.files)),
+    .input(z.object({ files: z.array(z.string()), forExit: z.boolean() }))
+    .mutation(({ input }) => askUnsavedMarkup(input.files, input.forExit)),
   resumeExit: publicProcedure.mutation(() => resumeExit()),
-  cancelExit: publicProcedure.mutation(() => cancelExit()),
 });

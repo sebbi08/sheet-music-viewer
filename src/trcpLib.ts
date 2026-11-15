@@ -27,10 +27,6 @@ export function checkForUpdates() {
   }
 }
 
-export function quitAndInstallUpdates() {
-  autoUpdater.quitAndInstall();
-}
-
 export async function openFolderDialog() {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
