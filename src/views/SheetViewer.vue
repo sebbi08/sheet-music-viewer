@@ -138,19 +138,11 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-
-    <v-snackbar v-model="snackbar" :timeout="10000" multi-line>
-      {{ snackbarText }}
-      <template v-slot:actions>
-        <v-btn variant="text" @click="snackbar = false">OK</v-btn>
-      </template>
-    </v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as fabric from 'fabric';
-import * as fontfaceobserver from "fontfaceobserver";
 import _ from "lodash";
 import * as pdfJs from "pdfjs-dist";
 import { storeToRefs } from "pinia";
@@ -165,22 +157,25 @@ import {
 } from "../Enums";
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
 import { displayTransform, legacyToPayload, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
-import { renderMarkupPng } from "../markup/renderPng";
-import { type MarkupPayload, markupPayloadSchema, type Rect, type SaveMarkupInput, type SaveMarkupResult } from "../models/markup";
+import { loadMarkupFonts } from "../markup/renderPng";
+import type { PageState } from "../markup/saveQueue";
+import { type LoadMarkupResult, type MarkupPayload, markupPayloadSchema, type Rect } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
 import { type EditState, type OverlayData } from "../models/types";
 import router from "../router";
 import useStore from "../store";
+import { useMarkupSaves } from "../store/markupSaves";
+import { useNotices } from "../store/notices";
 import { client } from "../trcpClient";
 
 type MarkupEntry = { rect: Rect | null; payload: MarkupPayload };
 type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptionalContentConfig"]>>;
 
-const SIDECAR_HINT =
-  "Diese PDF kann nicht beschrieben werden. Markierungen werden in einer Begleitdatei gespeichert.";
 const LEGACY_UNREADABLE = "Die alte Markierungsdatei konnte nicht gelesen werden und bleibt unverändert liegen.";
-const SAVE_ERROR =
-  "Markierungen konnten nicht in die PDF gespeichert werden (ist sie in einem anderen Programm geöffnet?). Beim nächsten Speichern wird es erneut versucht.";
+const LOAD_FAILED =
+  "Die Markierungen dieser PDF konnten nicht geladen werden. Bearbeiten ist deaktiviert, damit sie nicht überschrieben werden.";
+const PAGE_LOAD_FAILED =
+  "Die Markierungen dieser Seite konnten nicht geladen werden. Änderungen an dieser Seite werden nicht gespeichert.";
 
 
 
@@ -203,19 +198,18 @@ const pdfJsAssetBaseUrl = window.location.protocol.startsWith("http")
   : "app://bundle/pdfjs/";
 // The route changes before this component unmounts, so the path is read once.
 const sheetPath = router.currentRoute.value.params.path as string;
-/** Markup per 1-based page; `rect` (PDF user space) null = drawn against the whole visible page. */
+/**
+ * Markup per 1-based page as shown; `rect` (PDF user space) null = drawn against the whole visible page.
+ * Unsaved changes live in the markupSaves store (outside this component), keyed by the PDF path.
+ */
 const markupPages = new Map<number, MarkupEntry>();
-/** Pages whose state in `markupPages` is not yet saved. */
-const dirtyPages = new Set<number>();
-/** Set after loading a legacy or v1 sidecar: the next save may replace/delete it. */
-let deleteLegacyOnNextSave = false;
-let sidecarHintShown = false;
-let saveChain: Promise<void> = Promise.resolve();
+/** The edit canvas finished loading the page's markup; before that, leaving edit mode saves nothing. */
+let editLoaded = false;
+/** fabric JSON of the edit canvas right after loading: leaving edit mode without changes saves nothing. */
+let editSnapshot: string | null = null;
 let optionalContentConfig: OptionalContentConfig | undefined;
 /** pdf.js viewport at scale 1 (displayed page size in points) per page. */
 const pageViewports = new Map<number, pdfJs.PageViewport>();
-const snackbar = ref(false);
-const snackbarText = ref("");
 const musicSymbolDialog = ref(false);
 let overlayFabrics: fabric.StaticCanvas[] = [];
 const pageSizes: Array<{ width: number; height: number }> = [];
@@ -235,6 +229,8 @@ let existingText: fabric.FabricObject | undefined;
 
 
 const store = useStore();
+const notices = useNotices();
+const markupSaves = useMarkupSaves();
 const { editMode } = storeToRefs(store);
 const debouncedResize = _.debounce(onResize, 500);
 
@@ -250,11 +246,19 @@ onMounted(async () => {
   enhanceFabricPrototype();
 
   window.addEventListener("resize", debouncedResize);
+  store.markupEditDisabled = false;
+  // Closing the window while editing saves the open edit canvas first.
+  markupSaves.setEditCapture(() => saveDrawnData());
 
-
-  const loaded = await client.loadMarkup.query(sheetPath);
-  for (const { page, rect, payload } of loaded.pages) {
-    markupPages.set(page, { rect, payload });
+  let loaded: LoadMarkupResult | null = null;
+  try {
+    loaded = await client.loadMarkup.query(sheetPath);
+  } catch (e) {
+    // The sheet is still shown; editing stays off, so markup that could not be read is never overwritten.
+    console.warn("Could not load the markup", e);
+    store.markupEditDisabled = true;
+    store.editMode = false;
+    notices.show(LOAD_FAILED);
   }
 
   currentPage.value = 1;
@@ -278,16 +282,7 @@ onMounted(async () => {
     }
   }
 
-  if (loaded.source === "sidecar") {
-    // Written into the PDF (and the sidecar removed) with the next save.
-    for (const page of markupPages.keys()) {
-      if (page <= pdf.numPages) dirtyPages.add(page);
-    }
-    deleteLegacyOnNextSave = true;
-  }
-  if (loaded.legacyOverlayData !== null) {
-    await migrateLegacyOverlayData(loaded.legacyOverlayData);
-  }
+  if (loaded) await applyLoadedMarkup(loaded);
 
   await renderPdf();
 
@@ -297,17 +292,51 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
-  if (dirtyPages.size > 0) {
-    void persistMarkup();
-  }
+  // Unsaved changes stay in the markupSaves store and are retried there; an open edit canvas is queued.
+  saveDrawnData();
+  markupSaves.setEditCapture(null);
+  store.markupEditDisabled = false;
 })
+
+/**
+ * Shows the loaded markup and queues what has to be written: a v1 sidecar goes into the PDF, a legacy
+ * `.data` file is migrated. Unsaved changes of an earlier visit take precedence over the file and are
+ * retried.
+ */
+async function applyLoadedMarkup(loaded: LoadMarkupResult): Promise<void> {
+  const pending = markupSaves.queue.pendingPages(sheetPath);
+  for (const { page, rect, payload } of loaded.pages) {
+    markupPages.set(page, { rect, payload });
+  }
+
+  if (loaded.source === "sidecar") {
+    // Written into the PDF (and the sidecar removed) with the next save, in the current page rotation.
+    const changes: [number, PageState][] = [];
+    for (const [page, entry] of markupPages) {
+      if (page > pdf.numPages || pending.has(page)) continue;
+      const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
+      changes.push([page, { rect: entry.rect, payload: rotatePayload(entry.payload, viewport.rotation) }]);
+    }
+    markupSaves.queue.allowLegacyDelete(sheetPath);
+    if (changes.length > 0) markupSaves.queue.setPages(sheetPath, changes);
+  }
+  if (loaded.legacyOverlayData !== null) {
+    await migrateLegacyOverlayData(loaded.legacyOverlayData, pending);
+  }
+
+  for (const [page, state] of pending) {
+    if (state) markupPages.set(page, state);
+    else markupPages.delete(page);
+  }
+  if (pending.size > 0) void markupSaves.queue.save(sheetPath);
+}
 
 /**
  * Old `.data` file (screen pixels + drawWidth/drawHeight) -> points, then written into the PDF (spec
  * section 7). If any part of it cannot be read, the readable pages are still shown and saved, but the
  * file is never deleted (`deleteLegacySidecar` stays false); embedded data wins on the next load.
  */
-async function migrateLegacyOverlayData(text: string): Promise<void> {
+async function migrateLegacyOverlayData(text: string, pending: ReadonlyMap<number, PageState>): Promise<void> {
   let entries: unknown = null;
   try {
     // The old app treated an empty file as no markup.
@@ -316,12 +345,13 @@ async function migrateLegacyOverlayData(text: string): Promise<void> {
     console.warn("Could not parse the legacy markup file", e);
   }
   if (!Array.isArray(entries)) {
-    showSnackbar(LEGACY_UNREADABLE);
+    notices.show(LEGACY_UNREADABLE);
     return;
   }
 
   let unreadable = false;
   const seen = new Set<number>();
+  const changes: [number, PageState][] = [];
   for (const raw of entries as unknown[]) {
     const entry = raw as Partial<OverlayData> | null;
     const page = entry?.page;
@@ -332,9 +362,11 @@ async function migrateLegacyOverlayData(text: string): Promise<void> {
     // Like the old edit mode, the first entry of a page wins; pages the PDF lacks were never shown.
     if (page > pdf.numPages || seen.has(page)) continue;
     seen.add(page);
+    // Unsaved changes of an earlier visit win.
+    if (pending.has(page)) continue;
     const objects = (entry?.data as { objects?: unknown } | undefined)?.objects;
     if (objects === undefined || (Array.isArray(objects) && objects.length === 0)) {
-      dirtyPages.add(page); // no markup on this page
+      changes.push([page, null]); // no markup on this page
       continue;
     }
     const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
@@ -344,15 +376,15 @@ async function migrateLegacyOverlayData(text: string): Promise<void> {
       continue;
     }
     markupPages.set(page, { rect: null, payload });
-    dirtyPages.add(page);
+    changes.push([page, { rect: null, payload }]);
   }
 
   if (unreadable) {
-    showSnackbar(LEGACY_UNREADABLE);
+    notices.show(LEGACY_UNREADABLE);
   } else {
-    deleteLegacyOnNextSave = true;
+    markupSaves.queue.allowLegacyDelete(sheetPath);
   }
-  void persistMarkup();
+  if (changes.length > 0) markupSaves.queue.setPages(sheetPath, changes);
 }
 
 /** null if the entry cannot be converted into a valid payload. */
@@ -364,70 +396,6 @@ function toLegacyPayload(entry: OverlayData, objects: unknown, viewport: pdfJs.P
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
-  }
-}
-
-const snackbarQueue: string[] = [];
-
-/** Shows `text`, or queues it while another message is open; repeats of a pending message are dropped. */
-function showSnackbar(text: string): void {
-  if ((snackbar.value && snackbarText.value === text) || snackbarQueue.includes(text)) return;
-  snackbarQueue.push(text);
-  if (!snackbar.value) showNextSnackbar();
-}
-
-function showNextSnackbar(): void {
-  const next = snackbarQueue.shift();
-  if (next === undefined) return;
-  snackbarText.value = next;
-  snackbar.value = true;
-}
-
-watch(snackbar, (open) => {
-  // Short pause so the closed snackbar can animate out before the next one opens.
-  if (!open && snackbarQueue.length > 0) setTimeout(showNextSnackbar, 300);
-});
-
-/** Queues a save of all dirty pages; saves run one after another and never reject. */
-function persistMarkup(): Promise<void> {
-  saveChain = saveChain.then(persistDirtyPages);
-  return saveChain;
-}
-
-async function persistDirtyPages(): Promise<void> {
-  if (dirtyPages.size === 0) return;
-  const sent = [...dirtyPages].sort((a, b) => a - b).map((page) => ({ page, entry: markupPages.get(page) }));
-  const deleteLegacySidecar = deleteLegacyOnNextSave;
-
-  let result: SaveMarkupResult;
-  try {
-    const pages: SaveMarkupInput["pages"] = [];
-    for (const { page, entry } of sent) {
-      pages.push(
-        entry
-          ? { page, payload: entry.payload, pngBase64: await renderMarkupPng(entry.payload) }
-          : { page, payload: null, pngBase64: null },
-      );
-    }
-    result = await client.saveMarkup.mutate({ path: sheetPath, pages, deleteLegacySidecar });
-  } catch (e) {
-    result = { status: "error", message: e instanceof Error ? e.message : String(e) };
-  }
-
-  if (result.status === "error") {
-    // The pages stay dirty and go out again with the next save.
-    console.warn("Could not save markup:", result.message);
-    showSnackbar(SAVE_ERROR);
-    return;
-  }
-  for (const { page, entry } of sent) {
-    // A page edited again while saving stays dirty.
-    if (markupPages.get(page) === entry) dirtyPages.delete(page);
-  }
-  if (deleteLegacySidecar) deleteLegacyOnNextSave = false;
-  if (result.status === "sidecar" && !sidecarHintShown) {
-    sidecarHintShown = true;
-    showSnackbar(SIDECAR_HINT);
   }
 }
 
@@ -500,8 +468,10 @@ function onResize(): void {
 }
 
 watch(editMode, async (editMode) => {
-  if (editMode && pagesLoaded.value !== pageNumbers.value) {
+  // Not while the sheet is still loading, and not if its markup could not be loaded (it would be overwritten).
+  if (editMode && (pageNumbers.value === 0 || pagesLoaded.value !== pageNumbers.value || store.markupEditDisabled)) {
     store.editMode = false
+    if (store.markupEditDisabled) notices.show(LOAD_FAILED);
     return;
   }
   if (editMode) {
@@ -809,22 +779,33 @@ function startInteractiveMode(): void {
   });
 }
 
+/** Edit canvas JSON as saved (the custom `__isText` flag included). */
+const editCanvasJson = (canvas: fabric.Canvas) => canvas.toObject(["__isText"]) as { objects: unknown[] };
+
+/**
+ * Queues the edit canvas of the current page for saving. Nothing happens before the canvas has loaded
+ * the page's markup (an empty canvas would delete it) or when nothing changed since loading.
+ */
 function saveDrawnData(): void {
-  if (!editFabric) return;
+  if (!editFabric || !editLoaded) return;
   const page = currentPage.value;
   const viewport = pageViewports.get(page);
   if (!viewport || !editFabric.width || !editFabric.height) return;
-  const fabricJson = editFabric.toObject(["__isText"]) as { objects: unknown[] };
+  // A multi-selection holds its objects relative to itself; serialize them in canvas coordinates.
+  editFabric.discardActiveObject();
+  const fabricJson = editCanvasJson(editFabric);
+  const snapshot = JSON.stringify(fabricJson);
+  if (snapshot === editSnapshot) return;
+  editSnapshot = snapshot;
 
   if (fabricJson.objects.length === 0) {
-    // Nothing drawn on a page without markup: nothing to save.
-    if (!markupPages.has(page) && !dirtyPages.has(page)) return;
     markupPages.delete(page);
+    markupSaves.queue.setPage(sheetPath, page, null);
   } else {
-    markupPages.set(page, { rect: null, payload: payloadFromCanvas(fabricJson, editFabric.width, editFabric.height, viewport) });
+    const entry = { rect: null, payload: payloadFromCanvas(fabricJson, editFabric.width, editFabric.height, viewport) };
+    markupPages.set(page, entry);
+    markupSaves.queue.setPage(sheetPath, page, entry);
   }
-  dirtyPages.add(page);
-  void persistMarkup();
 }
 
 function setEditMode(newEditState: Partial<EditState>): void {
@@ -863,6 +844,8 @@ function getEditMode(): EditState {
 }
 
 async function createFabricCanvas(): Promise<void> {
+  editLoaded = false;
+  editSnapshot = null;
   const sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
 
   const currentPageCanvas =
@@ -935,22 +918,33 @@ async function createFabricCanvas(): Promise<void> {
     })
   })
 
-  if (!currentPageData || !viewport) return;
-  const fabricJson = fabricJsonForDisplay(currentPageData, viewport, editFabric.width, editFabric.height);
-
-  return new Promise(async (resolve) => {
-
-    await new fontfaceobserver.default("notoIcons").load()
-    await editFabric?.loadFromJSON(fabricJson);
-
-    editFabric?.renderAll();
-    resolve();
-  });
+  const canvas = editFabric;
+  if (currentPageData && viewport) {
+    const fabricJson = fabricJsonForDisplay(currentPageData, viewport, canvas.width, canvas.height);
+    await loadMarkupFonts();
+    // Edit mode may have been left (or re-entered with a new canvas) meanwhile.
+    if (editFabric !== canvas) return;
+    try {
+      await canvas.loadFromJSON(fabricJson);
+    } catch (e) {
+      if (editFabric !== canvas) return;
+      // Not marked as loaded: leaving edit mode will not overwrite the page's markup.
+      console.warn("Could not load the page's markup into the edit canvas", e);
+      notices.show(PAGE_LOAD_FAILED);
+      return;
+    }
+    if (editFabric !== canvas) return;
+    canvas.renderAll();
+  }
+  editSnapshot = JSON.stringify(editCanvasJson(canvas));
+  editLoaded = true;
 }
 
 function removeFabricCanvas(): void {
   editFabric?.dispose();
   editFabric = undefined;
+  editLoaded = false;
+  editSnapshot = null;
 
   const sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
   sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();

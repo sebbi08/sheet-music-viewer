@@ -3,6 +3,7 @@ import { autoUpdater } from "electron/main";
 import { on } from "events";
 import superjson from "superjson";
 import { z } from "zod";
+import { askUnsavedMarkup, cancelExit, resumeExit } from "./exitGuard";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
 import { loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
@@ -86,4 +87,11 @@ export const trcpRouter = createRouter({
   saveMarkup: publicProcedure
     .input(saveMarkupInputSchema)
     .mutation(({ input }) => saveMarkupToFile(input)),
+
+  /** Closing with unsaved markup (see src/exitGuard.ts). */
+  askUnsavedMarkup: publicProcedure
+    .input(z.object({ files: z.array(z.string()) }))
+    .mutation(({ input }) => askUnsavedMarkup(input.files)),
+  resumeExit: publicProcedure.mutation(() => resumeExit()),
+  cancelExit: publicProcedure.mutation(() => cancelExit()),
 });

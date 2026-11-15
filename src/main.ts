@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import path from "path";
 import { createIPCHandler } from "electron-trpc/main";
 import { updateElectronApp } from "update-electron-app";
+import { trackExits } from "./exitGuard";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
 
@@ -62,6 +63,7 @@ if (startup) {
       },
     });
 
+    trackExits(mainWindow);
     mainWindow.maximize();
 
     // and load the index.html of the app.

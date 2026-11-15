@@ -19,7 +19,8 @@
             hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
         </div>
 
-        <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon @click="onSwitchEditMode">
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon @click="onSwitchEditMode"
+          :disabled="store.markupEditDisabled && !store.editMode">
           <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
         </v-btn>
 
@@ -88,6 +89,15 @@
     <v-main>
       <router-view />
     </v-main>
+
+    <!-- App-wide, so messages (e.g. a failed markup save) outlive the view that raised them. -->
+    <v-snackbar :model-value="notices.open" @update:model-value="(open: boolean) => { if (!open) notices.dismiss(); }"
+      :timeout="10000" multi-line>
+      {{ notices.text }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="notices.dismiss()">OK</v-btn>
+      </template>
+    </v-snackbar>
   </v-app>
   <dialog>
     <v-dialog persistent v-model="showUpdateDialog" max-width="500">
@@ -125,6 +135,8 @@ import { RouteNames } from "./Enums";
 import type { UpdateData } from "./models/types";
 import router from "./router";
 import useStore from "./store";
+import { useMarkupSaves } from "./store/markupSaves";
+import { useNotices } from "./store/notices";
 import { client } from "./trcpClient";
 
 
@@ -135,6 +147,10 @@ const appVersion = ref("");
 
 
 const store = useStore();
+const notices = useNotices();
+const markupSaves = useMarkupSaves();
+// Closing the window with unsaved markup first saves it, or asks.
+markupSaves.installCloseGuard();
 
 
 client.getVersion.query().then((version) => {
@@ -259,7 +275,9 @@ const showUpdateDialog = ref(false);
 const updateDownloaded = ref(false);
 const updateData = ref<Partial<UpdateData>>({});
 
-function restartForUpdate() {
+async function restartForUpdate() {
+  // quitAndInstall must not start while markup is unsaved: save it first, or let the user decide.
+  if (!(await markupSaves.prepareToClose())) return;
   client.restartForUpdate.mutate();
 }
 

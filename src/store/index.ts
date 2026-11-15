@@ -10,6 +10,8 @@ const useStore = defineStore("app", {
     sheetMusicFolder: sheetMusicFolder,
     searchTerm: "",
     editMode: false,
+    /** The open sheet's markup could not be loaded: editing would overwrite it (set by SheetViewer). */
+    markupEditDisabled: false,
     setListsWrapper: {} as SetListsWrapper,
     setListEditMode: false,
     filesAndFolder: new Array<SheetFile>(),
