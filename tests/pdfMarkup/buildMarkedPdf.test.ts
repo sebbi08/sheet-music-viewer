@@ -14,7 +14,7 @@ import {
 } from "pdf-lib";
 import { PNG } from "pngjs";
 import { describe, expect, test } from "vitest";
-import { ANNOT_NM, OCG_NAME } from "../../src/models/markupConstants";
+import { ANNOT_NM, OCG_NAME, ORPHAN_NM, SMV_DATA_KEY } from "../../src/models/markupConstants";
 import type { MarkupPayload } from "../../src/models/markup";
 import { buildMarkedPdf, rotationMatrix } from "../../src/pdfMarkup/buildMarkedPdf";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
@@ -290,6 +290,39 @@ describe("orphaned stamps", () => {
       return [annotRef];
     });
     const r = readMarkup(await load(renamed));
+    expect(r.pages).toEqual([]);
+    expect(r.orphans).toHaveLength(1);
+  });
+
+  /** Rewrites our stamp on page 1 the way an orphan repair does: orphan /NM, optionally still in our OCG. */
+  async function repair(bytes: Uint8Array, keepOc: boolean) {
+    return patch(bytes, (doc) => {
+      const { annotRef } = readMarkup(doc).pages[0];
+      const annot = doc.context.lookup(annotRef, PDFDict);
+      annot.set(PDFName.of("NM"), PDFString.of(ORPHAN_NM));
+      annot.delete(PDFName.of(SMV_DATA_KEY));
+      if (!keepOc) annot.delete(PDFName.of("OC"));
+      return [annotRef];
+    });
+  }
+
+  test("a repaired orphan (orphan /NM, no /OC) is a plain foreign annotation and is kept", async () => {
+    const first = await buildMarkedPdf(await makePdf({ xref: "table", foreignAnnot: true }), [mark(1)]);
+    const repaired = await repair(first, false);
+    const before = readMarkup(await load(repaired));
+    expect(before.pages).toEqual([]);
+    expect(before.orphans).toEqual([]);
+
+    const out = await buildMarkedPdf(repaired, [mark(1, payload(2))]);
+    const after = readMarkup(await load(out));
+    expect(after.orphans).toEqual([]);
+    expect(after.pages.map((p) => [p.page, p.payload])).toEqual([[1, payload(2)]]);
+    expect((await pdfjsAnnots(out)).value.annots.map((a) => a.subtype)).toEqual(["Text", "Square", "Stamp", "Stamp"]);
+  });
+
+  test("a half-repaired orphan (orphan /NM, still in our OCG) is still an orphan", async () => {
+    const first = await buildMarkedPdf(await makePdf({ xref: "stream" }), [mark(1)]);
+    const r = readMarkup(await load(await repair(first, true)));
     expect(r.pages).toEqual([]);
     expect(r.orphans).toHaveLength(1);
   });

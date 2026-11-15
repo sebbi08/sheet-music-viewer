@@ -22,7 +22,6 @@ import {
   ANNOT_NM,
   MARKUP_FORMAT_VERSION,
   OCG_NAME,
-  ORPHAN_NM,
   SMV_CATALOG_KEY,
   SMV_DATA_KEY,
 } from "../models/markupConstants";
@@ -153,13 +152,15 @@ export type AnnotKind =
 
 /**
  * Ours: `/NM (smv-markup-page)`, a valid `/Rect`, `/AP /N` reference and a readable `/SMV_Data` stream.
- * Orphan: our `/NM` (or the orphan `/NM`) or `/OC` pointing at our OCG, but not all of the above.
+ * Orphan: our `/NM` or `/OC` pointing at our OCG, but not all of the above. A repaired orphan
+ * (`/NM (smv-markup-orphan)` without `/OC`) counts as foreign: it is a plain image that needs no further
+ * repair; while it still points at our OCG it remains an orphan.
  */
 export function classifyAnnot(context: PDFContext, entry: PDFObject, ocgRef: PDFRef | null): AnnotKind {
   const annot = lookup(context, entry);
   if (!(annot instanceof PDFDict)) return { kind: "foreign" };
   const nm = decodeText(lookup(context, annot.get(name("NM"))));
-  if (nm !== ANNOT_NM && nm !== ORPHAN_NM && !sameRef(annot.get(name("OC")), ocgRef)) return { kind: "foreign" };
+  if (nm !== ANNOT_NM && !sameRef(annot.get(name("OC")), ocgRef)) return { kind: "foreign" };
   if (nm !== ANNOT_NM) return { kind: "orphan" };
 
   const rect = toRect(context, lookup(context, annot.get(name("Rect"))));
