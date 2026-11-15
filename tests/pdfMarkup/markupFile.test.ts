@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFRef } from "pdf-lib";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { SMV_CATALOG_KEY } from "../../src/models/markupConstants";
+import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
 import { getSidecarPath, loadMarkupFromFile, saveMarkupToFile } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import {
@@ -222,6 +224,78 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     const annots = await annotationsPerPage(new Uint8Array(fs.readFileSync(pdf)));
     expect(annots[0]).toEqual([expect.objectContaining({ subtype: "Stamp", isOurs: false })]);
     expect(tempFiles(dir)).toEqual([]);
+  });
+
+  test("orphan repair does not hide a v1 sidecar of a PDF without data", async () => {
+    const pdf = await writeFixture(dir, "s.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+    // Another program dropped our data and our catalog metadata: only an orphan is left.
+    const stripped = await stripSmvData(fs.readFileSync(pdf));
+    const doc = await PDFDocument.load(stripped, { updateMetadata: false });
+    reserveObjectNumbers(stripped, doc.context);
+    doc.catalog.delete(PDFName.of(SMV_CATALOG_KEY));
+    fs.writeFileSync(pdf, writeIncrementalUpdate(stripped, doc.context, [doc.context.trailerInfo.Root as PDFRef]).bytes);
+    expect(await readMarkupOf(pdf)).toMatchObject({ pages: [], meta: null, orphans: [{ page: 1 }] });
+    fs.writeFileSync(getSidecarPath(pdf), JSON.stringify({ version: 1, pages: [{ page: 2, payload: payload(2) }] }));
+
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "sidecar",
+      pages: [{ page: 2, rect: null, payload: payload(2) }],
+      legacyOverlayData: null,
+    });
+    expect((await readMarkupOf(pdf)).orphans).toEqual([]); // repaired nevertheless
+  });
+
+  test("a PDF pdf-lib cannot parse falls back to the sidecar and stays unchanged", async () => {
+    const pdf = await writeFixture(dir, "g.pdf", new Uint8Array(Buffer.from("%PDF-1.4\n%garbage, no objects\n")));
+    const before = fs.readFileSync(pdf);
+    expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe(
+      "sidecar",
+    );
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(await loadMarkupFromFile(pdf)).toMatchObject({ source: "sidecar", pages: [{ page: 1, rect: null }] });
+    expect(tempFiles(dir)).toEqual([]);
+  });
+
+  describe("legacy sidecar in the sidecar fallback", () => {
+    const legacy = JSON.stringify([{ page: 1, data: { objects: [] }, drawWidth: 100, drawHeight: 140 }]);
+
+    test("encrypted PDF: an unmigrated legacy sidecar is left untouched and the save fails", async () => {
+      const pdf = await writeFixture(dir, "le.pdf", markEncrypted(await makePdf({ xref: "table" })));
+      fs.writeFileSync(getSidecarPath(pdf), legacy);
+      for (const pages of [[page1()], [{ page: 1, payload: null, pngBase64: null }]]) {
+        const result = await saveMarkupToFile({ path: pdf, pages, deleteLegacySidecar: false });
+        expect(result.status).toBe("error");
+        expect(result.message).toBeTruthy();
+        expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(legacy);
+      }
+      expect(tempFiles(dir)).toEqual([]);
+    });
+
+    test.skipIf(isRoot)("read-only PDF: an unmigrated legacy sidecar is left untouched (skipped as root)", async () => {
+      const pdf = await writeFixture(dir, "lr.pdf", await makePdf({ xref: "table" }));
+      fs.writeFileSync(getSidecarPath(pdf), legacy);
+      fs.chmodSync(pdf, 0o444);
+      const before = fs.readFileSync(pdf);
+      expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe(
+        "error",
+      );
+      expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(legacy);
+      expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    });
+
+    test("with deleteLegacySidecar the legacy sidecar is replaced by a v1 sidecar", async () => {
+      const pdf = await writeFixture(dir, "lm.pdf", markEncrypted(await makePdf({ xref: "table" })));
+      fs.writeFileSync(getSidecarPath(pdf), legacy);
+      expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: true })).status).toBe(
+        "sidecar",
+      );
+      expect(JSON.parse(fs.readFileSync(getSidecarPath(pdf), "utf8"))).toEqual({
+        version: 1,
+        pages: [{ page: 1, payload: payload(1) }],
+      });
+      expect(await loadMarkupFromFile(pdf)).toMatchObject({ source: "sidecar", legacyOverlayData: null });
+    });
   });
 
   test("saves through a symlink keep the link", async () => {

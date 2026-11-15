@@ -167,9 +167,16 @@ async function readSidecar(pdfPath: string): Promise<Sidecar> {
   return { kind: "v1", pages: new Map(parsed.data.pages.map((p) => [p.page, p.payload])) };
 }
 
-/** Merges the changes into an existing v1 sidecar (a legacy one is replaced); no pages left → file removed. */
-async function writeSidecar(pdfPath: string, changes: SaveMarkupInput["pages"]): Promise<void> {
+/**
+ * Merges the changes into an existing v1 sidecar; no pages left → file removed. A legacy sidecar (the
+ * user's only copy of that data) is replaced only when the caller migrated it (`deleteLegacySidecar`);
+ * otherwise this fails and the file stays untouched.
+ */
+async function writeSidecar(input: SaveMarkupInput): Promise<void> {
+  const { path: pdfPath, pages: changes } = input;
   const existing = await readSidecar(pdfPath);
+  if (existing.kind === "legacy" && !input.deleteLegacySidecar)
+    throw new Error("A legacy sidecar exists and was not migrated; it is left untouched.");
   const pages = existing.kind === "v1" ? existing.pages : new Map<number, MarkupPayload>();
   for (const { page, payload } of changes) {
     if (payload) pages.set(page, payload);
@@ -214,14 +221,15 @@ export function loadMarkupFromFile(pdfPath: string): Promise<LoadMarkupResult> {
 async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   const realPath = await fs.promises.realpath(pdfPath);
   const bytes = await fs.promises.readFile(realPath);
-  let inspection = await inspectPdf(bytes);
+  // `source` and pages come from the state before the repair: the repair only renames orphans (the
+  // valid pages stay), but it writes `meta`, which must not hide a v1 sidecar of a PDF without data.
+  const inspection = await inspectPdf(bytes);
 
   if (inspection && !inspection.encrypted && inspection.markup.orphans.length > 0 && (await isWritable(realPath))) {
     const expected = new Set(inspection.markup.pages.map((p) => p.page));
     try {
       const repaired = await buildMarkedPdf(bytes, []);
       await atomicReplace(realPath, repaired, (written) => verifyPages(written, expected));
-      inspection = await inspectPdf(repaired);
     } catch (e) {
       console.warn("Could not repair orphaned markup stamps", e);
     }
@@ -250,8 +258,8 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
     const bytes = await fs.promises.readFile(realPath);
     const inspection = await inspectPdf(bytes);
 
-    if (inspection?.encrypted || !(await isWritable(realPath))) return await fallback(input, inspection);
-    if (!inspection) throw new Error("the PDF could not be read");
+    // Unparseable: no embedded data can be known (load then uses the sidecar too), the PDF stays untouched.
+    if (!inspection || inspection.encrypted || !(await isWritable(realPath))) return await fallback(input, inspection);
 
     const changes: PageChange[] = input.pages.map(({ page, payload, pngBase64 }) => ({
       page,
@@ -284,10 +292,10 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
   }
 }
 
-/** Encrypted or not writable: sidecar only if the PDF has no embedded data, never two competing states. */
+/** Encrypted, unparseable or not writable: sidecar only if the PDF has no embedded data, never two competing states. */
 async function fallback(input: SaveMarkupInput, inspection: Inspection | null): Promise<SaveMarkupResult> {
   if (hasEmbeddedData(inspection))
     return { status: "error", message: "The PDF already contains markup but cannot be written (read-only?)." };
-  await writeSidecar(input.path, input.pages);
+  await writeSidecar(input);
   return { status: "sidecar" };
 }
