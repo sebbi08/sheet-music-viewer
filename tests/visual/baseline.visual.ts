@@ -6,7 +6,7 @@ import { decodePng, markupMask, maskMetrics } from "./imageCompare";
 
 const corpus = listCorpus();
 
-test.skipIf(corpus.length > 0)("Noten/ corpus with .data files is missing", () => {});
+if (corpus.length === 0) test.skip("Noten/ corpus with .data files is missing");
 
 for (const { pdfPath, markedPages, blankPages } of corpus) {
   test(`baseline of the old app: ${pdfPath}`, async () => {
