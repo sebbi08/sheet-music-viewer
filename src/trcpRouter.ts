@@ -11,12 +11,9 @@ import {
     getAppVersion,
     loadFilesAndFolder,
     loadFilesAndFolderInputSchema,
-    loadOverlayData,
     loadSetLists,
     openFolderDialog,
     quitAndInstallUpdates,
-    saveOverlayData,
-    saveOverlayDataInputSchema,
     saveSetLists,
     saveSetListsInputSchema,
     searchForSheet,
@@ -83,11 +80,6 @@ export const trcpRouter = createRouter({
   saveSetLists: publicProcedure
     .input(saveSetListsInputSchema)
     .query(saveSetLists),
-  saveOverlayData: publicProcedure
-    .input(saveOverlayDataInputSchema)
-    .query(saveOverlayData),
-
-  loadOverlayData: publicProcedure.input(z.string()).query(loadOverlayData),
 
   loadMarkup: publicProcedure.input(z.string()).query(({ input }) => loadMarkupFromFile(input)),
 

@@ -138,12 +138,18 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar v-model="snackbar" :timeout="10000" multi-line>
+      {{ snackbarText }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="snackbar = false">OK</v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as fabric from 'fabric';
-import { FabricObject } from "fabric";
 import * as fontfaceobserver from "fontfaceobserver";
 import _ from "lodash";
 import * as pdfJs from "pdfjs-dist";
@@ -158,10 +164,22 @@ import {
   type Svg,
 } from "../Enums";
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
+import { displayTransform, legacyToPayload, payloadFromCanvas, transformFabricJson } from "../markup/fabricTransform";
+import { renderMarkupPng } from "../markup/renderPng";
+import type { MarkupPayload, Rect, SaveMarkupInput, SaveMarkupResult } from "../models/markup";
+import { OCG_NAME } from "../models/markupConstants";
 import { type EditState, type OverlayData } from "../models/types";
 import router from "../router";
 import useStore from "../store";
 import { client } from "../trcpClient";
+
+type MarkupEntry = { rect: Rect | null; payload: MarkupPayload };
+type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptionalContentConfig"]>>;
+
+const SIDECAR_HINT =
+  "Diese PDF kann nicht beschrieben werden. Markierungen werden in einer Begleitdatei gespeichert.";
+const SAVE_ERROR =
+  "Markierungen konnten nicht in die PDF gespeichert werden (ist sie in einem anderen Programm geöffnet?). Beim nächsten Speichern wird es erneut versucht.";
 
 
 
@@ -182,7 +200,21 @@ const editCanvasId = "";
 const pdfJsAssetBaseUrl = window.location.protocol.startsWith("http")
   ? new URL("./pdfjs/", window.location.href).toString()
   : "app://bundle/pdfjs/";
-let overlayData: OverlayData[] = [];
+// The route changes before this component unmounts, so the path is read once.
+const sheetPath = router.currentRoute.value.params.path as string;
+/** Markup per 1-based page; `rect` (PDF user space) null = drawn against the whole visible page. */
+const markupPages = new Map<number, MarkupEntry>();
+/** Pages whose state in `markupPages` is not yet saved. */
+const dirtyPages = new Set<number>();
+/** Set after loading a legacy or v1 sidecar: the next save may replace/delete it. */
+let deleteLegacyOnNextSave = false;
+let sidecarHintShown = false;
+let saveChain: Promise<void> = Promise.resolve();
+let optionalContentConfig: OptionalContentConfig | undefined;
+/** pdf.js viewport at scale 1 (displayed page size in points) per page. */
+const pageViewports = new Map<number, pdfJs.PageViewport>();
+const snackbar = ref(false);
+const snackbarText = ref("");
 const musicSymbolDialog = ref(false);
 let overlayFabrics: fabric.StaticCanvas[] = [];
 const pageSizes: Array<{ width: number; height: number }> = [];
@@ -219,16 +251,43 @@ onMounted(async () => {
   window.addEventListener("resize", debouncedResize);
 
 
-  const newOverlayData = await client.loadOverlayData.query(router.currentRoute.value.params.path as string);
-  overlayData = newOverlayData ? JSON.parse(newOverlayData) : [];
+  const loaded = await client.loadMarkup.query(sheetPath);
+  for (const { page, rect, payload } of loaded.pages) {
+    markupPages.set(page, { rect, payload });
+  }
 
   currentPage.value = 1;
   pdfLoadingTask = pdfJs.getDocument({
-    url: "local-resource://file.html?url=" + btoa(encodeURIComponent(router.currentRoute.value.params.path as string)),
+    url: "local-resource://file.html?url=" + btoa(encodeURIComponent(sheetPath)),
     wasmUrl: new URL("wasm/", pdfJsAssetBaseUrl).toString(),
     cMapUrl: new URL("cmaps/", pdfJsAssetBaseUrl).toString(),
     standardFontDataUrl: new URL("standard_fonts/", pdfJsAssetBaseUrl).toString(),
+    // Saving replaces the file, so pdf.js must hold all of it in memory instead of reading ranges later.
+    disableRange: true,
+    disableStream: true,
+    disableAutoFetch: true,
   });
+  pdf = await pdfLoadingTask.promise;
+
+  // Our stamps duplicate the fabric overlay: hide their optional content group (spec section 4).
+  optionalContentConfig = await pdf.getOptionalContentConfig();
+  for (const [id, group] of optionalContentConfig) {
+    if (group?.name === OCG_NAME) {
+      optionalContentConfig.setVisibility(id, false);
+    }
+  }
+
+  if (loaded.source === "sidecar") {
+    // Written into the PDF (and the sidecar removed) with the next save.
+    for (const page of markupPages.keys()) {
+      if (page <= pdf.numPages) dirtyPages.add(page);
+    }
+    deleteLegacyOnNextSave = true;
+  }
+  if (loaded.legacyOverlayData !== null) {
+    await migrateLegacyOverlayData(loaded.legacyOverlayData);
+  }
+
   await renderPdf();
 
 });
@@ -237,7 +296,107 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
+  if (dirtyPages.size > 0) {
+    void persistMarkup();
+  }
 })
+
+/** Old `.data` file (screen pixels + drawWidth/drawHeight) -> points, then written into the PDF (spec section 7). */
+async function migrateLegacyOverlayData(text: string): Promise<void> {
+  let entries: unknown;
+  try {
+    // The old app treated an empty file as no markup.
+    entries = text.trim() === "" ? [] : JSON.parse(text);
+  } catch (e) {
+    // Not readable: leave the file alone (saves then fail instead of deleting it).
+    console.warn("Could not parse the legacy markup file", e);
+    return;
+  }
+  if (!Array.isArray(entries)) {
+    console.warn("Unexpected legacy markup file content");
+    return;
+  }
+  const seen = new Set<number>();
+  for (const entry of entries as OverlayData[]) {
+    const page = entry?.page;
+    // Like the old edit mode, the first entry of a page wins; pages the PDF lacks were never shown.
+    if (!Number.isInteger(page) || page < 1 || page > pdf.numPages || seen.has(page)) continue;
+    seen.add(page);
+    dirtyPages.add(page);
+    const objects = (entry.data as { objects?: unknown[] } | undefined)?.objects;
+    if (!Array.isArray(objects) || objects.length === 0) continue;
+    if (!(entry.drawWidth > 0 && entry.drawHeight > 0)) continue;
+    const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
+    markupPages.set(page, { rect: null, payload: legacyToPayload(entry, viewport) });
+  }
+  deleteLegacyOnNextSave = true;
+  void persistMarkup();
+}
+
+function showSnackbar(text: string): void {
+  snackbarText.value = text;
+  snackbar.value = true;
+}
+
+/** Queues a save of all dirty pages; saves run one after another and never reject. */
+function persistMarkup(): Promise<void> {
+  saveChain = saveChain.then(persistDirtyPages);
+  return saveChain;
+}
+
+async function persistDirtyPages(): Promise<void> {
+  if (dirtyPages.size === 0) return;
+  const sent = [...dirtyPages].sort((a, b) => a - b).map((page) => ({ page, entry: markupPages.get(page) }));
+  const deleteLegacySidecar = deleteLegacyOnNextSave;
+
+  let result: SaveMarkupResult;
+  try {
+    const pages: SaveMarkupInput["pages"] = [];
+    for (const { page, entry } of sent) {
+      pages.push(
+        entry
+          ? { page, payload: entry.payload, pngBase64: await renderMarkupPng(entry.payload) }
+          : { page, payload: null, pngBase64: null },
+      );
+    }
+    result = await client.saveMarkup.mutate({ path: sheetPath, pages, deleteLegacySidecar });
+  } catch (e) {
+    result = { status: "error", message: e instanceof Error ? e.message : String(e) };
+  }
+
+  if (result.status === "error") {
+    // The pages stay dirty and go out again with the next save.
+    console.warn("Could not save markup:", result.message);
+    showSnackbar(SAVE_ERROR);
+    return;
+  }
+  for (const { page, entry } of sent) {
+    // A page edited again while saving stays dirty.
+    if (markupPages.get(page) === entry) dirtyPages.delete(page);
+  }
+  if (deleteLegacySidecar) deleteLegacyOnNextSave = false;
+  if (result.status === "sidecar" && !sidecarHintShown) {
+    sidecarHintShown = true;
+    showSnackbar(SIDECAR_HINT);
+  }
+}
+
+/** Rect (PDF user space) -> normalized viewport rectangle at scale 1; null stays null. */
+function viewRectOf(rect: Rect | null, viewport: pdfJs.PageViewport): Rect | null {
+  if (!rect) return null;
+  // pdf.js 6 has no convertToViewportRectangle; rotations are multiples of 90°, so two corners suffice.
+  const [x0, y0] = viewport.convertToViewportPoint(rect[0], rect[1]) as [number, number];
+  const [x1, y1] = viewport.convertToViewportPoint(rect[2], rect[3]) as [number, number];
+  return [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+}
+
+/** fabric JSON of `entry` in the CSS pixels of a canvas `cssWidth` wide showing the whole page. */
+function fabricJsonForDisplay(entry: MarkupEntry, viewport: pdfJs.PageViewport, cssWidth: number) {
+  return transformFabricJson(
+    entry.payload.fabric,
+    displayTransform(viewRectOf(entry.rect, viewport), entry.payload, viewport, cssWidth),
+  );
+}
 
 function onKeyDown(event: KeyboardEvent): void {
   if (store.editMode) {
@@ -591,35 +750,20 @@ function startInteractiveMode(): void {
 
 function saveDrawnData(): void {
   if (!editFabric) return;
-  const fabricJson = editFabric.toObject(["__isText"]) as any;
-  let fabricDataUrl = editFabric.toDataURL();
+  const page = currentPage.value;
+  const viewport = pageViewports.get(page);
+  if (!viewport || !editFabric.width) return;
+  const fabricJson = editFabric.toObject(["__isText"]) as { objects: unknown[] };
+
   if (fabricJson.objects.length === 0) {
-    fabricDataUrl = "";
-  }
-
-  const currentPageData = overlayData.find((a: OverlayData): boolean => {
-    return a.page === currentPage.value;
-  });
-  const width = editFabric.width || 0;
-  const height = editFabric.height || 0;
-  if (currentPageData) {
-    delete currentPageData.dataUrl;
-    currentPageData.data = fabricJson;
-    currentPageData.drawWidth = width;
-    currentPageData.drawHeight = height;
+    // Nothing drawn on a page without markup: nothing to save.
+    if (!markupPages.has(page) && !dirtyPages.has(page)) return;
+    markupPages.delete(page);
   } else {
-    overlayData.push({
-      page: currentPage.value,
-      data: fabricJson,
-      drawWidth: width,
-      drawHeight: height,
-    });
+    markupPages.set(page, { rect: null, payload: payloadFromCanvas(fabricJson, editFabric.width, viewport) });
   }
-  client.saveOverlayData.query({
-    data: JSON.stringify(overlayData),
-    path: router.currentRoute.value.params.path as string,
-  })
-
+  dirtyPages.add(page);
+  void persistMarkup();
 }
 
 function setEditMode(newEditState: Partial<EditState>): void {
@@ -678,16 +822,8 @@ async function createFabricCanvas(): Promise<void> {
   );
   canvasWrapper?.appendChild(editCanvas);
 
-  const currentPageData = overlayData.find((a: OverlayData): boolean => {
-    return a.page === currentPage.value;
-  });
-
-  let heightScale = 1;
-  let widthScale = 1;
-  if (currentPageData) {
-    heightScale = editCanvas.height / currentPageData.drawHeight;
-    widthScale = editCanvas.width / currentPageData.drawWidth;
-  }
+  const currentPageData = markupPages.get(currentPage.value);
+  const viewport = pageViewports.get(currentPage.value);
 
   editFabric = new fabric.Canvas(editCanvas, {
     isDrawingMode: false,
@@ -738,21 +874,13 @@ async function createFabricCanvas(): Promise<void> {
     })
   })
 
-  if (!currentPageData) return;
+  if (!currentPageData || !viewport) return;
+  const fabricJson = fabricJsonForDisplay(currentPageData, viewport, editFabric.width);
 
   return new Promise(async (resolve) => {
 
     await new fontfaceobserver.default("notoIcons").load()
-    await editFabric?.loadFromJSON(currentPageData?.data, (jsonObject, canvasObject) => {
-      if (canvasObject instanceof FabricObject) {
-        canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
-        canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
-        canvasObject.left = (canvasObject.left || 0) * widthScale;
-        canvasObject.top = (canvasObject.top || 0) * heightScale;
-        canvasObject.dirty = true;
-        // setDefaultPropsOnFabricObject(canvasObject)
-      }
-    });
+    await editFabric?.loadFromJSON(fabricJson);
 
     editFabric?.renderAll();
     resolve();
@@ -785,21 +913,20 @@ async function populateOverlayCanvas() {
     "sheetViewerWrapper"
   ) as HTMLDivElement;
 
-  for (let i = 0; i < overlayData.length; i++) {
-    const overlayJsonData = overlayData[i];
-    if (!overlayJsonData) continue;
-    const pageNumber = overlayJsonData.page;
-
+  const entries = [...markupPages.entries()].sort(([a], [b]) => a - b);
+  for (const [pageNumber, entry] of entries) {
+    const viewport = pageViewports.get(pageNumber);
     const canvas = $wrapper?.querySelector(
       'canvas[data-page="' + pageNumber + '"]'
-    ) as HTMLCanvasElement;
+    ) as HTMLCanvasElement | null;
+    if (!viewport || !canvas) continue;
     const halfPageCanvas = $wrapper?.querySelector(
       'canvas[data-page="' + (pageNumber - 0.5) + '"]'
     ) as HTMLCanvasElement;
 
-    await createOverlay(canvas, overlayJsonData, false);
+    await createOverlay(canvas, entry, viewport, false);
     if (halfPageCanvas) {
-      await createOverlay(halfPageCanvas, overlayJsonData, true);
+      await createOverlay(halfPageCanvas, entry, viewport, true);
     }
     setOverlayVisible();
   }
@@ -807,7 +934,8 @@ async function populateOverlayCanvas() {
 
 async function createOverlay(
   canvas: HTMLCanvasElement,
-  overlayData: OverlayData,
+  entry: MarkupEntry,
+  viewport: pdfJs.PageViewport,
   isHalfPage: boolean
 ): Promise<void> {
   const zIndex = canvas.style.zIndex;
@@ -829,21 +957,8 @@ async function createOverlay(
 
   canvas.insertAdjacentElement("afterend", overlayCanvas);
 
-  let widthScale = width / overlayData.drawWidth;
-  let heightScale = height / overlayData.drawHeight;
-  widthScale = parseFloat(widthScale.toFixed(2));
-  heightScale = parseFloat(heightScale.toFixed(2));
-
   const overlayFabric = new fabric.StaticCanvas(overlayCanvas);
-  await overlayFabric.loadFromJSON(overlayData.data, (a, canvasObject) => {
-    if (canvasObject instanceof FabricObject) {
-      canvasObject.scaleX = (canvasObject.scaleX || 0) * widthScale;
-      canvasObject.scaleY = (canvasObject.scaleY || 0) * heightScale;
-      canvasObject.left = (canvasObject.left || 0) * widthScale;
-      canvasObject.top = (canvasObject.top || 0) * heightScale;
-      canvasObject.dirty = true;
-    }
-  });
+  await overlayFabric.loadFromJSON(fabricJsonForDisplay(entry, viewport, overlayFabric.width));
 
 
   overlayFabric.renderAll();
@@ -945,6 +1060,7 @@ async function renderPage(
     windowViewport = page.getViewport({ scale });
   }
   const viewport = scale1ViewPort;
+  pageViewports.set(pageNumber, scale1ViewPort);
 
   // Prepare canvas using PDF page dimensions
 
@@ -967,6 +1083,8 @@ async function renderPage(
     canvasContext,
     viewport,
     background: "#ffffff",
+    // Hides our stamps (spec section 4); other annotations are rendered as before.
+    optionalContentConfigPromise: optionalContentConfig ? Promise.resolve(optionalContentConfig) : undefined,
   };
 
   await page.render(renderContext).promise.then(() => {

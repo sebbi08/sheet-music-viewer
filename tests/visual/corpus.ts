@@ -6,7 +6,7 @@ export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 /** Local, gitignored test corpus of real sheet music. Only ever read from it. */
 export const corpusDir = path.join(repoRoot, "Noten");
 
-/** Legacy sidecar of `<name>.pdf`: `.<name>.data` next to it (see getOverlayDataFilePathFromSheetPath). */
+/** Legacy sidecar of `<name>.pdf`: `.<name>.data` next to it (name logic: getSidecarPath in src/pdfMarkup/markupFile.ts). */
 export function legacyDataPath(pdfFile: string): string {
   return path.join(path.dirname(pdfFile), "." + path.basename(pdfFile, path.extname(pdfFile)) + ".data");
 }

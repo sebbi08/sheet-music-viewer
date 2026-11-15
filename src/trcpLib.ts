@@ -125,51 +125,6 @@ export async function saveSetLists(
     JSON.stringify(setListsWrapper, null, 2),
   );
 }
-export const saveOverlayDataInputSchema = z.object({
-  data: z.string(),
-  path: z.string(),
-});
-
-export async function saveOverlayData(
-  opts: input<typeof saveOverlayDataInputSchema>,
-) {
-  const sheetPath = opts.input.path;
-  const overlayData = opts.input.data;
-  const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
-  try {
-    await fs.writeFile(overlayDataPath, overlayData);
-  } catch (e) {
-    console.log("Error while saving:");
-    console.log(e);
-  }
-}
-export async function loadOverlayData(opts: input<string>) {
-  const sheetPath = opts.input;
-  const overlayDataPath = getOverlayDataFilePathFromSheetPath(sheetPath);
-  let overlayData;
-  try {
-    overlayData = (await fs.readFile(overlayDataPath)).toString();
-  } catch (e) {
-    if (e instanceof Error && "code" in e && e.code !== "ENOENT") {
-      console.log("Error while loading data file");
-      console.log(e);
-    }
-    overlayData = "";
-  }
-  return overlayData;
-}
-
-function getOverlayDataFilePathFromSheetPath(sheetPath: string): string {
-  let overlayDataPath = path.basename(sheetPath);
-  overlayDataPath =
-    "." + overlayDataPath.replace(path.extname(overlayDataPath), ".data");
-  overlayDataPath = sheetPath.replace(
-    path.basename(sheetPath),
-    overlayDataPath,
-  );
-
-  return overlayDataPath;
-}
 function migrateSetListsToV2(setListsJson: string): string {
   const unsaveParsedSetLists = JSON.parse(setListsJson);
 

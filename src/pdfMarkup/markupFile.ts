@@ -20,7 +20,7 @@ import { buildMarkedPdf, type PageChange } from "./buildMarkedPdf";
 import { readMarkup, type ReadMarkupResult } from "./readMarkup";
 
 /**
- * `.<name>.data` next to the PDF. Same name logic as `getOverlayDataFilePathFromSheetPath` in
+ * `.<name>.data` next to the PDF. Same name logic as the old app's `getOverlayDataFilePathFromSheetPath` in
  * `trcpLib.ts` (including its `String.replace` of the extension), so existing legacy files are found.
  */
 export function getSidecarPath(pdfPath: string): string {
