@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer, shell } from "electron";
  
 import { basename, dirname, relative, sep } from "node:path";
-import { exposeElectronTRPC } from "trpc-electron/main";
+import { exposeElectronTRPC } from "electron-trpc/preload";
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object

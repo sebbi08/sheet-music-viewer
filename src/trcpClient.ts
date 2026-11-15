@@ -1,6 +1,6 @@
 import { createTRPCProxyClient } from "@trpc/client";
 import superjson from "superjson";
-import { ipcLink } from "trpc-electron/renderer";
+import { ipcLink } from "electron-trpc/renderer";
 import type { trcpRouter } from "./trcpRouter";
 
 const ipcLinkInstance = ipcLink({

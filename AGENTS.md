@@ -14,7 +14,7 @@ npm test               # placeholder, no real tests
 
 - **Electron Forge** + **Vite** (3 separate configs: main, preload, renderer)
 - **Vue 3** + **Vuetify 4** + **Pinia** + **Vue Router** (hash mode)
-- **tRPC** (`trpc-electron`) for type-safe IPC between main and renderer
+- **tRPC** (`electron-trpc`) for type-safe IPC between main and renderer
 - Entry points: `src/main.ts` (main), `src/preload.ts` (preload), `src/renderer.ts` (renderer)
 - Vite build output goes to `.vite/`, Electron Forge output to `out/`
 - ASAR packaging enabled; fuses: RunAsNode=false, CookieEncryption, AsarIntegrity

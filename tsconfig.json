@@ -12,6 +12,7 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "paths": {
+      "electron-trpc/*": ["node_modules/electron-trpc/dist/*.d.cts"],
       "*": ["node_modules/*"]
     },
     "lib": [

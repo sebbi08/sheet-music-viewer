@@ -6,7 +6,7 @@ import log from "electron-log/main";
 import startup from "electron-squirrel-startup";
 import { readFile } from "node:fs/promises";
 import path from "path";
-import { createIPCHandler } from "trpc-electron/main";
+import { createIPCHandler } from "electron-trpc/main";
 import { updateElectronApp } from "update-electron-app";
 import { trcpRouter } from "./trcpRouter";
 const isDevelopment = !app.isPackaged;
@@ -62,7 +62,6 @@ if (startup) {
       },
     });
 
-    createIPCHandler({ router: trcpRouter, windows: [mainWindow] });
     mainWindow.maximize();
 
     // and load the index.html of the app.
@@ -85,6 +84,10 @@ if (startup) {
   app.on("ready", async () => {
     registerLocalResourceProtocol();
     registerAppProtocol();
+    // One handler serves all windows. The main process is bundled by Vite, so
+    // electron-trpc's own preload script isn't available; we expose it from
+    // src/preload.ts instead.
+    createIPCHandler({ router: trcpRouter, preload: false });
     if (isDevelopment && !process.env.IS_TEST) {
       // Install Vue Devtools
       try {

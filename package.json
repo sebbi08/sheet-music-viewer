@@ -12,8 +12,7 @@
     "semantic-release": "semantic-release --no-ci",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "echo 'true'",
-    "prepare": "simple-git-hooks",
-    "postinstall": "patch-package"
+    "prepare": "simple-git-hooks"
   },
   "keywords": [],
   "author": {
@@ -80,7 +79,6 @@
     "marked": "^18.0.11",
     "material-design-icons": "3.0.1",
     "node-fetch": "3.3.2",
-    "patch-package": "^8.0.1",
     "pdfjs-dist": "6.5.438",
     "pinia": "^4.0.3",
     "roboto-fontface": "0.10.0",
@@ -140,8 +138,8 @@
     "commit-msg": "npx --no -- commitlint --edit $1"
   },
   "dependencies": {
+    "electron-trpc": "^1.0.0",
     "superjson": "^2.2.6",
-    "trpc-electron": "^0.1.2",
     "update-electron-app": "^3.3.0"
   }
 }
