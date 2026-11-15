@@ -173,7 +173,12 @@ Pro Seite mit Markierungen:
   (`createOverlay`/`createFabricCanvas` in `SheetViewer.vue`).
 - Neu: fabric-Daten werden in **PDF-Punkten** gespeichert, bezogen auf die Seite so wie
   sie angezeigt wird (pdf.js-Viewport bei `scale: 1`, inkl. Rotation). Beim Laden wird
-  **einheitlich** mit `canvasBreite / Seitenbreite_in_Punkten` skaliert.
+  mit der tatsächlichen (ganzzahligen) Canvas-Größe skaliert: x mit
+  `canvasBreite / Seitenbreite_in_Punkten`, y mit `canvasHöhe / Seitenhöhe_in_Punkten`.
+  *(Präzisiert während der Umsetzung, Ruling R10: Canvas-Attribute werden auf ganze Pixel
+  abgeschnitten. Die alte App hat im Bearbeitungsmodus genauso pro Achse skaliert. Die
+  Abweichung zwischen den Achsen liegt unter 0,1 %, verzerrt also nicht sichtbar, und die
+  Positionen stimmen exakt mit der alten App überein.)*
 - Mitgespeichert wird der `/Rect`, gegen den gezeichnet wurde. Weicht der `/Rect` der
   Annotation beim Laden davon ab (ein anderes Programm hat Seite bzw. Annotation
   verschoben/skaliert), gilt der `/Rect` der Annotation: die fabric-Daten werden auf den
