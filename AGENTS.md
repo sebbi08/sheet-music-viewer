@@ -28,10 +28,17 @@ npm test               # placeholder, no real tests
 
 ## Release Process
 
-- **Manual trigger**: `npm run release` — loads `.env`, runs `semantic-release --no-ci`, pushes, then runs `electron-forge publish`
-- **Automatic via CI**: semantic-release runs on push to `master`, bumps version, creates a **GitHub Release** (via `@semantic-release/github`), commits, pushes
-- CI (`build.yml`) then triggers on the resulting tag (`v*`) and uploads build artifacts to the GitHub Release via `@electron-forge/publisher-github`
-- `.env` file must contain `GH_TOKEN` (or `GITHUB_TOKEN`) for GitHub authentication
+- **Manual only**: pushes to `master` do **not** create a release. Run the `release` workflow
+  (`.github/workflows/release.yml`) via Actions → "Run workflow" on `master`
+  (or `gh workflow run release.yml --ref master`)
+- The `release` job runs semantic-release: analyzes all commits since the last tag, bumps the
+  version, updates `CHANGELOG.md`, creates the `v*` tag and **GitHub Release**, and commits back
+  with `[skip ci]`. It fails if there is nothing to release (no feat/fix/breaking commits)
+- The `publish` job then checks out that tag and uploads build artifacts (Windows) to the GitHub
+  Release via `@electron-forge/publisher-github`
+- `build.yml` only builds (push to `master`/`renovate/**`, PRs) and never publishes
+- Locally, `npm run semantic-release` runs `semantic-release --no-ci`; needs `GH_TOKEN`
+  (or `GITHUB_TOKEN`) in the environment
 - Only `master` branch is used
 
 ## Key Dependencies

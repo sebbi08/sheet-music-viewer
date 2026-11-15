@@ -1,15 +1,22 @@
 name: release
 
+# Releases are cut manually: Actions → release → "Run workflow" (on master).
+# semantic-release then bundles every commit since the last tag into one version.
 on:
-  push:
-    branches: ["master"]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-24.04
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: github.ref == 'refs/heads/master'
     permissions:
       contents: write
+    outputs:
+      new_version: ${{ steps.release.outputs.new_version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,7 +33,7 @@ jobs:
           npx semantic-release
           NEW_VERSION=$(node -p "require('./package.json').version")
           if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
-            echo "No new release was published"
+            echo "::error::No new release was published (no feat/fix/breaking commits since v$OLD_VERSION)"
             exit 1
           fi
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
@@ -45,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: master
+          ref: v${{ needs.release.outputs.new_version }}
       - name: Use Node.js
         uses: actions/setup-node@v7
         with:
