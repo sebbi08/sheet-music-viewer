@@ -221,13 +221,24 @@ function normalizeChanges(changes: PageChange[]): Map<number, PageChange> {
   return byPage;
 }
 
+/** Number of `startxref` keywords in `bytes[from..)`. */
+function countStartXref(bytes: Uint8Array, from: number): number {
+  const tail = Buffer.from(bytes.buffer, bytes.byteOffset + from, bytes.length - from);
+  let count = 0;
+  for (let at = tail.indexOf("startxref"); at >= 0; at = tail.indexOf("startxref", at + 1)) count++;
+  return count;
+}
+
 /**
  * True iff the file's last cross-reference section is a single update starting at `updateStart`: a
- * section ends (`%%EOF`) at `updateStart`, the last `startxref` points at or after it and that section's
- * `/Prev` points before it. A last section without `/Prev` is never ours (we always write one).
+ * section ends (`%%EOF`) at `updateStart`, exactly one section (`startxref`) follows, the last
+ * `startxref` points at or after `updateStart` and that section's `/Prev` points before it. A last
+ * section without `/Prev` is never ours (we always write one).
  */
 export function isOurUpdateLast(bytes: Uint8Array, updateStart: number): boolean {
   if (!isValidSectionEnd(bytes, updateStart)) return false;
+  // A later section whose /Prev (non-conformingly) skips ours must not be cut off.
+  if (countStartXref(bytes, updateStart) !== 1) return false;
   try {
     const last = findLastStartXref(bytes);
     if (last < updateStart) return false;

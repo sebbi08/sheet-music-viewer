@@ -247,7 +247,10 @@ describe("appending on top of an earlier save", () => {
   test("a null payload removes our stamp and keeps foreign annotations", async () => {
     const orig = await makePdf({ xref: "table", foreignAnnot: true });
     const first = await buildMarkedPdf(orig, [mark(1)]);
-    const second = await buildMarkedPdf(first, [mark(1, null)]);
+    const edited = await appendForeignUpdate(first);
+    const second = await buildMarkedPdf(edited, [mark(1, null)]);
+    expect(hasPrefix(second, edited)).toBe(true);
+    expect(second.length).toBeGreaterThan(edited.length);
     const r = readMarkup(await load(second));
     expect(r.pages).toEqual([]);
     expect(r.orphans).toEqual([]);

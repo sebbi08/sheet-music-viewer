@@ -25,10 +25,15 @@ test("isValidSectionEnd", async () => {
   expect(isValidSectionEnd(pdf, 0)).toBe(false);
 });
 
-test("isValidSectionEnd accepts trailing line breaks", () => {
-  for (const eol of ["", "\r", "\n", "\r\n"]) {
-    const bytes = Buffer.from(`x\n%%EOF${eol}`, "latin1");
+test("isValidSectionEnd accepts any PDF whitespace after %%EOF", () => {
+  const runs = ["", "\r", "\n", "\r\n", "\n\n", "\0\0\0", " \t\f\r\n\0", "\n".repeat(100)];
+  for (const ws of runs) {
+    const bytes = Buffer.from(`x\n%%EOF${ws}`, "latin1");
     expect(isValidSectionEnd(bytes, bytes.length)).toBe(true);
+  }
+  for (const junk of ["x", "\n%%EO", "\n%%EOF x", "%%EOF\n.", "   "]) {
+    const bytes = Buffer.from(junk, "latin1");
+    expect(isValidSectionEnd(bytes, bytes.length)).toBe(false);
   }
 });
 

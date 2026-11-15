@@ -27,14 +27,19 @@ export function findLastStartXref(bytes: Uint8Array): number {
   return Number(match[1]);
 }
 
+/** PDF whitespace: NUL, TAB, LF, FF, CR, SPACE. */
+const isWhitespace = (byte: number) =>
+  byte === 0x00 || byte === 0x09 || byte === 0x0a || byte === 0x0c || byte === 0x0d || byte === 0x20;
+
 /**
- * True if `0 < length <= bytes.length` and `bytes[0..length)` ends with `%%EOF`,
- * optionally followed by `\r`, `\n` or `\r\n`.
+ * True if `0 < length <= bytes.length` and `bytes[0..length)` ends with `%%EOF`, optionally followed by
+ * any run of PDF whitespace (real files often carry extra line breaks or NUL padding after it).
  */
 export function isValidSectionEnd(bytes: Uint8Array, length: number): boolean {
   if (!Number.isInteger(length) || length <= 0 || length > bytes.length) return false;
-  const text = latin1(bytes, Math.max(0, length - 16), length);
-  return /%%EOF(?:\r\n|\r|\n)?$/.test(text);
+  let end = length;
+  while (end > 0 && isWhitespace(bytes[end - 1])) end--;
+  return end >= 5 && latin1(bytes, end - 5, end) === "%%EOF";
 }
 
 /** `table` if an `xref` keyword (after whitespace) stands at `offset`, otherwise `stream`. */

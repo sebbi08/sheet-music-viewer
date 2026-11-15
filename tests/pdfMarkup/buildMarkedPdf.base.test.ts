@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import { ANNOT_NM, ORPHAN_NM } from "../../src/models/markupConstants";
 import type { MarkupPayload } from "../../src/models/markup";
 import { buildMarkedPdf, chooseBase, isOurUpdateLast } from "../../src/pdfMarkup/buildMarkedPdf";
+import { findLastStartXref } from "../../src/pdfMarkup/fileStructure";
 import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import { corpusDir } from "../visual/corpus";
@@ -141,7 +142,42 @@ describe("isOurUpdateLast and chooseBase", () => {
   });
 });
 
+describe("trailing bytes after the original's %%EOF", () => {
+  test.each([
+    ["line breaks", "\n\n"],
+    ["NUL bytes", "\0\0\0"],
+  ])("%s: repeated saves do not grow, clearing restores the exact original", async (_name, junk) => {
+    const orig = new Uint8Array(Buffer.concat([Buffer.from(await makePdf({ xref: "table" })), Buffer.from(junk, "latin1")]));
+    const a = await buildMarkedPdf(orig, [mark(1, payload(1))]);
+    const b = await buildMarkedPdf(a, [mark(1, payload(2))]);
+    const c = await buildMarkedPdf(b, [mark(1, payload(2))]); // same content as b: same size
+    for (const out of [a, b, c]) expect(hasPrefix(out, orig)).toBe(true);
+    expect(c.length).toBe(b.length);
+    expect(countStartXref(c)).toBe(countStartXref(orig) + 1);
+    expect(readMarkup(await load(c)).meta).toEqual({ originalLength: orig.length, updateStart: orig.length });
+    expect(same(await buildMarkedPdf(c, [mark(1, null)]), orig)).toBe(true);
+  });
+});
+
 describe("base selection in buildMarkedPdf", () => {
+  test("a foreign update whose /Prev wrongly skips ours is kept, never truncated", async () => {
+    const orig = await makePdf({ xref: "table" });
+    const a = await buildMarkedPdf(orig, [mark(1)]);
+    const foreign = Buffer.from(await appendForeignUpdate(a)).toString("latin1");
+    // Point the foreign trailer's /Prev at the original's section (same width, leading zeros).
+    const ourXref = String(findLastStartXref(a));
+    const skipping = String(findLastStartXref(orig)).padStart(ourXref.length, "0");
+    const at = foreign.lastIndexOf(`/Prev ${ourXref}`);
+    expect(at).toBeGreaterThan(a.length);
+    const nonConforming = new Uint8Array(
+      Buffer.from(foreign.slice(0, at) + `/Prev ${skipping}` + foreign.slice(at + 6 + ourXref.length), "latin1"),
+    );
+    expect(nonConforming.length).toBe(foreign.length);
+    expect(isOurUpdateLast(nonConforming, orig.length)).toBe(false);
+    const b = await buildMarkedPdf(nonConforming, [mark(1, payload(2))]);
+    expect(hasPrefix(b, nonConforming)).toBe(true);
+  });
+
   test("/UpdateStart is the base length; truncation keeps exactly one update of ours", async () => {
     const orig = await makePdf({ xref: "table", pages: 2 });
     const a = await buildMarkedPdf(orig, [mark(1, payload(1))]);
