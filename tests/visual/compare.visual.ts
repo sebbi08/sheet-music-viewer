@@ -24,9 +24,9 @@ import { renderPdfPageAsCaptured } from "./pdfRender";
  *   A  V1.with ↔ R.with                         view right after the migration
  *   B  V2.with ↔ R.with                         view after saving every marked page and reopening
  *   C  mask(P_on − P_off) ↔ mask(R.with − R.without)   pdf.js ("another viewer") with our layer shown;
- *      position per object (Sebastian's decision): the largest coverage-weighted centroid offset of
- *      a single markup object, not the global centroid (which moves when objects far apart gain or
- *      lose a few resampled edge pixels each); overlap as IoU of the whole masks
+ *      Sebastian's decision of 2026-11-15: position per object, i.e. the largest coverage-weighted
+ *      centroid offset of a single markup object ≤ 1.5 px (not the global centroid, which moves when
+ *      objects far apart gain or lose a few resampled edge pixels each); IoU reported as info only
  *   D  P_off ↔ P_orig                           pdf.js with our layer hidden ↔ the original PDF
  *   E  V1.without ↔ R.without                   page canvas alone: no stamp drawn twice
  *   Ar, Er  like A and E after saving and resizing the window (smaller, then back)
@@ -41,8 +41,14 @@ const KEEP_MIGRATED = process.env.VISUAL_KEEP_MIGRATED === "1";
 // Thresholds of spec section 8 (task 8 brief). Not to be relaxed without Sebastian's consent.
 const PIXEL_RATIO_MAX = 0.001;
 const IOU_MIN_APP = 0.98;
-const IOU_MIN_OTHER_VIEWER = 0.9;
 const CENTROID_MAX_PX = 1;
+/**
+ * Check C ("another viewer"): Sebastian's decision of 2026-11-15 ("Lage ≤ 1,5 px, Überlappung als Info").
+ * Fails only when one markup object's coverage-weighted centroid is more than 1.5 px off. The IoU
+ * (formerly ≥ 0.90) is reported as information only: thin strokes resampled into the stamp PNG and
+ * rendered by pdf.js over its own page render cannot reach it, even when they are in the right place.
+ */
+const OBJECT_OFFSET_MAX_PX_OTHER_VIEWER = 1.5;
 
 const RESIZED = { width: 1000, height: 1400 };
 const visualDir = path.join(repoRoot, "test-results", "visual");
@@ -123,17 +129,18 @@ class PageChecker {
 
   /**
    * Position of the markup: mask (with − without) of both, IoU and centroid distance; optionally pixels,
-   * too. `position` "global" checks the centroid of the whole mask (A, B), "perObject" the largest
-   * coverage-weighted centroid offset of a single object (C); the other value is reported only.
+   * too. "global" criteria (A, B) check the IoU and the centroid of the whole mask; "perObject" criteria
+   * (C) check only the largest coverage-weighted centroid offset of a single object. Every other value
+   * is reported, but never fails.
    */
   markup(
     id: CheckId,
     ref: { with: Img; without: Img },
     img: { with: Img; without: Img },
-    iouMin: number,
     withPixels: boolean,
-    position: "global" | "perObject" = "global",
+    criteria: { position: "global"; iouMin: number; centroidMaxPx: number } | { position: "perObject"; objectOffsetMaxPx: number },
   ) {
+    const { position } = criteria;
     const sizes = [ref.with, ref.without, img.with, img.without];
     if (!sizes.every((s) => sameSize(s, ref.with))) {
       this.finish({ id }, [`sizes ${sizes.map(sizeOf).join(" / ")} differ`], () => sideBySide(ref.with, img.with));
@@ -156,12 +163,16 @@ class PageChecker {
       areaRef: m.areaB,
     };
     const problems: string[] = [];
-    if (m.iou < iouMin) problems.push(`markup IoU ${m.iou.toFixed(4)} < ${iouMin}`);
-    if (position === "global" && !(m.centroidOffsetPx <= CENTROID_MAX_PX)) {
-      problems.push(`markup centroid offset ${m.centroidOffsetPx.toFixed(2)} px > ${CENTROID_MAX_PX} px`);
-    }
-    if (position === "perObject" && !(objectOffsetPx <= CENTROID_MAX_PX)) {
-      problems.push(`markup object centroid offset ${objectOffsetPx.toFixed(2)} px > ${CENTROID_MAX_PX} px`);
+    if (criteria.position === "global") {
+      if (m.iou < criteria.iouMin) problems.push(`markup IoU ${m.iou.toFixed(4)} < ${criteria.iouMin}`);
+      if (!(m.centroidOffsetPx <= criteria.centroidMaxPx)) {
+        problems.push(`markup centroid offset ${m.centroidOffsetPx.toFixed(2)} px > ${criteria.centroidMaxPx} px`);
+      }
+    } else if (!(objectOffsetPx <= criteria.objectOffsetMaxPx)) {
+      problems.push(
+        `markup object centroid offset ${objectOffsetPx.toFixed(2)} px > ${criteria.objectOffsetMaxPx} px ` +
+          `(info: IoU ${m.iou.toFixed(4)}, global centroid ${m.centroidOffsetPx.toFixed(2)} px)`,
+      );
     }
     let diff: Img | undefined;
     if (withPixels) {
@@ -224,7 +235,7 @@ function formatCheck(c: Check): string {
     c.iou === undefined
       ? ""
       : c.position === "perObject"
-        ? `IoU ${fmt(c.iou, 3)} obj ${fmt(c.objectOffsetPx, 2)}px (global ${fmt(c.centroidOffsetPx, 2)}px)`
+        ? `obj ${fmt(c.objectOffsetPx, 2)}px (info: IoU ${fmt(c.iou, 3)}, global ${fmt(c.centroidOffsetPx, 2)}px)`
         : `IoU ${fmt(c.iou, 3)} ${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)}px)`,
   ].filter(Boolean);
   return `${c.id} ${parts.join(" ")}${c.violation ? " FAIL" : ""}`;
@@ -328,12 +339,16 @@ for (const { pdfPath, markedPages } of corpus) {
         const pOff = await render(migratedBytes, true);
         const pOrig = await render(originalBytes, false);
 
-        checker.markup("A", r, first, IOU_MIN_APP, true);
-        checker.markup("B", r, v2.get(page) as Capture, IOU_MIN_APP, true);
-        checker.markup("C", r, { with: pOn, without: pOff }, IOU_MIN_OTHER_VIEWER, false, "perObject");
+        const app = { position: "global", iouMin: IOU_MIN_APP, centroidMaxPx: CENTROID_MAX_PX } as const;
+        checker.markup("A", r, first, true, app);
+        checker.markup("B", r, v2.get(page) as Capture, true, app);
+        checker.markup("C", r, { with: pOn, without: pOff }, false, {
+          position: "perObject",
+          objectOffsetMaxPx: OBJECT_OFFSET_MAX_PX_OTHER_VIEWER,
+        });
         checker.pixels("D", pOrig, pOff);
         checker.pixels("E", r.without, first.without);
-        checker.markup("Ar", r, v1Resized.get(page) as Capture, IOU_MIN_APP, true);
+        checker.markup("Ar", r, v1Resized.get(page) as Capture, true, app);
         checker.pixels("Er", r.without, (v1Resized.get(page) as Capture).without);
 
         const areaRef = checker.checks.find((c) => c.id === "A")?.areaRef ?? 0;
@@ -373,7 +388,7 @@ afterAll(() => {
       c.iou === undefined
         ? ""
         : c.position === "perObject"
-          ? `${fmt(c.iou, 3)}/obj ${fmt(c.objectOffsetPx, 2)}px (global ${fmt(c.centroidOffsetPx, 2)})`
+          ? `obj ${fmt(c.objectOffsetPx, 2)}px (info: IoU ${fmt(c.iou, 3)}, global ${fmt(c.centroidOffsetPx, 2)})`
           : `${fmt(c.iou, 3)}/${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)})`,
     ].filter(Boolean);
     return `${parts.join(" ")}${c.violation ? " **FAIL**" : ""}`;

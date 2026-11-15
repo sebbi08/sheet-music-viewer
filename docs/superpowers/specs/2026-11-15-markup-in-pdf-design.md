@@ -275,6 +275,13 @@ Für jede PDF im Korpus und jede synthetische Fixture wird geprüft:
     **mit sichtbarer Markierungs-Ebene** gerendert, so wie Acrobat sie zeigt. Wegen der
     Bild-Neuabtastung gelten lockerere Pixelschwellen, die Positionsprüfung bleibt
     streng.
+    *(Entscheidung Sebastian, 2026-11-15: „Lage ≤ 1,5 px, Überlappung als Info“. C prüft
+    die Lage pro Markierungsobjekt: Der nach Deckung gewichtete Schwerpunkt jedes Objekts
+    darf um höchstens 1,5 px abweichen. Der Schwerpunkt der ganzen Maske und die IoU werden
+    nur berichtet. Grund: Dünne Striche, Glyphen und halbtransparente Marker werden im PNG
+    und von pdf.js anders gerastert als in der App. Die Fläche einzelner Objekte schwankt
+    dadurch um Randpixel. Das verschiebt den Gesamtschwerpunkt bei weit auseinanderliegenden
+    Objekten stark und hält die IoU unter 0,90, obwohl die Lage stimmt.)*
   - **D – fremde Annotationen**: Die Original-PDF mit allen Annotationen wird gegen die
     migrierte PDF mit ausgeblendeter Markierungs-Ebene gerendert, beides mit pdf.js.
     Höchstens 0,1 % abweichende Pixel.
