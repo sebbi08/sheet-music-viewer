@@ -42,6 +42,27 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - Vite build output goes to `.vite/`, Electron Forge output to `out/`
 - ASAR packaging enabled; fuses: RunAsNode=false, CookieEncryption, AsarIntegrity
 
+## Markup storage (spec: `docs/superpowers/specs/2026-11-15-markup-in-pdf-design.md`)
+
+- Markup is stored **inside the PDF**: per page one Stamp annotation (`/NM (smv-markup-page)`) with a
+  PNG appearance, the fabric JSON (in PDF points, plus the page's display rotation) in a hidden
+  `/SMV_Data` stream, catalog metadata `/SMV_Markup`. Code: `src/pdfMarkup/` (main process, no
+  Electron imports, unit-tested), constants in `src/models/markupConstants.ts`.
+- Saved as an **incremental update** that is **replaced** on every save while it is the last one
+  (the original bytes stay a prefix; the file does not grow); updates of other programs are kept.
+  Written atomically (temp file, read-back verification, rename; retried ~3 s while Windows reports
+  the file as locked).
+- Our stamps belong to an **OCG** ("Sheet Music Viewer – Markierungen"); the app hides it in pdf.js and
+  draws the markup with fabric instead, other viewers show and print the stamp.
+- **Sidecar fallback** (`.<name>.data`, v1 format) only for PDFs **without** embedded data that are
+  encrypted, unparseable, read-only or stay locked; with embedded data a failed write is an error
+  (never two competing states). Legacy `.data` files are migrated into the PDF on open and deleted
+  after the read-back succeeded.
+- Unsaved changes live in the renderer's `markupSaves` store (`src/markup/saveQueue.ts`), survive
+  leaving the sheet, are retried every 30 s, and closing the window asks before discarding them
+  (`src/exitGuard.ts`).
+- Visual tests (`npm run test:visual`, see above) compare migrated markup against the old app.
+
 ## Auto-Update
 
 - Uses `update-electron-app` which points at GitHub Releases via `update.electronjs.org`
@@ -67,6 +88,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 ## Key Dependencies
 
 - `fabric` (canvas manipulation), `pdfjs-dist` (PDF rendering)
+- `pdf-lib` (1.17.1, exact pin) to parse and serialize PDF objects for the markup update; the
+  incremental writer is our own (`src/pdfMarkup/incrementalWriter.ts`), pdf-lib never re-saves a file
 - `lodash`, `fs-extra`, `glob`, `zod`, `superjson`
 - `semantic-release` plugins: commit-analyzer, release-notes-generator, npm (publish disabled), changelog, git, github
 - `@electron-forge/publisher-github` for publishing artifacts to GitHub Releases
