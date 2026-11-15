@@ -3,6 +3,7 @@ import {
   displayTransform,
   legacyToPayload,
   payloadFromCanvas,
+  pngLayout,
   pngMultiplier,
   transformFabricJson,
 } from "../../src/markup/fabricTransform";
@@ -101,5 +102,29 @@ describe("fabricTransform", () => {
   test("pngMultiplier caps huge pages", () => {
     expect(pngMultiplier(595, 842)).toBeCloseTo(300 / 72);
     expect(pngMultiplier(2384, 3370) * 3370).toBeLessThanOrEqual(4096);
+  });
+
+  // The PDF stretches the PNG over the whole width x height points, so the PNG's scale must be exactly
+  // pixels / points on each axis (a truncated canvas drew everything up to 1 px too large to the bottom right).
+  test.each([
+    [595.275543, 841.889771],
+    [612, 792],
+    [1728, 2340],
+    [841, 1248.4],
+    [100.3, 50.7],
+  ])("pngLayout covers %f x %f points exactly with whole pixels", (width, height) => {
+    const { pxWidth, pxHeight, scaleX, scaleY } = pngLayout(width, height);
+    expect(Number.isInteger(pxWidth) && Number.isInteger(pxHeight)).toBe(true);
+    expect(Math.max(pxWidth, pxHeight)).toBeLessThanOrEqual(4096);
+    expect(pxWidth / scaleX).toBeCloseTo(width, 9);
+    expect(pxHeight / scaleY).toBeCloseTo(height, 9);
+    // Within one pixel of the nominal resolution.
+    const m = pngMultiplier(width, height);
+    expect(Math.abs(pxWidth - width * m)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(pxHeight - height * m)).toBeLessThanOrEqual(0.5);
+  });
+
+  test("pngLayout for A4: 2480 x 3508 px (a truncated canvas gave 3507)", () => {
+    expect(pngLayout(595.275543, 841.889771)).toMatchObject({ pxWidth: 2480, pxHeight: 3508 });
   });
 });

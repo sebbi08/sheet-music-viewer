@@ -95,3 +95,16 @@ export function legacyToPayload(legacy: OverlayData, viewport: Size): MarkupPayl
 export function pngMultiplier(width: number, height: number): number {
   return Math.min(MARKUP_DPI / 72, MAX_PNG_SIDE_PX / Math.max(width, height));
 }
+
+/**
+ * Pixel size of the markup PNG for a payload of `width`×`height` points, and the per-axis scale that maps
+ * points onto exactly those pixels. The PDF stretches the PNG over the whole width×height points, so the
+ * scale has to be pixels / points on each axis; rendering at `pngMultiplier` onto a truncated canvas drew
+ * the markup up to one pixel too large towards the bottom right.
+ */
+export function pngLayout(width: number, height: number): { pxWidth: number; pxHeight: number; scaleX: number; scaleY: number } {
+  const m = pngMultiplier(width, height);
+  const pxWidth = Math.max(1, Math.min(MAX_PNG_SIDE_PX, Math.round(width * m)));
+  const pxHeight = Math.max(1, Math.min(MAX_PNG_SIDE_PX, Math.round(height * m)));
+  return { pxWidth, pxHeight, scaleX: pxWidth / width, scaleY: pxHeight / height };
+}
