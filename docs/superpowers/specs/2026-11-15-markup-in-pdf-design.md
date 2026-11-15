@@ -23,6 +23,13 @@ Das hat zwei Probleme:
   erhalten, das Original ist jederzeit durch Abschneiden wiederherstellbar.
 - Markierungen bleiben bei sauberen Seitenänderungen in anderen Programmen
   (Zuschneiden, Drehen, Seiten umsortieren/löschen) an den Noten.
+- **Die App funktioniert komplett offline.** Laden, Bearbeiten, Speichern und Migrieren
+  machen keine einzige Netzwerkanfrage. Alle Bibliotheken werden mit der App gebündelt.
+  Die einzigen Netzwerkzugriffe der App bleiben die bestehende Update-Prüfung und die
+  Release-Notes (`src/App.vue`), die offline folgenlos scheitern.
+- Nach der Migration sehen bestehende Markierungen **pixelgenau gleich** aus wie in der
+  alten Version und stehen an derselben Stelle. Fremde Annotationen gehen nicht verloren.
+  Das wird mit visuellen Vergleichstests abgesichert (siehe 8).
 
 ## Nicht-Ziele
 
@@ -195,6 +202,89 @@ Pro Seite mit Markierungen:
 - Erst wenn das Zurücklesen aus der PDF erfolgreich ist, wird die `.data`-Datei gelöscht.
 - Gibt es beides (`.data` und eingebettete Daten), gewinnen die eingebetteten Daten und
   die `.data`-Datei bleibt liegen. Das dürfte nur bei Fallback-Fällen vorkommen.
+
+### 8. Tests und Absicherung
+
+Wunsch von Sebastian: Visuelle Tests sollen alte und neue Version vergleichen.
+Bestehende Markierungen dürfen nicht verloren gehen, und ihre Position muss exakt
+stimmen. Getestet wird mit verschiedenen PDF-Typen, vor allem PDFs aus iOS-Bildern
+(damit gab es zuletzt Probleme in pdf.js, deshalb wurde das WASM-Modul aktiviert).
+
+**Testkorpus**
+
+- **Echte Noten** in `Noten/` (lokal, gitignored, nicht im Repo, da urheberrechtlich
+  geschützt). Stand 2026-11-15: 23 PDFs, die meisten mit `.data` aus der aktuellen App.
+  Weitere `.data`-Dateien legt Sebastian an. Abgedeckt sind:
+  - Herkunft: Epson-Scanner, macOS Vorschau (angehängter Zuschnitt), iOS 11/14/17/18
+    Quartz (auch „AppendMode“), PSPDFKit, Acrobat, Nitro, Stirling-PDF, pdftk/iText,
+    PDF Architect
+  - Bildtypen: JPEG (Graustufen/RGB), CCITT-Fax, JBIG2, Indexed, ICC-Profile, SMask
+  - Seitengeometrie: Rotation 0/90/180/270, CropBox, **negativer MediaBox-Ursprung**,
+    uneinheitliche Seitengrößen innerhalb einer Datei, sehr große Seiten (1728×2340 pt)
+  - Dateistruktur: Xref-Tabelle und Xref-Stream, linearisiert, 1–3 vorhandene
+    inkrementelle Updates, Dateien bis 22 MB
+  - **Fremde Annotationen**: iOS-Markup (Square, Stamp) und Acrobat-Stempel
+- **Synthetische Fixtures** (im Repo, laufen in `npm test`): Sie bilden dieselben
+  Geometrie- und Strukturfälle nach, inklusive negativem Ursprung, uneinheitlicher
+  Seitengrößen und fremder Annotationen, damit die Logik auch ohne `Noten/` geprüft ist.
+
+**Struktur-Tests (Node, `npm test`)**
+
+Für jede PDF im Korpus und jede synthetische Fixture wird geprüft:
+- Original-Bytes bleiben als Präfix erhalten.
+- pdf.js (Node) öffnet das Ergebnis fehlerfrei mit gleicher Seitenzahl.
+- Die fremden Annotationen jeder Seite (Typ und Rect) sind vorher und nachher identisch;
+  dazu kommt genau unser Stempel.
+- Wiederholtes Speichern lässt die Datei nicht wachsen.
+- Alles zu löschen ergibt exakt das Original.
+
+`Noten/`-Tests werden übersprungen, wenn der Ordner fehlt.
+
+**Visuelle Vergleichstests (Electron, lokal, `npm run test:visual`)**
+
+- **Referenz = alte App**: Das Skript baut die App aus einem festen Git-Stand vor
+  diesem Vorhaben (Standard: Commit `8301b5d`, konfigurierbar) in einem temporären
+  Git-Worktree. Es startet sie per Playwright (`_electron`) und fotografiert jede Seite,
+  die Markierungen hat. Gespeichert werden zwei Bilder: Seite mit und Seite ohne
+  Markierung. So entstehen die Referenzbilder auf derselben Maschine und demselben
+  System wie der Vergleich, ohne eingecheckte Bilder. Das funktioniert unter Linux und
+  Windows gleichermaßen.
+- *(Entscheidung Claude)* **Referenz ist der Bearbeitungsmodus der alten App, nicht
+  die Ansicht.** Grund: Die alte Ansicht rundet den Skalierungsfaktor auf zwei
+  Nachkommastellen (`createOverlay`, `toFixed(2)`). Dadurch steht die Markierung dort je
+  nach Fenstergröße bis zu ~0,5 % daneben, auf einer 1000 px hohen Seite bis zu 5 px.
+  Der Bearbeitungsmodus skaliert ungerundet und zeigt genau, wo gezeichnet wurde. Die
+  neue App rundet nicht mehr. Zusätzlich wird die alte Ansicht fotografiert, und die
+  Abweichung erscheint im Bericht als Information, nicht als Fehler.
+- Gearbeitet wird immer auf einer **Kopie** des Korpus in einem Temp-Ordner, weil die
+  neue App migriert.
+- Feste Fenstergröße und `--force-device-scale-factor=1`, damit beide Versionen in
+  identischem Maßstab rendern.
+- **Vergleiche** pro markierter Seite:
+  - **A – neue App nach Migration gegen alte App**: Gleiche Darstellung erwartet.
+    Erlaubt sind höchstens 0,1 % abweichende Pixel (pixelmatch, Schwelle 0,1).
+  - **B – neue App nach erneutem Öffnen und erneutem Speichern gegen alte App**:
+    gleiche Schwellen wie A. Das zeigt, dass die Umrechnung Pixel → Punkte → Pixel
+    stabil ist.
+  - **C – „anderer Viewer“ gegen alte App**: Die migrierte PDF wird mit pdf.js
+    **mit sichtbarer Markierungs-Ebene** gerendert, so wie Acrobat sie zeigt. Wegen der
+    Bild-Neuabtastung gelten lockerere Pixelschwellen, die Positionsprüfung bleibt
+    streng.
+  - **D – fremde Annotationen**: Die Original-PDF mit allen Annotationen wird gegen die
+    migrierte PDF mit ausgeblendeter Markierungs-Ebene gerendert, beides mit pdf.js.
+    Höchstens 0,1 % abweichende Pixel.
+- **Positionsprüfung**: Die Markierungspixel werden isoliert (Bild mit minus Bild ohne
+  Markierung) und als Maske verglichen. Der Schwerpunkt der Maske darf um höchstens
+  1 px abweichen. Die Überlappung (IoU) muss bei A/B mindestens 0,98 und bei C
+  mindestens 0,90 betragen.
+- Bei Abweichung schreibt der Test pro Seite ein Diff-Bild (Referenz | Neu | Differenz)
+  nach `test-results/visual/` (gitignored).
+- **Offline-Nachweis**: Während des gesamten Laufs der neuen App werden alle
+  http(s)-Anfragen der Electron-Session protokolliert. Der Test schlägt fehl, sobald
+  eine stattfindet. Erlaubt sind nur die App-eigenen Protokolle (`app:`,
+  `local-resource:`, `file:`, `devtools:`, im Dev-Modus der lokale Vite-Server).
+- Die visuellen Tests laufen nicht in CI, weil sie Electron mit Display und den lokalen
+  Korpus brauchen. Sie sind Pflicht vor dem Merge.
 
 ## Dem Builder überlassen
 
