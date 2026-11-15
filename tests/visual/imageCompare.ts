@@ -69,35 +69,58 @@ export function maskMetrics(
 }
 
 /**
- * Centroid offset per markup object (diagnostic): the union of both masks is split into groups
- * of pixels at most `joinPx` apart; for each group set in both masks with at least `minPx` pixels
- * each, the distance between its centroid in `a` and in `b`. Returns the largest distance (0 if no
- * group qualifies) and the number of groups compared. Unlike `maskMetrics`' global centroid, this
- * does not shift when two objects far apart gain or lose a few edge pixels each.
+ * How strongly the markup changes each pixel, 0..1: the largest channel difference between the
+ * image with and without markup, / 255. Over a white page this is the markup's coverage (alpha)
+ * for black or saturated colours, and it is low for anti-aliased edges and semi-transparent strokes.
+ */
+export function markupCoverage(withMarkup: Img, without: Img): Float32Array {
+  assertSameSize(withMarkup, without);
+  const out = new Float32Array(withMarkup.width * withMarkup.height);
+  for (let i = 0; i < out.length; i++) {
+    let d = 0;
+    for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(withMarkup.data[i * 4 + c] - without.data[i * 4 + c]));
+    out[i] = d / 255;
+  }
+  return out;
+}
+
+/**
+ * Centroid offset per markup object: the union of both masks is split into groups of pixels at
+ * most `joinPx` apart; for each group set in both masks with at least `minPx` pixels each, the
+ * distance between its centroid in `a` and in `b`. Returns the largest distance (0 if no group
+ * qualifies) and the number of groups compared. Unlike `maskMetrics`' global centroid, this does
+ * not shift when two objects far apart gain or lose a few edge pixels each.
+ *
+ * With `weightA`/`weightB` (e.g. `markupCoverage`), each mask pixel counts with its weight, so
+ * faint anti-aliased fringe pixels that one rendering has above the mask threshold and the other
+ * below barely move the centroid.
  */
 export function maxObjectOffset(
   a: Uint8Array,
   b: Uint8Array,
   width: number,
-  joinPx = 6,
-  minPx = 20,
+  opts: { joinPx?: number; minPx?: number; weightA?: Float32Array; weightB?: Float32Array } = {},
 ): { maxOffsetPx: number; objects: number } {
   if (a.length !== b.length) throw new Error(`mask size mismatch: ${a.length} vs ${b.length}`);
+  const { joinPx = 6, minPx = 20, weightA, weightB } = opts;
+  if ((weightA && weightA.length !== a.length) || (weightB && weightB.length !== b.length)) {
+    throw new Error("weight size mismatch");
+  }
   const height = a.length / width;
   const seen = new Uint8Array(a.length);
   let maxOffsetPx = 0;
   let objects = 0;
   for (let start = 0; start < a.length; start++) {
     if (seen[start] || !(a[start] || b[start])) continue;
-    let areaA = 0, areaB = 0, ax = 0, ay = 0, bx = 0, by = 0;
+    let areaA = 0, areaB = 0, wa = 0, wb = 0, ax = 0, ay = 0, bx = 0, by = 0;
     const stack = [start];
     seen[start] = 1;
     while (stack.length) {
       const i = stack.pop() as number;
       const x = i % width;
       const y = (i - x) / width;
-      if (a[i]) { areaA++; ax += x; ay += y; }
-      if (b[i]) { areaB++; bx += x; by += y; }
+      if (a[i]) { const w = weightA ? weightA[i] : 1; areaA++; wa += w; ax += w * x; ay += w * y; }
+      if (b[i]) { const w = weightB ? weightB[i] : 1; areaB++; wb += w; bx += w * x; by += w * y; }
       for (let ny = Math.max(0, y - joinPx); ny <= Math.min(height - 1, y + joinPx); ny++) {
         for (let nx = Math.max(0, x - joinPx); nx <= Math.min(width - 1, x + joinPx); nx++) {
           const j = ny * width + nx;
@@ -108,9 +131,9 @@ export function maxObjectOffset(
         }
       }
     }
-    if (areaA < minPx || areaB < minPx) continue;
+    if (areaA < minPx || areaB < minPx || wa === 0 || wb === 0) continue;
     objects++;
-    maxOffsetPx = Math.max(maxOffsetPx, Math.hypot(ax / areaA - bx / areaB, ay / areaA - by / areaB));
+    maxOffsetPx = Math.max(maxOffsetPx, Math.hypot(ax / wa - bx / wb, ay / wa - by / wb));
   }
   return { maxOffsetPx, objects };
 }

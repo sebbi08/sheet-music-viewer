@@ -5,6 +5,7 @@ import {
   diffRatio,
   encodePng,
   type Img,
+  markupCoverage,
   markupMask,
   maskMetrics,
   maxObjectOffset,
@@ -60,6 +61,31 @@ test("per-object offset ignores edge pixels gained by objects far apart, but see
   // The left object moves by 2 px.
   const moved = markupMask(solid(w, 50, (x, y) => box(12, 10, 20)(x, y) | box(150, 10, 20)(x, y)), blank);
   expect(maxObjectOffset(moved, ref, w).maxOffsetPx).toBeCloseTo(2);
+});
+
+test("coverage-weighted per-object offset ignores a faint fringe on one side, but sees a moved object", () => {
+  const w = 60;
+  const white = solid(w, 30, () => 0);
+  // A black bar, and the same bar with an extra light-gray fringe column on its right (as anti-aliasing).
+  const bar = solid(w, 30, (x, y) => +(x >= 10 && x < 40 && y >= 10 && y < 14));
+  const fringed: Img = { ...bar, data: bar.data.slice() };
+  for (let y = 10; y < 14; y++) fringed.data.set([200, 200, 200, 255], (y * w + 40) * 4);
+  const ref = markupMask(bar, white);
+  const img = markupMask(fringed, white);
+  const unweighted = maxObjectOffset(img, ref, w).maxOffsetPx;
+  const weighted = maxObjectOffset(img, ref, w, {
+    weightA: markupCoverage(fringed, white),
+    weightB: markupCoverage(bar, white),
+  }).maxOffsetPx;
+  expect(unweighted).toBeGreaterThan(0.4);
+  expect(weighted).toBeLessThan(unweighted / 4);
+  const moved = solid(w, 30, (x, y) => +(x >= 12 && x < 42 && y >= 10 && y < 14));
+  expect(
+    maxObjectOffset(markupMask(moved, white), ref, w, {
+      weightA: markupCoverage(moved, white),
+      weightB: markupCoverage(bar, white),
+    }).maxOffsetPx,
+  ).toBeCloseTo(2);
 });
 
 test("empty vs non-empty mask", () => {

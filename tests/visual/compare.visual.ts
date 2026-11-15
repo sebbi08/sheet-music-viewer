@@ -11,6 +11,7 @@ import {
   encodePng,
   type Img,
   markupMask,
+  markupCoverage,
   maskMetrics,
   maxObjectOffset,
   sideBySide,
@@ -22,7 +23,10 @@ import { renderPdfPageAsCaptured } from "./pdfRender";
  * PDF, on a copy of the corpus (the new app migrates on open):
  *   A  V1.with ↔ R.with                         view right after the migration
  *   B  V2.with ↔ R.with                         view after saving every marked page and reopening
- *   C  mask(P_on − P_off) ↔ mask(R.with − R.without)   pdf.js ("another viewer") with our layer shown
+ *   C  mask(P_on − P_off) ↔ mask(R.with − R.without)   pdf.js ("another viewer") with our layer shown;
+ *      position per object (Sebastian's decision): the largest coverage-weighted centroid offset of
+ *      a single markup object, not the global centroid (which moves when objects far apart gain or
+ *      lose a few resampled edge pixels each); overlap as IoU of the whole masks
  *   D  P_off ↔ P_orig                           pdf.js with our layer hidden ↔ the original PDF
  *   E  V1.without ↔ R.without                   page canvas alone: no stamp drawn twice
  *   Ar, Er  like A and E after saving and resizing the window (smaller, then back)
@@ -53,8 +57,10 @@ interface Check {
   ratio?: number;
   iou?: number;
   centroidOffsetPx?: number;
-  /** Diagnostic only (no threshold): largest centroid offset of a single markup object. */
+  /** Largest coverage-weighted centroid offset of a single markup object (checked for C, reported for A/B). */
   objectOffsetPx?: number;
+  /** Which centroid the position check used. */
+  position?: "global" | "perObject";
   areaRef?: number;
   areaNew?: number;
   violation?: string;
@@ -115,8 +121,19 @@ class PageChecker {
     this.finish({ id, ratio }, problems, () => sideBySide(ref, img, diff));
   }
 
-  /** Position of the markup: mask (with − without) of both, IoU and centroid distance; optionally pixels, too. */
-  markup(id: CheckId, ref: { with: Img; without: Img }, img: { with: Img; without: Img }, iouMin: number, withPixels: boolean) {
+  /**
+   * Position of the markup: mask (with − without) of both, IoU and centroid distance; optionally pixels,
+   * too. `position` "global" checks the centroid of the whole mask (A, B), "perObject" the largest
+   * coverage-weighted centroid offset of a single object (C); the other value is reported only.
+   */
+  markup(
+    id: CheckId,
+    ref: { with: Img; without: Img },
+    img: { with: Img; without: Img },
+    iouMin: number,
+    withPixels: boolean,
+    position: "global" | "perObject" = "global",
+  ) {
     const sizes = [ref.with, ref.without, img.with, img.without];
     if (!sizes.every((s) => sameSize(s, ref.with))) {
       this.finish({ id }, [`sizes ${sizes.map(sizeOf).join(" / ")} differ`], () => sideBySide(ref.with, img.with));
@@ -125,18 +142,26 @@ class PageChecker {
     const refMask = markupMask(ref.with, ref.without);
     const imgMask = markupMask(img.with, img.without);
     const m = maskMetrics(imgMask, refMask, ref.with.width);
+    const objectOffsetPx = maxObjectOffset(imgMask, refMask, ref.with.width, {
+      weightA: markupCoverage(img.with, img.without),
+      weightB: markupCoverage(ref.with, ref.without),
+    }).maxOffsetPx;
     const check: Check = {
       id,
       iou: m.iou,
       centroidOffsetPx: m.centroidOffsetPx,
-      objectOffsetPx: maxObjectOffset(imgMask, refMask, ref.with.width).maxOffsetPx,
+      objectOffsetPx,
+      position,
       areaNew: m.areaA,
       areaRef: m.areaB,
     };
     const problems: string[] = [];
     if (m.iou < iouMin) problems.push(`markup IoU ${m.iou.toFixed(4)} < ${iouMin}`);
-    if (!(m.centroidOffsetPx <= CENTROID_MAX_PX)) {
+    if (position === "global" && !(m.centroidOffsetPx <= CENTROID_MAX_PX)) {
       problems.push(`markup centroid offset ${m.centroidOffsetPx.toFixed(2)} px > ${CENTROID_MAX_PX} px`);
+    }
+    if (position === "perObject" && !(objectOffsetPx <= CENTROID_MAX_PX)) {
+      problems.push(`markup object centroid offset ${objectOffsetPx.toFixed(2)} px > ${CENTROID_MAX_PX} px`);
     }
     let diff: Img | undefined;
     if (withPixels) {
@@ -196,7 +221,11 @@ const fmt = (v: number | undefined, digits: number) => (v === undefined ? "-" : 
 function formatCheck(c: Check): string {
   const parts = [
     c.ratio !== undefined ? `${fmt(c.ratio * 100, 3)}%` : "",
-    c.iou !== undefined ? `IoU ${fmt(c.iou, 3)} ${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)}px)` : "",
+    c.iou === undefined
+      ? ""
+      : c.position === "perObject"
+        ? `IoU ${fmt(c.iou, 3)} obj ${fmt(c.objectOffsetPx, 2)}px (global ${fmt(c.centroidOffsetPx, 2)}px)`
+        : `IoU ${fmt(c.iou, 3)} ${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)}px)`,
   ].filter(Boolean);
   return `${c.id} ${parts.join(" ")}${c.violation ? " FAIL" : ""}`;
 }
@@ -301,7 +330,7 @@ for (const { pdfPath, markedPages } of corpus) {
 
         checker.markup("A", r, first, IOU_MIN_APP, true);
         checker.markup("B", r, v2.get(page) as Capture, IOU_MIN_APP, true);
-        checker.markup("C", r, { with: pOn, without: pOff }, IOU_MIN_OTHER_VIEWER, false);
+        checker.markup("C", r, { with: pOn, without: pOff }, IOU_MIN_OTHER_VIEWER, false, "perObject");
         checker.pixels("D", pOrig, pOff);
         checker.pixels("E", r.without, first.without);
         checker.markup("Ar", r, v1Resized.get(page) as Capture, IOU_MIN_APP, true);
@@ -341,7 +370,11 @@ afterAll(() => {
     if (!c) return "-";
     const parts = [
       c.ratio !== undefined ? `${fmt(c.ratio * 100, 3)}%` : "",
-      c.iou !== undefined ? `${fmt(c.iou, 3)}/${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)})` : "",
+      c.iou === undefined
+        ? ""
+        : c.position === "perObject"
+          ? `${fmt(c.iou, 3)}/obj ${fmt(c.objectOffsetPx, 2)}px (global ${fmt(c.centroidOffsetPx, 2)})`
+          : `${fmt(c.iou, 3)}/${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)})`,
     ].filter(Boolean);
     return `${parts.join(" ")}${c.violation ? " **FAIL**" : ""}`;
   };
