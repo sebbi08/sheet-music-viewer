@@ -33,6 +33,14 @@ interface SheetState {
   pages: Map<number, PageState>;
   /** The next successful save may replace/delete the legacy or v1 sidecar. */
   deleteLegacySidecar: boolean;
+  /**
+   * Set once a save of this sheet went to the v1 sidecar (final review B1): the pages it holds now, as
+   * far as this queue wrote them. Every later save carries them along with `deleteLegacySidecar`, so the
+   * first save that reaches the PDF moves all of them there in one write and the sidecar is removed;
+   * a PDF save of only the changed pages would hide the sidecar ("embedded wins"). `null` = not known
+   * to be in a sidecar.
+   */
+  sidecarPages: Map<number, NonNullable<PageState>> | null;
   /** Attempts run one after another; never rejects. */
   chain: Promise<void>;
   /** Attempts queued or running. */
@@ -54,7 +62,15 @@ export class MarkupSaveQueue {
     const key = this.key(path);
     let sheet = this.sheets.get(key);
     if (!sheet) {
-      sheet = { path, pages: new Map(), deleteLegacySidecar: false, chain: Promise.resolve(), busy: 0, failing: false };
+      sheet = {
+        path,
+        pages: new Map(),
+        deleteLegacySidecar: false,
+        sidecarPages: null,
+        chain: Promise.resolve(),
+        busy: 0,
+        failing: false,
+      };
       this.sheets.set(key, sheet);
     }
     return sheet;
@@ -143,8 +159,13 @@ export class MarkupSaveQueue {
 
   private async attempt(sheet: SheetState): Promise<void> {
     if (sheet.pages.size === 0) return;
-    const sent = [...sheet.pages.entries()].sort(([a], [b]) => a - b);
-    const deleteLegacySidecar = sheet.deleteLegacySidecar;
+    const sidecarPages = sheet.sidecarPages;
+    // Pending changes win over the pages carried from the sidecar.
+    const sent = [...new Map<number, PageState>([...(sidecarPages ?? []), ...sheet.pages]).entries()].sort(
+      ([a], [b]) => a - b,
+    );
+    const legacyDeleteAllowed = sheet.deleteLegacySidecar;
+    const deleteLegacySidecar = legacyDeleteAllowed || sidecarPages !== null;
 
     let result: SaveMarkupResult;
     try {
@@ -171,7 +192,18 @@ export class MarkupSaveQueue {
         // A page changed again while saving stays pending.
         if (sheet.pages.has(page) && sheet.pages.get(page) === state) sheet.pages.delete(page);
       }
-      if (deleteLegacySidecar) sheet.deleteLegacySidecar = false;
+      if (legacyDeleteAllowed) sheet.deleteLegacySidecar = false;
+      if (result.status === "pdf") {
+        sheet.sidecarPages = null;
+      } else {
+        // Merged like the sidecar file itself: a page saved as `null` is removed from it.
+        const inSidecar = new Map(sidecarPages ?? []);
+        for (const [page, state] of sent) {
+          if (state) inSidecar.set(page, state);
+          else inSidecar.delete(page);
+        }
+        sheet.sidecarPages = inSidecar;
+      }
       const afterFailure = sheet.failing;
       sheet.failing = false;
       this.emit({ type: "saved", path: sheet.path, status: result.status, afterFailure });

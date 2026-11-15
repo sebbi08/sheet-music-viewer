@@ -427,3 +427,115 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     expect((await readMarkupOf(real)).pages).toHaveLength(1);
   });
 });
+
+describe("a v1 sidecar written earlier in the same visit (B1)", () => {
+  const lockedError = () => Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+  let previousDelays: readonly number[];
+  beforeEach(() => {
+    previousDelays = setLockRetryDelays([]);
+  });
+  afterEach(() => {
+    setLockRetryDelays(previousDelays);
+  });
+
+  /** Like Acrobat holding the PDF open: renaming onto the PDF fails, everything else works. */
+  function lockPdf(pdf: string) {
+    const realRename = fs.promises.rename.bind(fs.promises);
+    return vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementation((from, to) => (String(to) === pdf ? Promise.reject(lockedError()) : realRename(from, to)));
+  }
+
+  /** Unlocked again: a later save without the migration flag keeps writing the sidecar; the migration moves all. */
+  async function expectSidecarKeptThenMigrated(pdf: string, before: Buffer) {
+    expect(await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).toEqual({
+      status: "sidecar",
+    });
+    expect(fs.readFileSync(pdf).equals(before), "no partial PDF next to the sidecar").toBe(true);
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "sidecar",
+      pages: [
+        { page: 1, rect: null, payload: payload(1) },
+        { page: 2, rect: null, payload: payload(2) },
+      ],
+      legacyOverlayData: null,
+    });
+
+    // The renderer's migrating write: every page of the sidecar, with deleteLegacySidecar.
+    expect(await saveMarkupToFile({ path: pdf, pages: [page1(), page2()], deleteLegacySidecar: true })).toEqual({
+      status: "pdf",
+    });
+    const loaded = await loadMarkupFromFile(pdf);
+    expect({ source: loaded.source, pages: loaded.pages.map((p) => [p.page, p.payload]) }).toEqual({
+      source: "pdf",
+      pages: [
+        [1, payload(1)],
+        [2, payload(2)],
+      ],
+    });
+    expect(fs.existsSync(getSidecarPath(pdf)), "sidecar removed after the migration").toBe(false);
+    expect(fs.readFileSync(pdf).subarray(0, before.length).equals(before), "original bytes kept as prefix").toBe(true);
+    expect(tempFiles(dir)).toEqual([]);
+  }
+
+  test("locked PDF -> sidecar for page 1; unlocked, page 2 saved: nothing becomes invisible", async () => {
+    const pdf = await writeFixture(dir, "n.pdf", await makePdf({ xref: "table", pages: 2 }));
+    const before = fs.readFileSync(pdf);
+    const lock = lockPdf(pdf);
+    expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe(
+      "sidecar",
+    );
+    lock.mockRestore();
+    await expectSidecarKeptThenMigrated(pdf, before);
+  });
+
+  test.skipIf(isRoot)("read-only PDF -> sidecar; writable again later in the visit (skipped as root)", async () => {
+    const pdf = await writeFixture(dir, "ro.pdf", await makePdf({ xref: "table", pages: 2 }));
+    const before = fs.readFileSync(pdf);
+    fs.chmodSync(pdf, 0o444);
+    expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe(
+      "sidecar",
+    );
+    fs.chmodSync(pdf, 0o644);
+    await expectSidecarKeptThenMigrated(pdf, before);
+  });
+
+  test("a migrating write that misses a sidecar page keeps writing the sidecar (nothing deleted)", async () => {
+    const pdf = await writeFixture(dir, "p.pdf", await makePdf({ xref: "table", pages: 2 }));
+    const before = fs.readFileSync(pdf);
+    fs.writeFileSync(getSidecarPath(pdf), JSON.stringify({ version: 1, pages: [{ page: 1, payload: payload(1) }] }));
+    expect(await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: true })).toEqual({
+      status: "sidecar",
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1, 2]);
+  });
+
+  test("a migrating write may remove a sidecar page with payload null", async () => {
+    const pdf = await writeFixture(dir, "q.pdf", await makePdf({ xref: "table", pages: 2 }));
+    fs.writeFileSync(
+      getSidecarPath(pdf),
+      JSON.stringify({ version: 1, pages: [1, 2].map((page) => ({ page, payload: payload(page) })) }),
+    );
+    const result = await saveMarkupToFile({
+      path: pdf,
+      pages: [{ page: 1, payload: null, pngBase64: null }, page2()],
+      deleteLegacySidecar: true,
+    });
+    expect(result).toEqual({ status: "pdf" });
+    expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+    expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([2]);
+  });
+
+  test("still locked during the migrating write: everything stays in the sidecar", async () => {
+    const pdf = await writeFixture(dir, "l.pdf", await makePdf({ xref: "table", pages: 2 }));
+    const before = fs.readFileSync(pdf);
+    fs.writeFileSync(getSidecarPath(pdf), JSON.stringify({ version: 1, pages: [{ page: 1, payload: payload(1) }] }));
+    lockPdf(pdf);
+    expect(await saveMarkupToFile({ path: pdf, pages: [page1(), page2()], deleteLegacySidecar: true })).toEqual({
+      status: "sidecar",
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1, 2]);
+  });
+});

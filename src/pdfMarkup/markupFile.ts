@@ -3,7 +3,9 @@
  * saves markup through the PDF itself, written atomically (temp file in the same folder, verified, then
  * renamed). Encrypted and non-writable PDFs without embedded data fall back to a v1 `.data` sidecar, and so
  * do PDFs without embedded data that stay locked (EBUSY/EPERM/EACCES) after the retries; once a PDF has
- * embedded data, a failed write is reported and the PDF stays byte-identical. No Electron imports: this
+ * embedded data, a failed write is reported and the PDF stays byte-identical. While such a PDF has a v1
+ * sidecar, only the migrating save (all sidecar pages, `deleteLegacySidecar`) writes the PDF; other saves
+ * keep merging into the sidecar (see `mustStayInSidecar`). No Electron imports: this
  * module is unit-tested in Node.
  */
 import fs from "node:fs";
@@ -314,6 +316,7 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
 
     // Unparseable: no embedded data can be known (load then uses the sidecar too), the PDF stays untouched.
     if (!inspection || inspection.encrypted || !(await isWritable(realPath))) return await fallback(input, inspection);
+    if (await mustStayInSidecar(input, inspection)) return await fallback(input, inspection);
 
     const changes: PageChange[] = input.pages.map(({ page, payload, pngBase64 }) => ({
       page,
@@ -351,6 +354,23 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
   } catch (e) {
     return { status: "error", message: errorMessage(e) };
   }
+}
+
+/**
+ * A PDF without embedded data that has a v1 sidecar (e.g. written earlier in this visit while the PDF was
+ * locked or read-only) is written only by the migrating save: `deleteLegacySidecar` set and every page of
+ * the sidecar in the request (with its payload or `null`). Any other PDF write would give the PDF
+ * embedded data, which hides the sidecar on the next load ("embedded wins"), so the sidecar pages not in
+ * the request would become invisible (final review B1). Such saves keep merging into the sidecar instead.
+ * Main cannot move the sidecar pages itself: their stamp PNGs are rendered by the renderer.
+ */
+async function mustStayInSidecar(input: SaveMarkupInput, inspection: Inspection): Promise<boolean> {
+  if (hasEmbeddedData(inspection)) return false;
+  const sidecar = await readSidecar(input.path);
+  if (sidecar.kind !== "v1") return false;
+  if (!input.deleteLegacySidecar) return true;
+  const inRequest = new Set(input.pages.map((p) => p.page));
+  return [...sidecar.pages.keys()].some((page) => !inRequest.has(page));
 }
 
 /**
