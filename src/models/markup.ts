@@ -28,8 +28,18 @@ export interface LoadMarkupResult {
   legacyOverlayData: string | null;
 }
 
+/**
+ * Absolute path of a PDF file: POSIX (`/…`), Windows drive (`C:\…`, `C:/…`) or UNC (`\\server\…`), ending
+ * in `.pdf` (any case). Checked without `node:path`, because the renderer uses this module too.
+ */
+export const pdfPathSchema = z
+  .string()
+  .refine((p) => !p.includes("\0") && /^(\/|[A-Za-z]:[\\/]|\\\\[^\\])/.test(p) && /\.pdf$/i.test(p), {
+    message: "expected an absolute path to a .pdf file",
+  });
+
 export const saveMarkupInputSchema = z.object({
-  path: z.string(),
+  path: pdfPathSchema,
   pages: z.array(
     z.object({
       page: z.number().int().positive(),

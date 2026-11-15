@@ -3,7 +3,7 @@ import { autoUpdater } from "electron/main";
 import { on } from "events";
 import superjson from "superjson";
 import { z } from "zod";
-import { saveMarkupInputSchema } from "./models/markup";
+import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
 import { loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
 import {
@@ -81,7 +81,7 @@ export const trcpRouter = createRouter({
     .input(saveSetListsInputSchema)
     .query(saveSetLists),
 
-  loadMarkup: publicProcedure.input(z.string()).query(({ input }) => loadMarkupFromFile(input)),
+  loadMarkup: publicProcedure.input(pdfPathSchema).query(({ input }) => loadMarkupFromFile(input)),
 
   saveMarkup: publicProcedure
     .input(saveMarkupInputSchema)
