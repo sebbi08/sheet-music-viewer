@@ -1,5 +1,6 @@
 import { inflateSync, deflateSync, crc32 } from "node:zlib";
 import { PDFArray, PDFDocument, PDFName, StandardFonts, degrees } from "pdf-lib";
+import type { MarkupPayload } from "../../src/models/markup";
 
 export type Box = [number, number, number, number];
 
@@ -15,6 +16,14 @@ export interface MakePdfOptions {
 }
 
 const A4: Box = [0, 0, 595, 842];
+
+/** A small valid markup payload; `n` makes payloads distinguishable. */
+export const payload = (n = 1): MarkupPayload => ({
+  version: 1,
+  width: 595,
+  height: 842,
+  fabric: { version: "7.4.0", objects: [{ type: "Rect", left: n }] },
+});
 
 /** Builds a small PDF with pdf-lib. `xref` selects classic table vs. xref stream. */
 export async function makePdf(opts: MakePdfOptions): Promise<Uint8Array> {
@@ -66,8 +75,8 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([len, body, crc]);
 }
 
-/** Opaque-gradient RGBA PNG of the given size, built without extra dependencies. */
-export function makePng(w: number, h: number): Uint8Array {
+/** Gradient RGBA PNG of the given size (opaque unless `alpha` < 255), built without extra dependencies. */
+export function makePng(w: number, h: number, alpha = 255): Uint8Array {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0);
   ihdr.writeUInt32BE(h, 4);
@@ -82,7 +91,7 @@ export function makePng(w: number, h: number): Uint8Array {
       raw[p] = x % 256;
       raw[p + 1] = y % 256;
       raw[p + 2] = 128;
-      raw[p + 3] = 255;
+      raw[p + 3] = alpha;
     }
   }
   return new Uint8Array(

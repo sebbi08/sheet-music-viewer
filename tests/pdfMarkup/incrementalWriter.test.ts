@@ -1,50 +1,14 @@
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 import { PDFDict, PDFDocument, PDFName, PDFRef, PDFString } from "pdf-lib";
-import { getDocument, VerbosityLevel } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { describe, expect, test, vi } from "vitest";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { describe, expect, test } from "vitest";
 import { findLastStartXref, getSectionTrailer, getXrefKind } from "../../src/pdfMarkup/fileStructure";
 import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
 import { corpusDir } from "../visual/corpus";
 import { makePdf, markEncrypted, readXrefEntries } from "./fixtures";
-
-// pdf.js in Node reads these with fs, so plain directory paths keep it offline (see tests/visual/pdfRender.ts).
-const pdfjsRoot = path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
-const assetDir = (name: string) => path.join(pdfjsRoot, name) + path.sep;
-
-/**
- * Opens `bytes` with pdf.js (like another viewer would) and loads every page. `recovered` is true if
- * pdf.js had to fall back to indexing all objects because the xref chain was unusable.
- */
-async function openWithPdfjs(
-  bytes: Uint8Array,
-): Promise<{ numPages: number; title: string | undefined; recovered: boolean }> {
-  const warnings: string[] = [];
-  const spy = vi.spyOn(console, "warn").mockImplementation((msg: unknown) => void warnings.push(String(msg)));
-  const task = getDocument({
-    data: bytes.slice(), // pdf.js detaches the buffer
-    wasmUrl: assetDir("wasm"),
-    cMapUrl: assetDir("cmaps"),
-    cMapPacked: true,
-    standardFontDataUrl: assetDir("standard_fonts"),
-    verbosity: VerbosityLevel.WARNINGS,
-  });
-  try {
-    const doc = await task.promise;
-    for (let p = 1; p <= doc.numPages; p++) await doc.getPage(p);
-    const { info } = await doc.getMetadata();
-    return {
-      numPages: doc.numPages,
-      title: (info as { Title?: string }).Title,
-      recovered: warnings.some((w) => /Indexing all PDF objects|xref/i.test(w)),
-    };
-  } finally {
-    await task.destroy();
-    spy.mockRestore();
-  }
-}
+import { openWithPdfjs } from "./pdfjs";
 
 const text = (bytes: Uint8Array, start: number, end: number) =>
   Buffer.from(bytes.subarray(start, end)).toString("latin1");
