@@ -108,6 +108,14 @@ Entschieden von Sebastian: **A**.
   zwei konkurrierende Stände entstehen. Fallback-`.data`-Dateien werden im neuen
   Punkte-Format mit Versionsfeld geschrieben, damit die Migration sie vom alten
   Pixel-Format unterscheiden kann.
+  *(Präzisiert nach dem Final Review:)* Öffnen der Temp-Datei und Rename werden bei
+  EBUSY/EPERM/EACCES etwa 3 s lang wiederholt. Bleibt eine PDF **ohne** eingebettete Daten
+  danach gesperrt, greift der Fallback in die Begleitdatei. „Im Speicher behalten“ heißt:
+  Ungespeicherte Änderungen liegen außerhalb der Ansicht (pro PDF-Pfad), überstehen das
+  Verlassen der Noten, haben beim erneuten Öffnen Vorrang vor der Datei und werden alle
+  30 s sowie bei jedem neuen Speichern erneut versucht. Der Fehler wird app-weit angezeigt.
+  Beim Schließen des Fensters oder dem Update-Neustart wird zuerst gespeichert; scheitert
+  das, fragt ein Dialog („Erneut versuchen“, „Verwerfen und schließen“, „Abbrechen“).
 - **Von einem anderen Programm komplett neu geschriebene Datei** (Preview, Handy-Apps,
   Acrobat „Speichern unter“) *(Entscheidung Claude)*: Passt `/OriginalLength` nicht mehr
   (an diesem Offset endet kein gültiger Abschnitt mit `%%EOF`), wird die aktuelle Datei
@@ -179,6 +187,10 @@ Pro Seite mit Markierungen:
   abgeschnitten. Die alte App hat im Bearbeitungsmodus genauso pro Achse skaliert. Die
   Abweichung zwischen den Achsen liegt unter 0,1 %, verzerrt also nicht sichtbar, und die
   Positionen stimmen exakt mit der alten App überein.)*
+- Mitgespeichert wird die Anzeige-Drehung der Seite beim Speichern (`rotation`, optional).
+  *(Präzisiert nach dem Final Review:)* Dreht ein anderes Programm die Seite danach, dreht
+  die App beim Laden Position und Winkel jedes Objekts um die Differenz (90°-Schritte) mit,
+  so wie andere Viewer den Stempel mitdrehen. Daten ohne das Feld werden nicht korrigiert.
 - Mitgespeichert wird der `/Rect`, gegen den gezeichnet wurde. Weicht der `/Rect` der
   Annotation beim Laden davon ab (ein anderes Programm hat Seite bzw. Annotation
   verschoben/skaliert), gilt der `/Rect` der Annotation: die fabric-Daten werden auf den
