@@ -116,6 +116,15 @@ Entschieden von Sebastian: **A**.
   30 s sowie bei jedem neuen Speichern erneut versucht. Der Fehler wird app-weit angezeigt.
   Beim Schließen des Fensters oder dem Update-Neustart wird zuerst gespeichert; scheitert
   das, fragt ein Dialog („Erneut versuchen“, „Verwerfen und schließen“, „Abbrechen“).
+  *(Präzisiert nach B1/B2:)* Hat eine PDF ohne eingebettete Daten eine v1-Begleitdatei (z. B.
+  weil sie vorhin gesperrt war), wird die PDF nur mit allen Seiten der Begleitdatei auf einmal
+  beschrieben und die Begleitdatei danach gelöscht; jedes andere Speichern geht weiter in die
+  Begleitdatei. So verdeckt nie eine Teil-PDF Markierungen der Begleitdatei. Das Schließen hängt
+  nicht allein am Renderer: Meldet er sich nicht binnen 10 s, beim zweiten Schließen-Klick
+  während des Speicherns oder wenn er nicht mehr reagiert, zeigt der Hauptprozess denselben
+  Dialog selbst; „Verwerfen und schließen“ schließt dann ohne den Renderer. Während das Speichern
+  läuft, zeigt die App „Markierungen werden gespeichert …“. Ein abgestürzter Renderer blockiert
+  das Schließen nie.
 - **Von einem anderen Programm komplett neu geschriebene Datei** (Preview, Handy-Apps,
   Acrobat „Speichern unter“) *(Entscheidung Claude)*: Passt `/OriginalLength` nicht mehr
   (an diesem Offset endet kein gültiger Abschnitt mit `%%EOF`), wird die aktuelle Datei

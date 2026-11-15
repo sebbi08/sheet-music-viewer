@@ -57,10 +57,14 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - **Sidecar fallback** (`.<name>.data`, v1 format) only for PDFs **without** embedded data that are
   encrypted, unparseable, read-only or stay locked; with embedded data a failed write is an error
   (never two competing states). Legacy `.data` files are migrated into the PDF on open and deleted
-  after the read-back succeeded.
+  after the read-back succeeded. While a PDF without embedded data has a v1 sidecar, only the
+  migrating save (all sidecar pages + `deleteLegacySidecar`) writes the PDF; the save queue carries
+  the sidecar pages with every save after a `sidecar` result, so nothing is hidden behind a partial PDF.
 - Unsaved changes live in the renderer's `markupSaves` store (`src/markup/saveQueue.ts`), survive
   leaving the sheet, are retried every 30 s, and closing the window asks before discarding them
-  (`src/exitGuard.ts`).
+  (renderer: `src/markup/closeGuard.ts`; main: `src/exitGuardMachine.ts` + `src/exitGuard.ts`). Main
+  shows the dialog itself if the renderer has not reported within 10 s, on a second close while the
+  save runs, or when the renderer hangs; a crashed renderer never blocks closing.
 - Visual tests (`npm run test:visual`, see above) compare migrated markup against the old app.
 
 ## Auto-Update
