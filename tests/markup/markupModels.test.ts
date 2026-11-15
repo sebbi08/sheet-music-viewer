@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { pdfPathSchema, saveMarkupInputSchema } from "../../src/models/markup";
+import { markupPayloadSchema, pdfPathSchema, saveMarkupInputSchema } from "../../src/models/markup";
 
 describe("pdfPathSchema (tRPC inputs of loadMarkup/saveMarkup)", () => {
   test.each([
@@ -30,5 +30,21 @@ describe("pdfPathSchema (tRPC inputs of loadMarkup/saveMarkup)", () => {
   test("saveMarkup input rejects a relative path", () => {
     expect(saveMarkupInputSchema.safeParse({ path: "a.pdf", pages: [], deleteLegacySidecar: false }).success).toBe(false);
     expect(saveMarkupInputSchema.safeParse({ path: "/a.pdf", pages: [], deleteLegacySidecar: false }).success).toBe(true);
+  });
+});
+
+describe("markupPayloadSchema", () => {
+  const base = { version: 1, width: 595, height: 842, fabric: { objects: [] } };
+
+  test("rotation is optional (payloads written before it existed stay valid)", () => {
+    expect(markupPayloadSchema.parse(base)).toEqual(base);
+  });
+
+  test.each([0, 90, 180, 270])("accepts rotation %i", (rotation) => {
+    expect(markupPayloadSchema.parse({ ...base, rotation })).toEqual({ ...base, rotation });
+  });
+
+  test.each([45, -90, 360, "90"])("rejects rotation %j", (rotation) => {
+    expect(markupPayloadSchema.safeParse({ ...base, rotation }).success).toBe(false);
   });
 });

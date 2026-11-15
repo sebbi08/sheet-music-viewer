@@ -11,9 +11,52 @@ export interface Transform2D {
 }
 
 type Size = { width: number; height: number };
+/** Displayed page size in points; `rotation` = display rotation in degrees (pdf.js `PageViewport`). */
+type Viewport = Size & { rotation?: number };
+type Rotation = 0 | 90 | 180 | 270;
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** A rotation in degrees as one of 0/90/180/270 (like pdf.js, anything else counts as 0). */
+export function normalizeRotation(degrees: number): Rotation {
+  const r = ((degrees % 360) + 360) % 360;
+  return r === 90 || r === 180 || r === 270 ? r : 0;
+}
+
+const rotationOf = (viewport: Viewport) =>
+  viewport.rotation === undefined ? {} : { rotation: normalizeRotation(viewport.rotation) };
+
+/**
+ * The payload as seen on a page displayed with `currentRotation`: if the page was turned (in another
+ * program) since the payload was saved, every top-level object's position (its origin point, a fixed point
+ * of the object) is turned with the page, its `angle` is increased by the same 90° steps, and width/height
+ * are swapped for quarter turns. A payload without `rotation`, or saved at the current rotation, is
+ * returned unchanged. The input is not mutated.
+ */
+export function rotatePayload(payload: MarkupPayload, currentRotation: number): MarkupPayload {
+  const current = normalizeRotation(currentRotation);
+  if (payload.rotation === undefined || payload.rotation === current) return payload;
+  const delta = (current - payload.rotation + 360) % 360;
+  const { width: w, height: h } = payload;
+  // A point of the displayed page after turning the display `delta` degrees clockwise (y points down).
+  const turn = (x: number, y: number): [number, number] =>
+    delta === 90 ? [h - y, x] : delta === 180 ? [w - x, h - y] : [y, w - x];
+  const objects = payload.fabric.objects.map((o) => {
+    if (o === null || typeof o !== "object") return o;
+    const obj = o as Record<string, unknown>;
+    const [left, top] = turn(num(obj.left, 0), num(obj.top, 0));
+    return { ...obj, left, top, angle: (((num(obj.angle, 0) + delta) % 360) + 360) % 360 };
+  });
+  const quarter = delta !== 180;
+  return {
+    ...payload,
+    width: quarter ? h : w,
+    height: quarter ? w : h,
+    rotation: current,
+    fabric: { ...payload.fabric, objects },
+  };
 }
 
 /** Transforms top-level objects only (left/top/scaleX/scaleY) on a copy; the input is not mutated. */
@@ -33,7 +76,8 @@ export function transformFabricJson<T extends { objects: unknown[] }>(json: T, t
 }
 
 /**
- * Payload (points) -> canvas pixels. `viewRect` null = whole page. `canvasWidth`/`canvasHeight` are the
+ * Payload (points) -> canvas pixels. `payload` must already be in the current display orientation
+ * (`rotatePayload`). `viewRect` null = whole page. `canvasWidth`/`canvasHeight` are the
  * real (integer) canvas size covering the page; each axis is scaled by its own canvas side, which is
  * what the old edit mode did and what the user drew on (differs from uniform scaling by < 0.1 %).
  */
@@ -60,12 +104,13 @@ export function payloadFromCanvas(
   json: { objects: unknown[] },
   canvasWidth: number,
   canvasHeight: number,
-  viewport: Size,
+  viewport: Viewport,
 ): MarkupPayload {
   return {
     version: 1,
     width: viewport.width,
     height: viewport.height,
+    ...rotationOf(viewport),
     fabric: transformFabricJson(json, {
       sx: viewport.width / canvasWidth,
       sy: viewport.height / canvasHeight,
@@ -76,13 +121,14 @@ export function payloadFromCanvas(
 }
 
 /** Legacy overlay (screen pixels + drawWidth/drawHeight) -> payload; x and y scaled separately, unrounded. */
-export function legacyToPayload(legacy: OverlayData, viewport: Size): MarkupPayload {
+export function legacyToPayload(legacy: OverlayData, viewport: Viewport): MarkupPayload {
   const data = legacy.data as { objects?: unknown[] };
   const json = { ...data, objects: Array.isArray(data.objects) ? data.objects : [] };
   return {
     version: 1,
     width: viewport.width,
     height: viewport.height,
+    ...rotationOf(viewport),
     fabric: transformFabricJson(json, {
       sx: viewport.width / legacy.drawWidth,
       sy: viewport.height / legacy.drawHeight,

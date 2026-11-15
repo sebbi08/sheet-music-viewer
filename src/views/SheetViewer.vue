@@ -164,7 +164,7 @@ import {
   type Svg,
 } from "../Enums";
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
-import { displayTransform, legacyToPayload, payloadFromCanvas, transformFabricJson } from "../markup/fabricTransform";
+import { displayTransform, legacyToPayload, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
 import { renderMarkupPng } from "../markup/renderPng";
 import { type MarkupPayload, markupPayloadSchema, type Rect, type SaveMarkupInput, type SaveMarkupResult } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
@@ -451,9 +451,11 @@ function fabricJsonForDisplay(
   canvasWidth: number,
   canvasHeight: number,
 ) {
+  // Turned along if another program rotated the page after the markup was saved.
+  const payload = rotatePayload(entry.payload, viewport.rotation);
   return transformFabricJson(
-    entry.payload.fabric,
-    displayTransform(viewRectOf(entry.rect, viewport), entry.payload, viewport, canvasWidth, canvasHeight),
+    payload.fabric,
+    displayTransform(viewRectOf(entry.rect, viewport), payload, viewport, canvasWidth, canvasHeight),
   );
 }
 

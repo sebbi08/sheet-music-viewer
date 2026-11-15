@@ -5,12 +5,15 @@ export type Rect = [number, number, number, number];
 
 /**
  * fabric data of one page. `width`/`height` are the displayed page size in points (pdf.js viewport at
- * scale 1, rotation included); the fabric coordinates refer to it.
+ * scale 1, rotation included); the fabric coordinates refer to it. `rotation` is the page's display
+ * rotation when it was saved; if another program turns the page later, the app turns the markup with it
+ * (`rotatePayload`). Payloads saved before the field existed have none: no correction.
  */
 export const markupPayloadSchema = z.object({
   version: z.literal(1),
   width: z.number().positive(),
   height: z.number().positive(),
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(),
   fabric: z.object({ objects: z.array(z.unknown()) }).passthrough(),
 });
 export type MarkupPayload = z.infer<typeof markupPayloadSchema>;

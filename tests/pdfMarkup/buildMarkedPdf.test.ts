@@ -71,6 +71,15 @@ test.each(["table", "stream"] as const)("round trip (%s)", async (kind) => {
   expect(r.meta).toEqual({ originalLength: orig.length, updateStart: orig.length });
 });
 
+test("the payload's display rotation round-trips (and stays absent when it was absent)", async () => {
+  const orig = await makePdf({ xref: "stream", pages: 2, rotate: 90 });
+  const turned: MarkupPayload = { ...payload(), width: 842, height: 595, rotation: 90 };
+  const out = await buildMarkedPdf(orig, [mark(1, turned), mark(2, payload(2))]);
+  const r = readMarkup(await load(out));
+  expect(r.pages.map((p) => p.payload)).toEqual([turned, payload(2)]);
+  expect(r.pages[1].payload).not.toHaveProperty("rotation");
+});
+
 test("other viewers see a printable stamp in our OCG, foreign annots kept", async () => {
   const out = await buildMarkedPdf(await makePdf({ xref: "stream", foreignAnnot: true }), [
     { page: 1, payload: payload(), png: makePng(10, 10) },
