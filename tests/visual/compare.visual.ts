@@ -14,6 +14,7 @@ import {
   markupCoverage,
   maskMetrics,
   maxObjectOffset,
+  objectPositionProblems,
   sideBySide,
 } from "./imageCompare";
 import { renderPdfPageAsCaptured } from "./pdfRender";
@@ -26,7 +27,8 @@ import { renderPdfPageAsCaptured } from "./pdfRender";
  *   C  mask(P_on − P_off) ↔ mask(R.with − R.without)   pdf.js ("another viewer") with our layer shown;
  *      Sebastian's decision of 2026-11-15: position per object, i.e. the largest coverage-weighted
  *      centroid offset of a single markup object ≤ 1.5 px (not the global centroid, which moves when
- *      objects far apart gain or lose a few resampled edge pixels each); IoU reported as info only
+ *      objects far apart gain or lose a few resampled edge pixels each); an object missing in one
+ *      image fails as well; IoU reported as info only
  *   D  P_off ↔ P_orig                           pdf.js with our layer hidden ↔ the original PDF
  *   E  V1.without ↔ R.without                   page canvas alone: no stamp drawn twice
  *   Ar, Er  like A and E after saving and resizing the window (smaller, then back)
@@ -44,7 +46,9 @@ const IOU_MIN_APP = 0.98;
 const CENTROID_MAX_PX = 1;
 /**
  * Check C ("another viewer"): Sebastian's decision of 2026-11-15 ("Lage ≤ 1,5 px, Überlappung als Info").
- * Fails only when one markup object's coverage-weighted centroid is more than 1.5 px off. The IoU
+ * Fails when one markup object's coverage-weighted centroid is more than 1.5 px off, or when an
+ * object has no counterpart (missing in the other viewer, or so far off that its position is
+ * undefined; see `objectPositionProblems`). The IoU
  * (formerly ≥ 0.90) is reported as information only: thin strokes resampled into the stamp PNG and
  * rendered by pdf.js over its own page render cannot reach it, even when they are in the right place.
  */
@@ -65,6 +69,9 @@ interface Check {
   centroidOffsetPx?: number;
   /** Largest coverage-weighted centroid offset of a single markup object (checked for C, reported for A/B). */
   objectOffsetPx?: number;
+  /** Markup objects found in both images, and in only one (missing or far off: fails C). */
+  matchedObjects?: number;
+  unmatchedObjects?: number;
   /** Which centroid the position check used. */
   position?: "global" | "perObject";
   areaRef?: number;
@@ -149,15 +156,17 @@ class PageChecker {
     const refMask = markupMask(ref.with, ref.without);
     const imgMask = markupMask(img.with, img.without);
     const m = maskMetrics(imgMask, refMask, ref.with.width);
-    const objectOffsetPx = maxObjectOffset(imgMask, refMask, ref.with.width, {
+    const objects = maxObjectOffset(imgMask, refMask, ref.with.width, {
       weightA: markupCoverage(img.with, img.without),
       weightB: markupCoverage(ref.with, ref.without),
-    }).maxOffsetPx;
+    });
     const check: Check = {
       id,
       iou: m.iou,
       centroidOffsetPx: m.centroidOffsetPx,
-      objectOffsetPx,
+      objectOffsetPx: objects.maxOffsetPx,
+      matchedObjects: objects.objects,
+      unmatchedObjects: objects.unmatched,
       position,
       areaNew: m.areaA,
       areaRef: m.areaB,
@@ -168,11 +177,14 @@ class PageChecker {
       if (!(m.centroidOffsetPx <= criteria.centroidMaxPx)) {
         problems.push(`markup centroid offset ${m.centroidOffsetPx.toFixed(2)} px > ${criteria.centroidMaxPx} px`);
       }
-    } else if (!(objectOffsetPx <= criteria.objectOffsetMaxPx)) {
-      problems.push(
-        `markup object centroid offset ${objectOffsetPx.toFixed(2)} px > ${criteria.objectOffsetMaxPx} px ` +
-          `(info: IoU ${m.iou.toFixed(4)}, global centroid ${m.centroidOffsetPx.toFixed(2)} px)`,
-      );
+    } else {
+      const objectProblems = objectPositionProblems(objects, criteria.objectOffsetMaxPx);
+      if (objectProblems.length) {
+        problems.push(
+          `${objectProblems.join(", ")} (info: IoU ${m.iou.toFixed(4)}, global centroid ${m.centroidOffsetPx.toFixed(2)} px, ` +
+            `markup px ref ${m.areaB} / new ${m.areaA})`,
+        );
+      }
     }
     let diff: Img | undefined;
     if (withPixels) {
@@ -235,7 +247,8 @@ function formatCheck(c: Check): string {
     c.iou === undefined
       ? ""
       : c.position === "perObject"
-        ? `obj ${fmt(c.objectOffsetPx, 2)}px (info: IoU ${fmt(c.iou, 3)}, global ${fmt(c.centroidOffsetPx, 2)}px)`
+        ? `obj ${fmt(c.objectOffsetPx, 2)}px, ${c.matchedObjects} matched/${c.unmatchedObjects} unmatched ` +
+          `(info: IoU ${fmt(c.iou, 3)}, global ${fmt(c.centroidOffsetPx, 2)}px)`
         : `IoU ${fmt(c.iou, 3)} ${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)}px)`,
   ].filter(Boolean);
   return `${c.id} ${parts.join(" ")}${c.violation ? " FAIL" : ""}`;
@@ -339,16 +352,16 @@ for (const { pdfPath, markedPages } of corpus) {
         const pOff = await render(migratedBytes, true);
         const pOrig = await render(originalBytes, false);
 
-        const app = { position: "global", iouMin: IOU_MIN_APP, centroidMaxPx: CENTROID_MAX_PX } as const;
-        checker.markup("A", r, first, true, app);
-        checker.markup("B", r, v2.get(page) as Capture, true, app);
+        const appCriteria = { position: "global", iouMin: IOU_MIN_APP, centroidMaxPx: CENTROID_MAX_PX } as const;
+        checker.markup("A", r, first, true, appCriteria);
+        checker.markup("B", r, v2.get(page) as Capture, true, appCriteria);
         checker.markup("C", r, { with: pOn, without: pOff }, false, {
           position: "perObject",
           objectOffsetMaxPx: OBJECT_OFFSET_MAX_PX_OTHER_VIEWER,
         });
         checker.pixels("D", pOrig, pOff);
         checker.pixels("E", r.without, first.without);
-        checker.markup("Ar", r, v1Resized.get(page) as Capture, true, app);
+        checker.markup("Ar", r, v1Resized.get(page) as Capture, true, appCriteria);
         checker.pixels("Er", r.without, (v1Resized.get(page) as Capture).without);
 
         const areaRef = checker.checks.find((c) => c.id === "A")?.areaRef ?? 0;
@@ -388,7 +401,7 @@ afterAll(() => {
       c.iou === undefined
         ? ""
         : c.position === "perObject"
-          ? `obj ${fmt(c.objectOffsetPx, 2)}px (info: IoU ${fmt(c.iou, 3)}, global ${fmt(c.centroidOffsetPx, 2)})`
+          ? `obj ${fmt(c.objectOffsetPx, 2)}px, ${c.matchedObjects}/${c.unmatchedObjects} (info: IoU ${fmt(c.iou, 3)}, global ${fmt(c.centroidOffsetPx, 2)})`
           : `${fmt(c.iou, 3)}/${fmt(c.centroidOffsetPx, 2)}px (obj ${fmt(c.objectOffsetPx, 2)})`,
     ].filter(Boolean);
     return `${parts.join(" ")}${c.violation ? " **FAIL**" : ""}`;

@@ -24,6 +24,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - Outputs go to `test-results/visual/` (gitignored): `diff/<pdf>/<page>-<check>.png`
   (reference | new | diff | markup masks) for every violation, `compare-summary.md` with all
   numbers. `VISUAL_DIFF_ALL=1` writes the images of passing checks, too.
+  `VISUAL_KEEP_MIGRATED=1` keeps a copy of every migrated PDF in `test-results/visual/migrated/`
+  (e.g. to check the markup in Acrobat or another viewer).
 - Headless by default on Linux (`--ozone-platform=headless`, no display needed);
   `VISUAL_HEADED=1` shows the windows for debugging. **Windows:** Ozone is Linux-only, so Chromium
   ignores that flag and the driver does not hide the windows: each app start shows a 1200×1600

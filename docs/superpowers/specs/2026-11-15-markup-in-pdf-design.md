@@ -288,7 +288,7 @@ Für jede PDF im Korpus und jede synthetische Fixture wird geprüft:
 - **Positionsprüfung**: Die Markierungspixel werden isoliert (Bild mit minus Bild ohne
   Markierung) und als Maske verglichen. Der Schwerpunkt der Maske darf um höchstens
   1 px abweichen. Die Überlappung (IoU) muss bei A/B mindestens 0,98 und bei C
-  mindestens 0,90 betragen.
+  mindestens 0,90 betragen. (Für C siehe Entscheidung oben.)
 - Bei Abweichung schreibt der Test pro Seite ein Diff-Bild (Referenz | Neu | Differenz)
   nach `test-results/visual/` (gitignored).
 - **Offline-Nachweis**: Während des gesamten Laufs der neuen App werden alle

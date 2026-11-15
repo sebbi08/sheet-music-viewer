@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { makePdf } from "../pdfMarkup/fixtures";
 import {
   decodePng,
@@ -9,6 +9,7 @@ import {
   markupMask,
   maskMetrics,
   maxObjectOffset,
+  objectPositionProblems,
   sideBySide,
 } from "./imageCompare";
 import { renderPdfPage } from "./pdfRender";
@@ -57,7 +58,7 @@ test("per-object offset ignores edge pixels gained by objects far apart, but see
   // The right object grows by one pixel on every side: same position, more edge pixels.
   const grown = markupMask(solid(w, 50, (x, y) => box(10, 10, 20)(x, y) | box(149, 9, 22)(x, y)), blank);
   expect(maskMetrics(grown, ref, w).centroidOffsetPx).toBeGreaterThan(1);
-  expect(maxObjectOffset(grown, ref, w)).toEqual({ maxOffsetPx: 0, objects: 2 });
+  expect(maxObjectOffset(grown, ref, w)).toEqual({ maxOffsetPx: 0, objects: 2, unmatched: 0 });
   // The left object moves by 2 px.
   const moved = markupMask(solid(w, 50, (x, y) => box(12, 10, 20)(x, y) | box(150, 10, 20)(x, y)), blank);
   expect(maxObjectOffset(moved, ref, w).maxOffsetPx).toBeCloseTo(2);
@@ -86,6 +87,50 @@ test("coverage-weighted per-object offset ignores a faint fringe on one side, bu
       weightB: markupCoverage(bar, white),
     }).maxOffsetPx,
   ).toBeCloseTo(2);
+});
+
+describe("per-object position check", () => {
+  const w = 200;
+  const blank = solid(w, 60, () => 0);
+  const box = (x0: number, y0: number, size: number) => (x: number, y: number) =>
+    +(x >= x0 && x < x0 + size && y >= y0 && y < y0 + size);
+  const maskOf = (...boxes: ((x: number, y: number) => number)[]) =>
+    markupMask(solid(w, 60, (x, y) => +boxes.some((b) => b(x, y))), blank);
+  const ref = maskOf(box(10, 10, 20), box(150, 20, 6)); // a large and a small (36 px) object
+
+  test("fails when the new image has no markup at all", () => {
+    const result = maxObjectOffset(new Uint8Array(ref.length), ref, w);
+    expect(result).toMatchObject({ maxOffsetPx: 0, objects: 0, unmatched: 2 });
+    expect(objectPositionProblems(result, 1.5)).toHaveLength(1);
+  });
+
+  test("fails when a small object is far off (it forms a group of its own)", () => {
+    const result = maxObjectOffset(maskOf(box(10, 10, 20), box(170, 40, 6)), ref, w);
+    expect(result).toMatchObject({ objects: 1, unmatched: 2 });
+    expect(objectPositionProblems(result, 1.5).join()).toContain("without a counterpart");
+  });
+
+  test("passes when every object is matched within 1.5 px, fails above", () => {
+    const near = maxObjectOffset(maskOf(box(11, 11, 20), box(151, 20, 6)), ref, w);
+    expect(near).toMatchObject({ objects: 2, unmatched: 0 });
+    expect(near.maxOffsetPx).toBeCloseTo(Math.SQRT2);
+    expect(objectPositionProblems(near, 1.5)).toEqual([]);
+    const off = maxObjectOffset(maskOf(box(12, 10, 20), box(150, 20, 6)), ref, w);
+    expect(objectPositionProblems(off, 1.5).join()).toContain("2.00 px > 1.5 px");
+  });
+
+  test("a small object with 18 px in one image and 20 px in the other is matched, not missing", () => {
+    const small = (extra: number) => (x: number, y: number) =>
+      +((x >= 100 && x < 104 && y >= 30 && y < 34) || (x >= 104 && y === 30 && x < 104 + extra));
+    const result = maxObjectOffset(maskOf(small(2)), maskOf(small(4)), w);
+    expect(result).toMatchObject({ objects: 1, unmatched: 0 });
+    expect(objectPositionProblems(result, 1.5)).toEqual([]);
+  });
+
+  test("two empty masks pass (page whose markup draws nothing)", () => {
+    const empty = new Uint8Array(ref.length);
+    expect(objectPositionProblems(maxObjectOffset(empty, empty, w), 1.5)).toEqual([]);
+  });
 });
 
 test("empty vs non-empty mask", () => {
