@@ -1,8 +1,8 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { findMigrationCandidates } from "../../src/migration/candidates";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { entryKind, findMigrationCandidates } from "../../src/migration/candidates";
 import { SkipList } from "../../src/migration/skipList";
 
 let base: string;
@@ -95,5 +95,63 @@ describe("findMigrationCandidates", () => {
     expect(await find()).toEqual([]);
     put("a.pdf", "changed pdf");
     expect(await find()).toEqual(["a.pdf"]);
+  });
+});
+
+/** How libuv reports any reparse point on Windows (also Nextcloud/OneDrive placeholders): a link, nothing else. */
+const reparseDirent = (name: string) => ({
+  name,
+  isSymbolicLink: () => true,
+  isDirectory: () => false,
+  isFile: () => false,
+});
+const fakeStat = (kind: "file" | "directory" | "symlink") =>
+  ({
+    isSymbolicLink: () => kind === "symlink",
+    isDirectory: () => kind === "directory",
+    isFile: () => kind === "file",
+  }) as fs.Stats;
+
+describe("entryKind (Windows reparse points)", () => {
+  it("a reparse point that lstat reports as a folder or file is scanned", async () => {
+    expect(await entryKind(reparseDirent("x"), "/x", async () => fakeStat("directory"))).toBe("directory");
+    expect(await entryKind(reparseDirent("x.pdf"), "/x.pdf", async () => fakeStat("file"))).toBe("file");
+  });
+
+  it("a real link (symlink, junction) is skipped", async () => {
+    expect(await entryKind(reparseDirent("x"), "/x", async () => fakeStat("symlink"))).toBeNull();
+  });
+
+  it("a reparse point lstat cannot read is skipped", async () => {
+    expect(
+      await entryKind(reparseDirent("x"), "/x", async () => {
+        throw Object.assign(new Error("EIO"), { code: "EIO" });
+      }),
+    ).toBeNull();
+  });
+
+  it("plain entries need no lstat", async () => {
+    const lstat = vi.fn(async () => fakeStat("symlink"));
+    const dirent = (dir: boolean) => ({ isSymbolicLink: () => false, isDirectory: () => dir, isFile: () => !dir });
+    expect(await entryKind(dirent(true), "/d", lstat)).toBe("directory");
+    expect(await entryKind(dirent(false), "/f", lstat)).toBe("file");
+    expect(lstat).not.toHaveBeenCalled();
+  });
+
+  it("findMigrationCandidates scans placeholders that readdir reports as links", async () => {
+    put("cloud/a.pdf");
+    put("cloud/.a.data");
+    put("b.pdf");
+    put(".b.data");
+    const realReaddir = fs.promises.readdir.bind(fs.promises);
+    const readdir = vi.spyOn(fs.promises, "readdir").mockImplementation((async (dir: string, options: unknown) => {
+      const entries = (await realReaddir(dir, options as { withFileTypes: true })) as fs.Dirent[];
+      return entries.map((e) => (e.name === "cloud" || e.name === "b.pdf" ? reparseDirent(e.name) : e));
+    }) as never);
+    try {
+      expect(await find()).toEqual(["b.pdf", "cloud/a.pdf"]);
+    } finally {
+      readdir.mockRestore();
+    }
   });
 });
