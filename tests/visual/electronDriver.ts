@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -85,12 +86,55 @@ function git(...args: string[]): string {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
 }
 
+/** Runs a build tool in `cwd`; throws with the end of its output if it fails. */
+function runTool(command: string, args: string[], cwd: string): void {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", shell: isWindows, maxBuffer: 256 * 1024 * 1024 });
+  if (result.status !== 0) {
+    const reason = result.error?.message ?? (result.signal ? `signal ${result.signal}` : `exit code ${result.status}`);
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    throw new Error(`${command} ${args.join(" ")} failed in ${cwd} (${reason}):\n${output.slice(-8000)}`);
+  }
+}
+
+/** What `electron-forge package` must leave behind for `electron <root>` to show the app. */
+const buildOutputs = (root: string) => [
+  path.join(root, ".vite", "build", "main.cjs"),
+  path.join(root, ".vite", "renderer", "main_window", "index.html"),
+];
+/** A failed or interrupted build can leave main.cjs without the renderer: that is not a build. */
+const isBuilt = (root: string) => buildOutputs(root).every((file) => fs.existsSync(file));
+
 function forgePackage(root: string): AppUnderTest {
-  execFileSync(npx, ["electron-forge", "package"], { cwd: root, stdio: "ignore", shell: isWindows });
-  if (!fs.existsSync(path.join(root, ".vite", "build", "main.cjs"))) {
-    throw new Error(`electron-forge package did not produce .vite/build/main.cjs in ${root}`);
+  runTool(npx, ["electron-forge", "package"], root);
+  const missing = buildOutputs(root).filter((file) => !fs.existsSync(file));
+  if (missing.length > 0) {
+    throw new Error(`electron-forge package did not produce ${missing.map((f) => path.relative(root, f)).join(", ")} in ${root}`);
   }
   return { root };
+}
+
+const INSTALL_MARKER = ".smv-visual-installed";
+
+/**
+ * Gives the worktree at `root` its own node_modules from its own lockfile (`npm ci`), so dependencies
+ * removed on the current branch cannot break the old app's build. Install scripts are skipped: the
+ * apps run with the Electron binary of the current node_modules. Returns true if it installed.
+ */
+function installOwnDependencies(root: string): boolean {
+  const modules = path.join(root, "node_modules");
+  const marker = path.join(modules, INSTALL_MARKER);
+  const lockHash = createHash("sha256").update(fs.readFileSync(path.join(root, "package-lock.json"))).digest("hex");
+  const entry = fs.lstatSync(modules, { throwIfNoEntry: false });
+  if (entry?.isSymbolicLink()) {
+    // Older runs linked the current node_modules here: remove only the link, never its target.
+    fs.unlinkSync(modules);
+  } else if (entry && fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === lockHash) {
+    return false;
+  }
+  // npm ci replaces an incomplete node_modules; the marker is written only after it succeeded.
+  runTool(isWindows ? "npm.cmd" : "npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], root);
+  fs.writeFileSync(marker, lockHash);
+  return true;
 }
 
 /** Builds the app as of `ref` in a reusable git worktree below test-results/visual/worktrees/. */
@@ -100,11 +144,9 @@ export async function buildAppAtRef(ref: string): Promise<AppUnderTest> {
     fs.mkdirSync(path.dirname(root), { recursive: true });
     git("worktree", "add", "--detach", root, ref);
   }
-  const modules = path.join(root, "node_modules");
-  if (!fs.existsSync(modules)) {
-    fs.symlinkSync(path.join(repoRoot, "node_modules"), modules, "junction");
-  }
-  if (fs.existsSync(path.join(root, ".vite", "build", "main.cjs"))) return { root };
+  // New dependencies: whatever was built before was built with others.
+  if (installOwnDependencies(root)) fs.rmSync(path.join(root, ".vite"), { recursive: true, force: true });
+  if (isBuilt(root)) return { root };
   return forgePackage(root);
 }
 
