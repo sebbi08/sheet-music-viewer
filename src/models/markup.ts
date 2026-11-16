@@ -29,6 +29,8 @@ export interface LoadMarkupResult {
   source: "pdf" | "sidecar" | "none";
   pages: LoadedMarkupPage[];
   legacyOverlayData: string | null;
+  /** Why the PDF's own markup cannot be read (`null`: the PDF is parseable and not encrypted). */
+  pdfIssue: "encrypted" | "unparseable" | null;
 }
 
 /**
@@ -54,9 +56,13 @@ export const saveMarkupInputSchema = z.object({
 });
 export type SaveMarkupInput = z.infer<typeof saveMarkupInputSchema>;
 
+export type SaveFailureReason = "locked" | "readOnly" | "encrypted" | "unparseable" | "other";
+
 export interface SaveMarkupResult {
   status: "pdf" | "sidecar" | "error";
   message?: string;
+  /** Set for `sidecar` (why the PDF was not written) and `error`. */
+  reason?: SaveFailureReason;
 }
 
 export const sidecarV1Schema = z.object({
