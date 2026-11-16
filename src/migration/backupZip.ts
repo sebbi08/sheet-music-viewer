@@ -66,15 +66,18 @@ export function verifyBackupZip(
     yauzl.open(zipPath, { lazyEntries: true }, (openErr, zip) => {
       if (openErr) return reject(openErr);
       const seen = new Set<string>();
+      // Settle only once yauzl really closed the file descriptor (the caller renames or deletes next).
+      let outcome: { error?: Error } | undefined;
+      zip.once("close", () => (outcome?.error ? reject(outcome.error) : resolve()));
       const fail = (e: Error) => {
+        outcome ??= { error: e };
         zip.close();
-        reject(e);
       };
       zip.on("error", fail);
       zip.on("end", () => {
         if (seen.size !== want.size) return fail(new Error("Sicherung unvollständig"));
+        outcome ??= {};
         zip.close();
-        resolve();
       });
       zip.on("entry", (entry: yauzl.Entry) => {
         const exp = want.get(entry.fileName);
@@ -124,6 +127,13 @@ async function checksumFile(
   return { size, crc };
 }
 
+const closed = (stream: fs.ReadStream | fs.WriteStream): Promise<void> =>
+  new Promise((resolve) => {
+    if (stream.closed) return resolve();
+    stream.once("close", () => resolve());
+    stream.destroy();
+  });
+
 async function writeZip(
   tempPath: string,
   files: PlannedFile[],
@@ -132,27 +142,43 @@ async function writeZip(
 ): Promise<void> {
   const zip = new yazl.ZipFile();
   const out = fs.createWriteStream(tempPath, { flags: "wx" });
+  let current: fs.ReadStream | undefined;
+  let failed = false;
   const done = new Promise<void>((resolve, reject) => {
-    const fail = (e: Error) => {
-      out.destroy();
-      reject(e);
-    };
-    out.on("error", fail);
-    zip.on("error", fail);
-    zip.outputStream.on("error", fail);
-    zip.outputStream.on("data", (chunk: Buffer) => {
+    const onData = (chunk: Buffer) => {
       try {
         throwIfCancelled();
       } catch (e) {
         return fail(e as Error);
       }
       onBytes(chunk.length);
+    };
+    // Stops everything (output, current source, further sources) and rejects only once all handles are closed.
+    const fail = (e: Error) => {
+      if (failed) return;
+      failed = true;
+      zip.outputStream.off("data", onData);
+      zip.outputStream.unpipe(out);
+      zip.outputStream.destroy();
+      void Promise.all([closed(out), current ? closed(current) : undefined]).then(() => reject(e));
+    };
+    out.on("error", fail);
+    zip.on("error", fail);
+    zip.outputStream.on("error", fail);
+    zip.outputStream.on("data", onData);
+    out.on("close", () => {
+      if (!failed) resolve();
     });
-    out.on("close", resolve);
   });
   zip.outputStream.pipe(out);
-  // addFile opens each source lazily, one entry at a time, with back-pressure from the output.
-  for (const f of files) zip.addFile(f.realPath, f.name, { compress: f.compress });
+  // Sources are opened lazily, one entry at a time, with back-pressure from the output.
+  for (const f of files) {
+    zip.addReadStreamLazy(f.name, { compress: f.compress }, (cb) => {
+      if (failed) return cb(new Error("aborted"));
+      current = fs.createReadStream(f.realPath);
+      cb(null, current);
+    });
+  }
   zip.end();
   await done;
   const fd = await fs.promises.open(tempPath, "r+");
@@ -236,7 +262,9 @@ export async function createBackupZip(
     await fs.promises.rename(tempPath, zipPath);
     return { status: "ok", zipPath, included, excluded };
   } catch (e) {
-    await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
+    await fs.promises.rm(tempPath, { force: true }).catch((rmErr) => {
+      console.error(`Could not remove temporary backup file ${tempPath}:`, rmErr);
+    });
     if (e instanceof Cancelled) return { status: "cancelled" };
     return { status: "error", message: messageOf(e) };
   }

@@ -267,4 +267,98 @@ describe("createBackupZip", () => {
     const done = calls.map((c) => c.doneBytes);
     expect([...done].sort((x, y) => x - y)).toEqual(done);
   });
+
+  describe("stopping mid-run", () => {
+    const big = (rel: string, fill: number) => put(rel, Buffer.alloc(300_000, fill));
+    const setup = () => {
+      const cs: MigrationCandidate[] = [];
+      for (let i = 0; i < 4; i++) {
+        big(`s${i}.pdf`, 65 + i);
+        big(`.s${i}.data`, 97 + i);
+        cs.push(cand(`s${i}.pdf`, `.s${i}.data`));
+      }
+      return cs;
+    };
+    const settled = async (spy: { mock: { calls: unknown[] } }, progress: { n: number }) => {
+      const reads = spy.mock.calls.length;
+      const calls = progress.n;
+      await new Promise((r) => setTimeout(r, 150));
+      expect(spy.mock.calls.length).toBe(reads);
+      expect(progress.n).toBe(calls);
+      expect(leftovers()).toEqual([]);
+    };
+
+    it("cancelling during the write stops reading sources and leaves no files", async () => {
+      const cs = setup();
+      const ac = new AbortController();
+      const progress = { n: 0 };
+      const spy = vi.spyOn(fs, "createReadStream");
+      try {
+        const r = await createBackupZip(root, cs, {
+          now: NOW,
+          signal: ac.signal,
+          onProgress: (p) => {
+            progress.n++;
+            if (p.doneBytes > p.totalBytes / 3 + 100_000) ac.abort();
+          },
+        });
+        expect(r).toEqual({ status: "cancelled" });
+        await settled(spy, progress);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("a mid-stream write error stops everything and leaves no files", async () => {
+      const cs = setup();
+      const progress = { n: 0 };
+      const readSpy = vi.spyOn(fs, "createReadStream");
+      const origWrite = fs.createWriteStream;
+      const writeSpy = vi.spyOn(fs, "createWriteStream").mockImplementation(((...args: Parameters<typeof origWrite>) => {
+        const stream = origWrite(...args);
+        const w = stream.write.bind(stream) as (...a: unknown[]) => boolean;
+        let n = 0;
+        (stream as unknown as { write: unknown }).write = (...a: unknown[]) => {
+          if (++n === 5) {
+            stream.destroy(new Error("disk full"));
+            return false;
+          }
+          return w(...a);
+        };
+        return stream;
+      }) as typeof fs.createWriteStream);
+      try {
+        const r = await createBackupZip(root, cs, {
+          now: NOW,
+          onProgress: () => progress.n++,
+        });
+        expect(r).toEqual({ status: "error", message: "disk full" });
+        await settled(readSpy, progress);
+      } finally {
+        writeSpy.mockRestore();
+        readSpy.mockRestore();
+      }
+    });
+
+    it("cancelling during verification leaves no files", async () => {
+      const cs = setup();
+      const ac = new AbortController();
+      const progress = { n: 0 };
+      const spy = vi.spyOn(fs, "createReadStream");
+      try {
+        const r = await createBackupZip(root, cs, {
+          now: NOW,
+          signal: ac.signal,
+          onProgress: (p) => {
+            progress.n++;
+            if (p.doneBytes > (p.totalBytes * 2) / 3 + 100_000) ac.abort();
+          },
+        });
+        expect(r).toEqual({ status: "cancelled" });
+        await settled(spy, progress);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });
