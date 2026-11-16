@@ -1,0 +1,45 @@
+name: test-build
+
+# Windows test build without a release: started manually (Actions → test-build → "Run workflow",
+# any branch). The installer and a portable ZIP are uploaded as workflow artifacts only. No tag
+# and no GitHub Release are created, so update.electronjs.org (auto-update) and semantic-release
+# never see this build.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: npm ci
+      - run: npm run make
+      - name: Name the artifacts
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=sheet-music-viewer-${VERSION}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      # The packaged app folder runs without installing (does not replace an installed version).
+      - name: Zip the portable app
+        shell: pwsh
+        run: Compress-Archive -Path out/sheet-music-viewer-win32-x64/* -DestinationPath "out/${{ steps.meta.outputs.name }}-portable.zip"
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.meta.outputs.name }}-setup
+          path: out/make/squirrel.windows/x64/*.exe
+          if-no-files-found: error
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.meta.outputs.name }}-portable
+          path: out/${{ steps.meta.outputs.name }}-portable.zip
+          if-no-files-found: error

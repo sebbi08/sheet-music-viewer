@@ -85,6 +85,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - The `publish` job then checks out that tag and uploads build artifacts (Windows) to the GitHub
   Release via `@electron-forge/publisher-github`
 - `build.yml` only builds (push to `master`/`renovate/**`, PRs) and never publishes
+- `test-build.yml` (manual, any branch): Windows test build uploaded as workflow artifacts only
+  (installer + portable ZIP); no tag, no GitHub Release, so auto-update and semantic-release ignore it
 - Locally, `npm run semantic-release` runs `semantic-release --no-ci`; needs `GH_TOKEN`
   (or `GITHUB_TOKEN`) in the environment
 - Only `master` branch is used
