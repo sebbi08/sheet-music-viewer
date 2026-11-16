@@ -203,3 +203,124 @@ describe("prepareToClose (before the update restart)", () => {
     expect(notices).toEqual([`show:${UPDATE_ASK_FAILED_TEXT}`]);
   });
 });
+
+describe("a running bulk migration", () => {
+  /** A migration whose current file the test finishes. */
+  function fakeMigration() {
+    let running = true;
+    let finishCurrentFile: () => void = () => {};
+    const migration = {
+      isRunning: () => running,
+      cancelAndWait: vi.fn(() => {
+        calls.push("cancelMigration");
+        return new Promise<void>((resolve) => {
+          finishCurrentFile = () => {
+            running = false;
+            resolve();
+          };
+        });
+      }),
+    };
+    return { migration, finishCurrentFile: () => finishCurrentFile() };
+  }
+
+  function guardWith(migration: { isRunning(): boolean; cancelAndWait(): Promise<void> }) {
+    return createCloseGuard({
+      queue: q.queue,
+      captureOpenEdits: () => calls.push("capture"),
+      ask: (files, forExit) =>
+        new Promise<UnsavedMarkupChoice>((resolve, reject) => asks.push({ files, forExit, answer: resolve, fail: reject })),
+      resume: async () => {
+        calls.push("resume");
+      },
+      showNotice: (text) => notices.push(`show:${text}`),
+      hideNotice: (text) => notices.push(`hide:${text}`),
+      log: () => calls.push("log"),
+      migration,
+    });
+  }
+
+  test("closing while a migration runs blocks, cancels it and resumes after the current file", async () => {
+    const m = fakeMigration();
+    const g = guardWith(m.migration);
+    const event = unloadEvent();
+    g.onBeforeUnload(event);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.returnValue).toBe(false);
+    expect(m.migration.cancelAndWait).toHaveBeenCalledTimes(1);
+    await settle();
+    // The current file is still being migrated: nothing saved or resumed yet.
+    expect(q.queue.flush).not.toHaveBeenCalled();
+    expect(calls).toEqual(["capture", "cancelMigration"]);
+
+    m.finishCurrentFile();
+    await settle();
+    q.flushes[0](true);
+    await settle();
+    expect(calls).toEqual(["capture", "cancelMigration", "resume"]);
+    expect(g.isGuarding()).toBe(false);
+  });
+
+  test("a second close while the migration winds down stays blocked without cancelling twice", () => {
+    const m = fakeMigration();
+    const g = guardWith(m.migration);
+    g.onBeforeUnload(unloadEvent());
+    const second = unloadEvent();
+    g.onBeforeUnload(second);
+    expect(second.preventDefault).toHaveBeenCalled();
+    expect(m.migration.cancelAndWait).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failing cancel does not stop the close: it still saves and resumes", async () => {
+    const g = guardWith({ isRunning: () => true, cancelAndWait: () => Promise.reject(new Error("boom")) });
+    g.onBeforeUnload(unloadEvent());
+    await settle();
+    q.flushes[0](true);
+    await settle();
+    expect(calls).toEqual(["capture", "log", "resume"]);
+  });
+
+  test("prepareToClose cancels a running migration first", async () => {
+    const m = fakeMigration();
+    const g = guardWith(m.migration);
+    const result = g.prepareToClose();
+    await settle();
+    expect(m.migration.cancelAndWait).toHaveBeenCalledTimes(1);
+    expect(q.queue.flush).not.toHaveBeenCalled();
+
+    m.finishCurrentFile();
+    await settle();
+    q.flushes[0](true);
+    expect(await result).toBe(true);
+    expect(calls).toEqual(["cancelMigration", "capture"]);
+  });
+
+  test("a migration that is not running does not block closing", () => {
+    const cancelAndWait = vi.fn(async () => {});
+    const g = guardWith({ isRunning: () => false, cancelAndWait });
+    const event = unloadEvent();
+    g.onBeforeUnload(event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(cancelAndWait).not.toHaveBeenCalled();
+  });
+
+  test("no migration option → unchanged behaviour", async () => {
+    // `guard` (beforeEach) has no migration option.
+    const idle = unloadEvent();
+    guard.onBeforeUnload(idle);
+    expect(idle.preventDefault).not.toHaveBeenCalled();
+
+    q.setPending(true);
+    const blocked = unloadEvent();
+    guard.onBeforeUnload(blocked);
+    expect(blocked.preventDefault).toHaveBeenCalled();
+    q.flushes[0](true);
+    await settle();
+    expect(calls).toEqual(["capture", "capture", "resume"]);
+
+    q.setPending(true);
+    const result = guard.prepareToClose();
+    q.flushes[1](true);
+    expect(await result).toBe(true);
+  });
+});

@@ -98,6 +98,8 @@
         <v-btn variant="text" @click="notices.dismiss()">OK</v-btn>
       </template>
     </v-snackbar>
+
+    <MigrationDialog />
   </v-app>
   <dialog>
     <v-dialog persistent v-model="showUpdateDialog" max-width="500">
@@ -130,11 +132,13 @@
 import _ from "lodash";
 import { marked } from "marked";
 import { storeToRefs } from "pinia";
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import MigrationDialog from "./components/MigrationDialog.vue";
 import { RouteNames } from "./Enums";
 import type { UpdateData } from "./models/types";
 import router from "./router";
 import useStore from "./store";
+import { useBulkMigration } from "./store/bulkMigration";
 import { useMarkupSaves } from "./store/markupSaves";
 import { useNotices } from "./store/notices";
 import { client } from "./trcpClient";
@@ -151,6 +155,37 @@ const notices = useNotices();
 const markupSaves = useMarkupSaves();
 // Closing the window with unsaved markup first saves it, or asks.
 markupSaves.installCloseGuard();
+const bulkMigration = useBulkMigration();
+
+// Migration and sheet view never touch the same PDF: no sheet opens while a migration runs.
+router.beforeEach((to) => {
+  if (to.name === RouteNames.SheetViewer && bulkMigration.isRunning()) return false;
+});
+
+/** Moves all legacy `.data` markup of `folder` into the PDFs (spec 2026-11-16); joins a running one. */
+async function startBulkMigration(folder: string) {
+  if (!folder || bulkMigration.isRunning()) return;
+  try {
+    await router.isReady();
+    if (router.currentRoute.value.name === RouteNames.SheetViewer) {
+      await router.push({ name: RouteNames.SheetSelection, params: { path: window.path.sep } });
+      if (router.currentRoute.value.name === RouteNames.SheetViewer) {
+        console.warn("Could not leave the sheet; the markup migration waits for the next start");
+        return;
+      }
+    }
+    await bulkMigration.run(folder);
+  } catch (e) {
+    console.warn("Could not start the markup migration", e);
+  }
+}
+
+onMounted(() => {
+  if (store.sheetMusicFolder) void startBulkMigration(store.sheetMusicFolder);
+});
+watch(() => store.sheetMusicFolder, (folder) => {
+  if (folder) void startBulkMigration(folder);
+});
 
 
 client.getVersion.query().then((version) => {
@@ -276,7 +311,9 @@ const updateDownloaded = ref(false);
 const updateData = ref<Partial<UpdateData>>({});
 
 async function restartForUpdate() {
-  // quitAndInstall must not start while markup is unsaved: save it first, or let the user decide.
+  // A running migration stops after its current file; quitAndInstall must not start while markup is
+  // unsaved: save it first, or let the user decide.
+  await bulkMigration.cancelAndWait();
   if (!(await markupSaves.prepareToClose())) return;
   client.restartForUpdate.mutate();
 }

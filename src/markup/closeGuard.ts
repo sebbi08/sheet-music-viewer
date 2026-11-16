@@ -19,8 +19,17 @@ export interface CloseGuardQueue {
   discard(): void;
 }
 
+/** The bulk markup migration (`src/store/bulkMigration.ts`): closing cancels it after the current file. */
+export interface CloseGuardMigration {
+  isRunning(): boolean;
+  /** Cancels and resolves once the file being migrated is finished. */
+  cancelAndWait(): Promise<void>;
+}
+
 export interface CloseGuardOptions {
   queue: CloseGuardQueue;
+  /** Optional: a running migration blocks closing until its current file is done. */
+  migration?: CloseGuardMigration;
   /** Queues the changes of an open edit canvas. */
   captureOpenEdits(): void;
   /** The native dialog in main (`askUnsavedMarkup`). */
@@ -41,11 +50,22 @@ export function createCloseGuard(options: CloseGuardOptions) {
   const log = (message: string, error: unknown) => (options.log ?? console.warn)(message, error);
   let guarding = false;
 
+  /** Lets a running migration finish its current file; a failure must not stop the close. */
+  async function stopMigration(): Promise<void> {
+    try {
+      await options.migration?.cancelAndWait();
+    } catch (e) {
+      log("Could not cancel the markup migration", e);
+    }
+  }
+
   /**
    * Saves while an exit is blocked. All saved -> main continues the exit. Not saved -> main asks and carries
    * out "discard" (closes) or "cancel" itself; "retry" saves again here.
    */
   async function guardExit(): Promise<void> {
+    // Only awaited while one runs: otherwise saving starts synchronously, as before.
+    if (options.migration?.isRunning()) await stopMigration();
     for (;;) {
       if (await queue.flush()) {
         await options.resume();
@@ -60,10 +80,13 @@ export function createCloseGuard(options: CloseGuardOptions) {
     }
   }
 
-  /** `beforeunload`: blocks closing/reloading while markup is unsaved and saves it. */
+  /**
+   * `beforeunload`: blocks closing/reloading while markup is unsaved (and saves it) or a migration runs
+   * (cancelled after its current file).
+   */
   function onBeforeUnload(event: { preventDefault(): void; returnValue?: unknown }): void {
     options.captureOpenEdits();
-    if (!queue.hasPending()) return;
+    if (!queue.hasPending() && !options.migration?.isRunning()) return;
     event.preventDefault();
     event.returnValue = false;
     // Already saving: this repeated close stays blocked; main sees it and shows its dialog right away.
@@ -83,10 +106,11 @@ export function createCloseGuard(options: CloseGuardOptions) {
   }
 
   /**
-   * Before the update restart (nothing blocked yet): saves everything; if that fails, asks the user and acts
-   * on the answer. `true` = may restart.
+   * Before the update restart (nothing blocked yet): cancels a running migration (after its current file),
+   * saves everything; if that fails, asks the user and acts on the answer. `true` = may restart.
    */
   async function prepareToClose(): Promise<boolean> {
+    if (options.migration?.isRunning()) await stopMigration();
     options.captureOpenEdits();
     for (;;) {
       if (await queue.flush()) return true;

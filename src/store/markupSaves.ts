@@ -4,6 +4,7 @@ import { renderMarkupPng } from "../markup/renderPng";
 import { createCloseGuard } from "../markup/closeGuard";
 import { MarkupSaveQueue, type SaveEvent } from "../markup/saveQueue";
 import { client } from "../trcpClient";
+import { useBulkMigration } from "./bulkMigration";
 import { useNotices } from "./notices";
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -60,6 +61,11 @@ export const useMarkupSaves = defineStore("markupSaves", () => {
 
   const closeGuard = createCloseGuard({
     queue,
+    // Looked up on use: the migration store itself uses this store (`queue.hasPending`).
+    migration: {
+      isRunning: () => useBulkMigration().isRunning(),
+      cancelAndWait: () => useBulkMigration().cancelAndWait(),
+    },
     captureOpenEdits: () => captureOpenEdits?.(),
     ask: (files, forExit) => client.askUnsavedMarkup.mutate({ files, forExit }),
     resume: () => client.resumeExit.mutate(),
@@ -68,15 +74,17 @@ export const useMarkupSaves = defineStore("markupSaves", () => {
   });
 
   /**
-   * Before the app restarts for an update: saves everything (waiting for saves in flight); if that fails,
-   * asks the user (retry / discard / cancel). `true` = may restart.
+   * Before the app restarts for an update: cancels a running migration (after its current file), saves
+   * everything (waiting for saves in flight); if that fails, asks the user (retry / discard / cancel).
+   * `true` = may restart.
    */
   const prepareToClose = () => closeGuard.prepareToClose();
 
   let guardInstalled = false;
   /**
-   * Blocks closing/reloading the window while markup is unsaved, until it is saved or discarded. Main
-   * (`src/exitGuard.ts`) steps in with its own dialog if this does not finish in time.
+   * Blocks closing/reloading the window while markup is unsaved, until it is saved or discarded, and while a
+   * migration runs, until its current file is done. Main (`src/exitGuard.ts`) steps in with its own dialog
+   * if this does not finish in time.
    */
   function installCloseGuard(): void {
     if (guardInstalled) return;

@@ -1,12 +1,27 @@
 import { initTRPC } from "@trpc/server";
-import { autoUpdater } from "electron/main";
+import { app, autoUpdater } from "electron/main";
 import { on } from "events";
+import path from "path";
 import superjson from "superjson";
 import { z } from "zod";
 import { askUnsavedMarkup, restartForUpdate, resumeExit } from "./exitGuard";
+import {
+    BACKUP_PROGRESS_EVENT,
+    backupProgress,
+    cancelMigrationBackup,
+    runMigrationBackup,
+    type BackupProgress,
+} from "./migration/backupProgress";
+import { findMigrationCandidates } from "./migration/candidates";
+import {
+    absoluteFolderSchema,
+    migrationBackupInputSchema,
+    recordMigrationSkipInputSchema,
+} from "./migration/ipcInput";
+import { SkipList } from "./migration/skipList";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
-import { loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
+import { discardEmptyLegacySidecar, loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
 import {
     checkForUpdates,
     getAppVersion,
@@ -23,6 +38,11 @@ import {
 const { router: createRouter, procedure: publicProcedure } = initTRPC.create({
   transformer: superjson,
 });
+
+/** Files that failed the bulk migration permanently; local, never in the sheet folder. */
+let skipList: Promise<SkipList> | null = null;
+const loadSkipList = () =>
+  (skipList ??= SkipList.load(path.join(app.getPath("userData"), "bulk-migration-skips.json")));
 
 export const trcpRouter = createRouter({
   getVersion: publicProcedure.query(getAppVersion),
@@ -87,6 +107,33 @@ export const trcpRouter = createRouter({
   saveMarkup: publicProcedure
     .input(saveMarkupInputSchema)
     .mutation(({ input }) => saveMarkupToFile(input)),
+
+  /** Bulk migration of legacy `.data` files (src/store/bulkMigration.ts). */
+  findMigrationCandidates: publicProcedure.input(absoluteFolderSchema).query(async ({ input }) => {
+    // Test switch: e2e tests of the open path keep their `.data` files.
+    if (process.env.SMV_DISABLE_BULK_MIGRATION === "1") return [];
+    return findMigrationCandidates(input, await loadSkipList());
+  }),
+
+  createMigrationBackup: publicProcedure
+    .input(migrationBackupInputSchema)
+    .mutation(({ input }) => runMigrationBackup(input.root, input.candidates)),
+
+  cancelMigrationBackup: publicProcedure.mutation(() => cancelMigrationBackup()),
+
+  onMigrationBackupProgress: publicProcedure.subscription(async function* (opts) {
+    for await (const [progress] of on(backupProgress, BACKUP_PROGRESS_EVENT, { signal: opts.signal })) {
+      yield progress as BackupProgress;
+    }
+  }),
+
+  recordMigrationSkip: publicProcedure
+    .input(recordMigrationSkipInputSchema)
+    .mutation(async ({ input }) => (await loadSkipList()).record(input.candidate, input.reason)),
+
+  discardEmptyLegacySidecar: publicProcedure
+    .input(pdfPathSchema)
+    .mutation(({ input }) => discardEmptyLegacySidecar(input)),
 
   /** Closing with unsaved markup (see src/exitGuard.ts). */
   askUnsavedMarkup: publicProcedure
