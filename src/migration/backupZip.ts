@@ -101,19 +101,58 @@ export function verifyBackupZip(
   });
 }
 
+interface PlannedFile {
+  name: string;
+  realPath: string;
+  compress: boolean;
+}
+
+/** Streams a file once; returns its size and CRC-32 without holding it in memory. */
+async function checksumFile(
+  file: string,
+  onChunk: (bytes: number) => void,
+  throwIfCancelled: () => void,
+): Promise<{ size: number; crc: number }> {
+  let crc = 0;
+  let size = 0;
+  for await (const chunk of fs.createReadStream(file) as AsyncIterable<Buffer>) {
+    throwIfCancelled();
+    crc = crc32(chunk, crc);
+    size += chunk.length;
+    onChunk(chunk.length);
+  }
+  return { size, crc };
+}
+
 async function writeZip(
   tempPath: string,
-  files: { name: string; data: Buffer; compress: boolean }[],
+  files: PlannedFile[],
+  onBytes: (bytes: number) => void,
+  throwIfCancelled: () => void,
 ): Promise<void> {
   const zip = new yazl.ZipFile();
   const out = fs.createWriteStream(tempPath, { flags: "wx" });
   const done = new Promise<void>((resolve, reject) => {
-    out.on("error", reject);
-    zip.outputStream.on("error", reject);
+    const fail = (e: Error) => {
+      out.destroy();
+      reject(e);
+    };
+    out.on("error", fail);
+    zip.on("error", fail);
+    zip.outputStream.on("error", fail);
+    zip.outputStream.on("data", (chunk: Buffer) => {
+      try {
+        throwIfCancelled();
+      } catch (e) {
+        return fail(e as Error);
+      }
+      onBytes(chunk.length);
+    });
     out.on("close", resolve);
   });
   zip.outputStream.pipe(out);
-  for (const f of files) zip.addBuffer(f.data, f.name, { compress: f.compress });
+  // addFile opens each source lazily, one entry at a time, with back-pressure from the output.
+  for (const f of files) zip.addFile(f.realPath, f.name, { compress: f.compress });
   zip.end();
   await done;
   const fd = await fs.promises.open(tempPath, "r+");
@@ -137,38 +176,61 @@ export async function createBackupZip(
     throwIfCancelled();
     await removeStaleTempFiles(root);
 
-    const included: MigrationCandidate[] = [];
+    // Phase weights: checksum pass, write, verify (each counts the included bytes once).
+    const sized: { candidate: MigrationCandidate; pdfSize: number; sidecarSize: number }[] = [];
     const excluded: { candidate: MigrationCandidate; message: string }[] = [];
-    const files: { name: string; data: Buffer; compress: boolean }[] = [];
     for (const candidate of candidates) {
-      throwIfCancelled();
-      const dir = path.posix.dirname(candidate.relativePath);
-      const sidecarName = path.basename(candidate.sidecarPath);
       try {
-        const pdf = await fs.promises.readFile(candidate.pdfPath);
-        const sidecar = await fs.promises.readFile(candidate.sidecarPath);
-        files.push(
-          { name: candidate.relativePath, data: pdf, compress: false },
-          { name: dir === "." ? sidecarName : `${dir}/${sidecarName}`, data: sidecar, compress: true },
-        );
-        included.push(candidate);
+        const pdfSize = (await fs.promises.stat(candidate.pdfPath)).size;
+        const sidecarSize = (await fs.promises.stat(candidate.sidecarPath)).size;
+        sized.push({ candidate, pdfSize, sidecarSize });
       } catch (e) {
         excluded.push({ candidate, message: messageOf(e) });
       }
     }
+    const totalBytes = sized.reduce((sum, s) => sum + s.pdfSize + s.sidecarSize, 0) * 3;
+    let doneBytes = 0;
+    const advance = (bytes: number) => {
+      doneBytes = Math.min(totalBytes, doneBytes + bytes);
+      options.onProgress?.({ doneBytes, totalBytes });
+    };
+
+    const included: MigrationCandidate[] = [];
+    const planned: PlannedFile[] = [];
+    const expected: ExpectedZipEntry[] = [];
+    for (const { candidate, pdfSize, sidecarSize } of sized) {
+      throwIfCancelled();
+      const dir = path.posix.dirname(candidate.relativePath);
+      const sidecarName = path.basename(candidate.sidecarPath);
+      const sidecarEntry = dir === "." ? sidecarName : `${dir}/${sidecarName}`;
+      let pdf: { size: number; crc: number };
+      let sidecar: { size: number; crc: number };
+      try {
+        pdf = await checksumFile(candidate.pdfPath, advance, throwIfCancelled);
+        sidecar = await checksumFile(candidate.sidecarPath, advance, throwIfCancelled);
+      } catch (e) {
+        if (e instanceof Cancelled) throw e;
+        excluded.push({ candidate, message: messageOf(e) });
+        advance(3 * (pdfSize + sidecarSize));
+        continue;
+      }
+      included.push(candidate);
+      planned.push(
+        { name: candidate.relativePath, realPath: candidate.pdfPath, compress: false },
+        { name: sidecarEntry, realPath: candidate.sidecarPath, compress: true },
+      );
+      expected.push(
+        { name: candidate.relativePath, ...pdf },
+        { name: sidecarEntry, ...sidecar },
+      );
+    }
     if (included.length === 0) return { status: "ok", zipPath: null, included, excluded };
 
     throwIfCancelled();
-    await writeZip(tempPath, files);
-
-    const expected = files.map((f) => ({ name: f.name, size: f.data.length, crc: crc32(f.data) }));
-    const totalBytes = expected.reduce((sum, e) => sum + e.size, 0);
-    let doneBytes = 0;
-    await verifyBackupZip(tempPath, expected, (size) => {
-      doneBytes += size;
-      options.onProgress?.({ doneBytes, totalBytes });
-    });
+    await writeZip(tempPath, planned, advance, throwIfCancelled);
+    await verifyBackupZip(tempPath, expected, advance);
     throwIfCancelled();
+    advance(totalBytes); // sizes may have shifted slightly; always finish at 100 %
 
     const zipPath = freeZipPath(root, options.now);
     await fs.promises.rename(tempPath, zipPath);

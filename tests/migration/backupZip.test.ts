@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { crc32 } from "zlib";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import yauzl from "yauzl";
 import { createBackupZip, verifyBackupZip } from "../../src/migration/backupZip";
 import type { MigrationCandidate } from "../../src/migration/types";
@@ -214,6 +214,40 @@ describe("createBackupZip", () => {
     expect(fs.existsSync(path.join(root, "keep.txt"))).toBe(true);
   });
 
+  it("never loads a whole source file into memory", async () => {
+    put("a.pdf", "A".repeat(1000));
+    put(".a.data", "d");
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    const readFileSync = vi.spyOn(fs, "readFileSync");
+    try {
+      const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], { now: NOW });
+      expect(r.status).toBe("ok");
+      expect(readFile).not.toHaveBeenCalled();
+      expect(readFileSync).not.toHaveBeenCalled();
+    } finally {
+      readFile.mockRestore();
+      readFileSync.mockRestore();
+    }
+  });
+
+  it("fails and leaves no files when a source changes after it was checksummed", async () => {
+    put("a.pdf", "A".repeat(1000));
+    put(".a.data", "d");
+    const ac = new AbortController();
+    const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], {
+      now: NOW,
+      signal: ac.signal,
+      onProgress: (p) => {
+        // first progress call happens while checksumming; change the pdf behind our back
+        if (p.doneBytes > 0 && fs.readFileSync(path.join(root, "a.pdf")).length === 1000) {
+          fs.writeFileSync(path.join(root, "a.pdf"), "B".repeat(1000));
+        }
+      },
+    });
+    expect(r.status).toBe("error");
+    expect(leftovers()).toEqual([]);
+  });
+
   it("reports progress up to totalBytes", async () => {
     put("a.pdf", "AAAA");
     put(".a.data", "dd");
@@ -225,8 +259,11 @@ describe("createBackupZip", () => {
       onProgress: (p) => calls.push(p),
     });
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls.every((c) => c.totalBytes === 10)).toBe(true);
-    expect(calls[calls.length - 1].doneBytes).toBe(10);
+    expect(new Set(calls.map((c) => c.totalBytes)).size).toBe(1);
+    const total = calls[0].totalBytes;
+    expect(calls[calls.length - 1].doneBytes).toBe(total);
+    // advances during the checksum pass and the write, not only at the end
+    expect(calls.filter((c) => c.doneBytes < total).length).toBeGreaterThan(2);
     const done = calls.map((c) => c.doneBytes);
     expect([...done].sort((x, y) => x - y)).toEqual(done);
   });
