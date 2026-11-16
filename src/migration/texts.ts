@@ -5,6 +5,8 @@ export const BACKUP_PHASE_TEXT = "Sicherung wird erstellt …";
 export const CANCEL_BUTTON = "Abbrechen";
 export const OK_BUTTON = "OK";
 export const NOT_MIGRATED_HEADING = "Nicht übernommen:";
+export const READ_ONLY_FOLDER_TEXT =
+  "Der Notenordner ist schreibgeschützt. Die Markierungen bleiben in den .data-Dateien.";
 
 export function progressLine(index: number, total: number): string {
   return `${index} von ${total}`;

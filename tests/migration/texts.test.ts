@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { backupFailedText, cancelledLine, failureLine, reasonText, summaryLine } from "../../src/migration/texts";
+import {
+  backupFailedText,
+  cancelledLine,
+  failureLine,
+  READ_ONLY_FOLDER_TEXT,
+  reasonText,
+  summaryLine,
+} from "../../src/migration/texts";
 import type { FailureReason } from "../../src/migration/types";
 
 describe("texts", () => {
@@ -18,6 +25,10 @@ describe("texts", () => {
     expect(backupFailedText("voll")).toBe(
       "Die Sicherung konnte nicht erstellt werden (voll). Es wurde nichts übernommen; beim nächsten Start wird es erneut versucht.",
     );
+  });
+
+  test("read-only sheet folder", () => {
+    expect(READ_ONLY_FOLDER_TEXT).toBe("Der Notenordner ist schreibgeschützt. Die Markierungen bleiben in den .data-Dateien.");
   });
 
   test("all reasons verbatim", () => {

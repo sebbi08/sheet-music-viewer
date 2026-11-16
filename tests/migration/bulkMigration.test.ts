@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { BackupResult } from "../../src/migration/backupZip";
 import { BulkMigration, type BulkMigrationDeps, type MigrationPhase } from "../../src/migration/bulkMigration";
 import type { FileOutcome } from "../../src/migration/migrateFile";
+import type { FolderCheck } from "../../src/migration/readOnlyFolders";
 import type { MigrationCandidate } from "../../src/migration/types";
 
 const cand = (name: string): MigrationCandidate => ({
@@ -24,6 +25,7 @@ function setup(candidates: MigrationCandidate[], over: Partial<BulkMigrationDeps
   const phases: MigrationPhase[] = [];
   const deps: BulkMigrationDeps = {
     findCandidates: vi.fn(async () => candidates),
+    checkFolder: vi.fn(async (): Promise<FolderCheck> => "writable"),
     createBackup: vi.fn(
       async (_root: string, c: MigrationCandidate[]): Promise<BackupResult> => ({
         status: "ok",
@@ -63,6 +65,7 @@ describe("BulkMigration", () => {
       failures: [],
       cancelledRemaining: 0,
       backupError: null,
+      readOnlyFolder: false,
     });
     expect(phases.filter((p) => p.phase === "migrating")).toEqual([
       { phase: "migrating", index: 1, total: 2, current: "a.pdf" },
@@ -80,6 +83,53 @@ describe("BulkMigration", () => {
       createBackup: async (_r, c) => ({ status: "ok", zipPath: null, included: c, excluded: [] }),
     });
     expect((await none.bulk.run("/s"))?.zipName).toBeNull();
+  });
+
+  test("no candidates -> the folder is not checked", async () => {
+    const { bulk, deps } = setup([]);
+    await bulk.run("/s");
+    expect(deps.checkFolder).not.toHaveBeenCalled();
+  });
+
+  test("read-only folder, first time -> only the read-only summary, no backup", async () => {
+    const { bulk, deps, phases } = setup([A, B], { checkFolder: async () => "readOnlyReport" });
+    const summary = await bulk.run("/s");
+    expect(summary).toEqual({
+      migrated: 0,
+      zipName: null,
+      failures: [],
+      cancelledRemaining: 0,
+      backupError: null,
+      readOnlyFolder: true,
+    });
+    expect(deps.checkFolder).toHaveBeenCalledWith("/s");
+    expect(phases).toEqual([{ phase: "done", summary }]);
+    expect(deps.createBackup).not.toHaveBeenCalled();
+    expect(deps.migrateFile).not.toHaveBeenCalled();
+    expect(deps.recordSkip).not.toHaveBeenCalled();
+  });
+
+  test("read-only folder, already reported -> silent (null, no dialog)", async () => {
+    const { bulk, deps, phases } = setup([A], { checkFolder: async () => "readOnlyKnown" });
+    expect(await bulk.run("/s")).toBeNull();
+    expect(phases.every((p) => p.phase === "idle")).toBe(true);
+    expect(deps.createBackup).not.toHaveBeenCalled();
+    expect(deps.migrateFile).not.toHaveBeenCalled();
+  });
+
+  test("a failing folder check does not stop the migration", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { bulk } = setup([A], {
+        checkFolder: async () => {
+          throw new Error("ipc down");
+        },
+      });
+      expect((await bulk.run("/s"))?.migrated).toBe(1);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("forwards backup progress", async () => {

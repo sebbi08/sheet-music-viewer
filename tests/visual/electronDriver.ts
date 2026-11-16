@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -425,6 +425,34 @@ export async function launchApp(app: AppUnderTest, folder: string, options: Laun
   }
 }
 
+/**
+ * Starts the app a second time with `profile` (headless, without Playwright) while another instance may
+ * hold it, and waits for that process to exit. Resolves with its exit code, or `null` if it was still
+ * running after `timeoutMs` (it is killed then).
+ */
+export function startExtraInstance(app: AppUnderTest, profile: string, timeoutMs: number): Promise<number | null> {
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, DISPLAY: _x11, WAYLAND_DISPLAY: _wayland, ...env } = process.env;
+  const child = spawn(
+    electronBinary,
+    [app.root, `--user-data-dir=${profile}`, "--ozone-platform=headless", "--disable-gpu"],
+    { cwd: app.root, env: { ...env, IS_TEST: "1", SMV_DISABLE_BULK_MIGRATION: "1" }, stdio: "ignore" },
+  );
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve(null);
+    }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+}
+
 /** What the bulk migration dialog reported (src/components/MigrationDialog.vue). */
 export interface BulkMigrationOutcome {
   /** `data-migrated` of the summary. */
@@ -433,6 +461,8 @@ export interface BulkMigrationOutcome {
   failures: string[];
   /** From the line "Sicherung: {zipName}"; null without it. */
   zipName: string | null;
+  /** All paragraphs of the summary (without the failure lines). */
+  lines: string[];
   /** False: no dialog within MIGRATION_DIALOG_WAIT_MS (nothing to migrate). */
   dialogShown: boolean;
 }
@@ -448,7 +478,7 @@ async function settleBulkMigration(page: Page): Promise<BulkMigrationOutcome> {
     await dialog.waitFor({ state: "visible", timeout: MIGRATION_DIALOG_WAIT_MS });
   } catch (error) {
     if (!(error instanceof errors.TimeoutError)) throw error;
-    return { migrated: 0, failures: [], zipName: null, dialogShown: false };
+    return { migrated: 0, failures: [], zipName: null, lines: [], dialogShown: false };
   }
   const summary = page.getByTestId("migration-summary");
   await summary.waitFor({ state: "visible", timeout: MIGRATION_TIMEOUT_MS });
@@ -459,7 +489,7 @@ async function settleBulkMigration(page: Page): Promise<BulkMigrationOutcome> {
   const zipName = lines.find((line) => line.startsWith("Sicherung: "))?.slice("Sicherung: ".length) ?? null;
   await page.getByTestId("migration-ok").click();
   await dialog.waitFor({ state: "hidden" });
-  return { migrated, failures, zipName, dialogShown: true };
+  return { migrated, failures, zipName, lines, dialogShown: true };
 }
 
 /**

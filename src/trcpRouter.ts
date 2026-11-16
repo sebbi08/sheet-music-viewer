@@ -18,6 +18,7 @@ import {
     migrationBackupInputSchema,
     recordMigrationSkipInputSchema,
 } from "./migration/ipcInput";
+import { ReadOnlyFolders } from "./migration/readOnlyFolders";
 import { SkipList } from "./migration/skipList";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
@@ -43,6 +44,10 @@ const { router: createRouter, procedure: publicProcedure } = initTRPC.create({
 let skipList: Promise<SkipList> | null = null;
 const loadSkipList = () =>
   (skipList ??= SkipList.load(path.join(app.getPath("userData"), "bulk-migration-skips.json")));
+/** Read-only sheet folders already reported once; local, too. */
+let readOnlyFolders: Promise<ReadOnlyFolders> | null = null;
+const loadReadOnlyFolders = () =>
+  (readOnlyFolders ??= ReadOnlyFolders.load(path.join(app.getPath("userData"), "bulk-migration-read-only.json")));
 
 export const trcpRouter = createRouter({
   getVersion: publicProcedure.query(getAppVersion),
@@ -114,6 +119,11 @@ export const trcpRouter = createRouter({
     if (process.env.SMV_DISABLE_BULK_MIGRATION === "1") return [];
     return findMigrationCandidates(input, await loadSkipList());
   }),
+
+  /** Before the backup: a read-only sheet folder is reported once, then silently skipped. */
+  checkMigrationFolder: publicProcedure
+    .input(absoluteFolderSchema)
+    .mutation(async ({ input }) => (await loadReadOnlyFolders()).check(input)),
 
   createMigrationBackup: publicProcedure
     .input(migrationBackupInputSchema)

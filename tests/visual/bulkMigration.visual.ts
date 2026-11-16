@@ -5,7 +5,10 @@ import { PDFDocument } from "pdf-lib";
 import yauzl from "yauzl";
 import { expect, test } from "vitest";
 import type { MarkupPayload } from "../../src/models/markup";
+import { READ_ONLY_FOLDER_TEXT } from "../../src/migration/texts";
+import { getSidecarPath } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
+import { makePdf } from "../pdfMarkup/fixtures";
 import { copyCorpus, legacyDataPath, listCorpus, repoRoot } from "./corpus";
 import { currentApp, openSheet, runBulkMigration, WINDOW } from "./electronDriver";
 import { diffRatio, encodePng, markupMask, sideBySide } from "./imageCompare";
@@ -19,6 +22,7 @@ import { renderPdfPage } from "./pdfRender";
  *   copy B  every PDF migrated on open (SheetViewer path), as in compare.visual.ts
  * A and B must end up with the same embedded payloads and the same stamp pixels per page, so checks
  * A–Er of compare.visual.ts (run on the open path) hold for the bulk migration, too.
+ * A read-only sheet folder (no corpus needed) is reported once, then skipped silently.
  */
 const corpus = listCorpus();
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
@@ -213,3 +217,41 @@ else {
     }
   });
 }
+
+/** chmod-based read-only folders do not work as root or on Windows. */
+const canMakeReadOnly = process.getuid?.() !== 0 && process.platform !== "win32";
+
+test.skipIf(!canMakeReadOnly)(
+  "a read-only sheet folder is reported once, then skipped silently",
+  { timeout: 5 * 60_000 },
+  async () => {
+    const app = await currentApp();
+    fs.mkdirSync(workDir, { recursive: true });
+    const folder = fs.mkdtempSync(path.join(workDir, "read-only-"));
+    const profile = fs.mkdtempSync(path.join(os.tmpdir(), "smv-visual-profile-"));
+    const pdf = path.join(folder, "a.pdf");
+    const sidecar = getSidecarPath(pdf);
+    try {
+      fs.writeFileSync(pdf, await makePdf({ xref: "table" }));
+      fs.writeFileSync(sidecar, JSON.stringify([{ page: 1, data: { objects: [] }, drawWidth: 100, drawHeight: 140 }]));
+      const before = fs.readFileSync(pdf);
+      fs.chmodSync(folder, 0o555);
+
+      const first = await runBulkMigration(app, folder, { profile });
+      expect(first.dialogShown, "dialog on the first start").toBe(true);
+      expect(first.lines).toEqual([READ_ONLY_FOLDER_TEXT]);
+      expect(first.migrated).toBe(0);
+
+      const second = await runBulkMigration(app, folder, { profile });
+      expect(second.dialogShown, "dialog on the second start").toBe(false);
+
+      expect(fs.readdirSync(folder).sort(), "folder untouched").toEqual([path.basename(sidecar), "a.pdf"].sort());
+      expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+      expect([...first.networkRequests, ...second.networkRequests]).toEqual([]);
+    } finally {
+      fs.chmodSync(folder, 0o755);
+      fs.rmSync(folder, { recursive: true, force: true });
+      fs.rmSync(profile, { recursive: true, force: true });
+    }
+  },
+);

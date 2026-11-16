@@ -63,6 +63,7 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
 
   const migration = new BulkMigration({
     findCandidates: (root) => client.findMigrationCandidates.query(root),
+    checkFolder: (root) => client.checkMigrationFolder.mutate(root),
     async createBackup(root, candidates, onProgress) {
       // Subscribed before the backup starts, so no progress is missed.
       const subscription = client.onMigrationBackupProgress.subscribe(undefined, {

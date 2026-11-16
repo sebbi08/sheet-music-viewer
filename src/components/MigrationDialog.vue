@@ -20,7 +20,8 @@
       </v-card-text>
 
       <v-card-text v-else-if="summary" data-testid="migration-summary" :data-migrated="summary.migrated">
-        <p v-if="summary.backupError !== null">{{ backupFailedText(summary.backupError) }}</p>
+        <p v-if="summary.readOnlyFolder">{{ READ_ONLY_FOLDER_TEXT }}</p>
+        <p v-else-if="summary.backupError !== null">{{ backupFailedText(summary.backupError) }}</p>
         <template v-else>
           <p>{{ summaryLine(summary.migrated) }}</p>
           <p v-if="summary.zipName">{{ backupLine(summary.zipName) }}</p>
@@ -63,6 +64,7 @@ import {
   NOT_MIGRATED_HEADING,
   OK_BUTTON,
   progressLine,
+  READ_ONLY_FOLDER_TEXT,
   summaryLine,
 } from "../migration/texts";
 import { useBulkMigration } from "../store/bulkMigration";

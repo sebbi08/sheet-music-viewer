@@ -4,6 +4,7 @@
  */
 import type { BackupResult } from "./backupZip";
 import type { FileOutcome } from "./migrateFile";
+import type { FolderCheck } from "./readOnlyFolders";
 import { PERMANENT_REASONS, type FailureReason, type MigrationCandidate } from "./types";
 
 export interface MigrationSummary {
@@ -12,6 +13,8 @@ export interface MigrationSummary {
   failures: { relativePath: string; reason: FailureReason; message?: string }[];
   cancelledRemaining: number;
   backupError: string | null;
+  /** The sheet folder is read-only (reported once, see `FolderCheck`): nothing was backed up or migrated. */
+  readOnlyFolder: boolean;
 }
 
 export type MigrationPhase =
@@ -22,6 +25,8 @@ export type MigrationPhase =
 
 export interface BulkMigrationDeps {
   findCandidates(root: string): Promise<MigrationCandidate[]>;
+  /** Only called when there is something to migrate. */
+  checkFolder(root: string): Promise<FolderCheck>;
   createBackup(
     root: string,
     c: MigrationCandidate[],
@@ -90,12 +95,27 @@ export class BulkMigration {
       return null;
     }
 
+    let folder: FolderCheck;
+    try {
+      folder = await deps.checkFolder(root);
+    } catch (e) {
+      // The backup then reports what is wrong.
+      console.warn("Could not check whether the sheet folder is writable", e);
+      folder = "writable";
+    }
+    if (folder === "readOnlyKnown") {
+      // Already reported on an earlier start: stay silent until the folder is writable again.
+      deps.onPhase({ phase: "idle" });
+      return null;
+    }
+
     const summary: MigrationSummary = {
       migrated: 0,
       zipName: null,
       failures: [],
       cancelledRemaining: 0,
       backupError: null,
+      readOnlyFolder: folder === "readOnlyReport",
     };
     const fail = (c: MigrationCandidate, reason: FailureReason, message?: string) =>
       summary.failures.push({ relativePath: c.relativePath, reason, ...(message !== undefined ? { message } : {}) });
@@ -103,6 +123,8 @@ export class BulkMigration {
       deps.onPhase({ phase: "done", summary });
       return summary;
     };
+
+    if (summary.readOnlyFolder) return finish();
 
     const candidates: MigrationCandidate[] = [];
     for (const c of found) {
