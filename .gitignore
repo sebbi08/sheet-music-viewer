@@ -91,7 +91,7 @@ dist
 .vite
 publisher/*.js
 publisher/*.map
-Noten
+Noten*
 opencode.json
 public/pdfjs/
 test-results/
