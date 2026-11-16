@@ -1,18 +1,19 @@
 import fs from "fs";
 import path from "path";
-import type { FailureReason, MigrationCandidate } from "./types";
+import { z } from "zod";
+import { PERMANENT_REASONS, type FailureReason, type MigrationCandidate } from "./types";
 
-interface Fingerprint {
-  size: number;
-  mtimeMs: number;
-}
+const fingerprintSchema = z.object({ size: z.number(), mtimeMs: z.number() });
+type Fingerprint = z.infer<typeof fingerprintSchema>;
 
-interface SkipEntry {
-  pdfPath: string;
-  reason: FailureReason;
-  pdf: Fingerprint;
-  sidecar: Fingerprint;
-}
+/** Only permanent failures are remembered (a transient one must never skip a file). */
+const skipEntrySchema = z.object({
+  pdfPath: z.string(),
+  reason: z.custom<FailureReason>((r) => typeof r === "string" && PERMANENT_REASONS.has(r as FailureReason)),
+  pdf: fingerprintSchema,
+  sidecar: fingerprintSchema,
+});
+type SkipEntry = z.infer<typeof skipEntrySchema>;
 
 const key = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
 
@@ -39,7 +40,15 @@ export class SkipList {
     try {
       const json = JSON.parse(await fs.promises.readFile(file, "utf8"));
       if (json?.version === 1 && Array.isArray(json.entries)) {
-        return new SkipList(file, json.entries as SkipEntry[]);
+        // A malformed entry would make every scan throw (and the migration silently do nothing for good).
+        const entries: SkipEntry[] = [];
+        for (const raw of json.entries as unknown[]) {
+          const parsed = skipEntrySchema.safeParse(raw);
+          if (parsed.success) entries.push(parsed.data);
+        }
+        const dropped = json.entries.length - entries.length;
+        if (dropped > 0) console.warn(`Ignoring ${dropped} malformed entries of the migration skip list ${file}`);
+        return new SkipList(file, entries);
       }
     } catch {
       // missing or broken: start empty
