@@ -66,11 +66,14 @@ export function verifyBackupZip(
     yauzl.open(zipPath, { lazyEntries: true }, (openErr, zip) => {
       if (openErr) return reject(openErr);
       const seen = new Set<string>();
+      let openStream: NodeJS.ReadableStream & { destroy(): unknown } | undefined;
       // Settle only once yauzl really closed the file descriptor (the caller renames or deletes next).
       let outcome: { error?: Error } | undefined;
       zip.once("close", () => (outcome?.error ? reject(outcome.error) : resolve()));
       const fail = (e: Error) => {
         outcome ??= { error: e };
+        // An entry stream that errored mid-read never releases its reference; destroy it so yauzl can close.
+        openStream?.destroy();
         zip.close();
       };
       zip.on("error", fail);
@@ -85,6 +88,7 @@ export function verifyBackupZip(
         seen.add(entry.fileName);
         zip.openReadStream(entry, (streamErr, stream) => {
           if (streamErr) return fail(streamErr);
+          openStream = stream;
           let crc = 0;
           let size = 0;
           stream.on("data", (chunk: Buffer) => {
@@ -144,6 +148,7 @@ async function writeZip(
   const out = fs.createWriteStream(tempPath, { flags: "wx" });
   let current: fs.ReadStream | undefined;
   let failed = false;
+  let failRef: (e: Error) => void = () => undefined;
   const done = new Promise<void>((resolve, reject) => {
     const onData = (chunk: Buffer) => {
       try {
@@ -162,6 +167,7 @@ async function writeZip(
       zip.outputStream.destroy();
       void Promise.all([closed(out), current ? closed(current) : undefined]).then(() => reject(e));
     };
+    failRef = fail;
     out.on("error", fail);
     zip.on("error", fail);
     zip.outputStream.on("error", fail);
@@ -176,6 +182,7 @@ async function writeZip(
     zip.addReadStreamLazy(f.name, { compress: f.compress }, (cb) => {
       if (failed) return cb(new Error("aborted"));
       current = fs.createReadStream(f.realPath);
+      current.on("error", (e) => failRef(e));
       cb(null, current);
     });
   }

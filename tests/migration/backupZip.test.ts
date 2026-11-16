@@ -1,7 +1,9 @@
+import { randomBytes } from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { crc32 } from "zlib";
+import yazl from "yazl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import yauzl from "yauzl";
 import { createBackupZip, verifyBackupZip } from "../../src/migration/backupZip";
@@ -339,6 +341,51 @@ describe("createBackupZip", () => {
         readSpy.mockRestore();
       }
     });
+
+    it("a source that vanishes between checksum and write gives an error and no files", async () => {
+      const cs = setup();
+      const progress = { n: 0 };
+      let removed = false;
+      const uncaught: unknown[] = [];
+      const onUncaught = (e: unknown) => uncaught.push(e);
+      process.on("uncaughtException", onUncaught);
+      const spy = vi.spyOn(fs, "createReadStream");
+      try {
+        const r = await createBackupZip(root, cs, {
+          now: NOW,
+          onProgress: (p) => {
+            progress.n++;
+            if (!removed && p.doneBytes > p.totalBytes / 3 + 100_000) {
+              removed = true;
+              fs.rmSync(path.join(root, "s3.pdf"));
+            }
+          },
+        });
+        expect(r.status).toBe("error");
+        await settled(spy, progress);
+        expect(uncaught).toEqual([]);
+      } finally {
+        process.off("uncaughtException", onUncaught);
+        spy.mockRestore();
+      }
+    });
+
+    it("verification rejects promptly on a corrupted deflated entry", async () => {
+      const text = Buffer.from(Array.from({ length: 200 }, () => randomBytes(1000).toString("hex")).join(""));
+      const zipPath = path.join(root, "bad.zip");
+      const zip = new yazl.ZipFile();
+      zip.addBuffer(text, "x.data", { compress: true });
+      zip.end();
+      await new Promise<void>((resolve) =>
+        zip.outputStream.pipe(fs.createWriteStream(zipPath)).on("close", () => resolve()),
+      );
+      const bytes = fs.readFileSync(zipPath);
+      for (let i = 200; i < 260; i++) bytes[i] ^= 0xff;
+      fs.writeFileSync(zipPath, bytes);
+      await expect(
+        verifyBackupZip(zipPath, [{ name: "x.data", size: text.length, crc: crc32(text) }]),
+      ).rejects.toThrow();
+    }, 5000);
 
     it("cancelling during verification leaves no files", async () => {
       const cs = setup();
