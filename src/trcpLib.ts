@@ -3,7 +3,7 @@ import fs from "fs-extra";
 import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
-import { isListedSheetEntry } from "./sheetFiles";
+import { resolveListedEntry } from "./sheetFiles";
 import {
     type SetList,
     type SetListSheet,
@@ -75,20 +75,19 @@ export async function loadFilesAndFolder(
   } = opts;
 
   const folderPath = path.join(basePath, relativePath);
-  let folderContent = await fs.readdir(folderPath, { withFileTypes: true });
+  const folderContent = await fs.readdir(folderPath, { withFileTypes: true });
 
-  folderContent = folderContent.filter((item) =>
-    isListedSheetEntry(item.name, item.isDirectory()),
-  );
-
-  const filesAndFolders: SheetFile[] = folderContent.map((item) => {
-    return {
+  const filesAndFolders: SheetFile[] = [];
+  for (const item of folderContent) {
+    const resolved = await resolveListedEntry(folderPath, item);
+    if (!resolved) continue;
+    filesAndFolders.push({
       path: basePath,
       name: item.name,
-      isFile: item.isFile(),
+      isFile: !resolved.isDirectory,
       isSearch: false,
-    };
-  });
+    });
+  }
 
   return filesAndFolders;
 }
