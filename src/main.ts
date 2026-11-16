@@ -15,6 +15,10 @@ const isDevelopment = !app.isPackaged;
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (startup) {
   app.quit();
+} else if (!app.requestSingleInstanceLock()) {
+  // One instance per profile (userData): a second one would run a second bulk migration on the same
+  // files. The running instance comes to the front instead (see "second-instance" below).
+  app.quit();
 } else {
   // Initialize the logger to be available in renderer process
   log.initialize();
@@ -51,6 +55,12 @@ if (startup) {
   ]);
 
   let mainWindow: BrowserWindow | null;
+
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
   const createWindow = (): void => {
     // Create the browser window.
     mainWindow = new BrowserWindow({
