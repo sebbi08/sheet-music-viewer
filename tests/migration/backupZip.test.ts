@@ -7,6 +7,7 @@ import yazl from "yazl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import yauzl from "yauzl";
 import { createBackupZip, verifyBackupZip } from "../../src/migration/backupZip";
+import { setLockRetryDelays } from "../../src/pdfMarkup/markupFile";
 import type { MigrationCandidate } from "../../src/migration/types";
 
 let root: string;
@@ -214,6 +215,102 @@ describe("createBackupZip", () => {
     expect(r.status).toBe("ok");
     expect(fs.existsSync(path.join(root, ".Markierungen-Backup-old1.zip.tmp"))).toBe(false);
     expect(fs.existsSync(path.join(root, "keep.txt"))).toBe(true);
+  });
+
+  it("a stale temp file that cannot be removed does not stop the backup", async () => {
+    put("a.pdf", "A");
+    put(".a.data", "d");
+    const stale = path.join(root, ".Markierungen-Backup-held.zip.tmp");
+    put(".Markierungen-Backup-held.zip.tmp", "junk");
+    const realRm = fs.promises.rm.bind(fs.promises);
+    const rm = vi.spyOn(fs.promises, "rm").mockImplementation((file, options) =>
+      String(file) === stale
+        ? Promise.reject(Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" }))
+        : realRm(file, options),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], { now: NOW });
+      expect(r.status).toBe("ok");
+      expect(fs.existsSync(path.join(root, "Markierungen-Backup 2026-11-16 10-15.zip"))).toBe(true);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      rm.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it("zip entries keep the source's modification time and mode", async () => {
+    put("a.pdf", "A");
+    put(".a.data", "d");
+    // Even seconds: the DOS timestamp has a 2 s resolution.
+    const mtime = new Date(2021, 2, 4, 5, 6, 10);
+    fs.utimesSync(path.join(root, "a.pdf"), mtime, mtime);
+    fs.utimesSync(path.join(root, ".a.data"), mtime, mtime);
+    fs.chmodSync(path.join(root, "a.pdf"), 0o640);
+    const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], { now: NOW });
+    if (r.status !== "ok" || !r.zipPath) throw new Error("no zip");
+    const entries = await new Promise<yauzl.Entry[]>((resolve, reject) => {
+      yauzl.open(r.zipPath as string, { lazyEntries: true }, (err, zip) => {
+        if (err) return reject(err);
+        const out: yauzl.Entry[] = [];
+        zip.on("entry", (e: yauzl.Entry) => {
+          out.push(e);
+          zip.readEntry();
+        });
+        zip.on("end", () => {
+          zip.close();
+          resolve(out);
+        });
+        zip.on("error", reject);
+        zip.readEntry();
+      });
+    });
+    expect(entries.map((e) => e.fileName)).toEqual(["a.pdf", ".a.data"]);
+    for (const e of entries) {
+      expect(Math.floor(e.getLastModDate().getTime() / 1000)).toBe(mtime.getTime() / 1000);
+      expect(Math.floor(e.getLastModDate({ forceDosFormat: true }).getTime() / 1000)).toBe(mtime.getTime() / 1000);
+      expect(e.externalFileAttributes >>> 16).toBe(fs.statSync(path.join(root, e.fileName)).mode);
+    }
+  });
+
+  describe("the final rename while the folder is locked (Windows: sync client, virus scanner)", () => {
+    const locked = () => Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+    let previousDelays: readonly number[];
+    beforeEach(() => {
+      previousDelays = setLockRetryDelays([1, 1, 1]);
+    });
+    afterEach(() => {
+      setLockRetryDelays(previousDelays);
+    });
+
+    it("is retried: failing twice then succeeding gives the zip", async () => {
+      put("a.pdf", "A");
+      put(".a.data", "d");
+      const rename = vi.spyOn(fs.promises, "rename").mockRejectedValueOnce(locked()).mockRejectedValueOnce(locked());
+      try {
+        const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], { now: NOW });
+        expect(r.status).toBe("ok");
+        expect(rename).toHaveBeenCalledTimes(3);
+        expect(leftovers()).toEqual(["Markierungen-Backup 2026-11-16 10-15.zip"]);
+      } finally {
+        rename.mockRestore();
+      }
+    });
+
+    it("staying locked gives an error and leaves no files", async () => {
+      put("a.pdf", "A");
+      put(".a.data", "d");
+      const rename = vi.spyOn(fs.promises, "rename").mockRejectedValue(locked());
+      try {
+        const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], { now: NOW });
+        expect(r).toEqual({ status: "error", message: "EBUSY: resource busy or locked" });
+        expect(rename).toHaveBeenCalledTimes(4);
+        expect(leftovers()).toEqual([]);
+      } finally {
+        rename.mockRestore();
+      }
+    });
   });
 
   it("never loads a whole source file into memory", async () => {

@@ -3,7 +3,9 @@ import path from "path";
 import { randomBytes } from "crypto";
 import { crc32 } from "zlib";
 import yauzl from "yauzl";
+import type { PassThrough } from "stream";
 import yazl from "yazl";
+import { retryWhileLocked } from "../pdfMarkup/markupFile";
 import type { MigrationCandidate } from "./types";
 
 export type BackupResult =
@@ -49,9 +51,15 @@ function freeZipPath(root: string, now: Date): string {
   }
 }
 
+/** Best effort: a leftover held open by a sync client or virus scanner stays (the new temp file has its own name). */
 async function removeStaleTempFiles(root: string): Promise<void> {
   for (const name of await fs.promises.readdir(root)) {
-    if (TEMP_PATTERN.test(name)) await fs.promises.rm(path.join(root, name), { force: true });
+    if (!TEMP_PATTERN.test(name)) continue;
+    try {
+      await fs.promises.rm(path.join(root, name), { force: true });
+    } catch (e) {
+      console.warn(`Could not remove stale backup file ${name}:`, e);
+    }
   }
 }
 
@@ -112,7 +120,13 @@ interface PlannedFile {
   name: string;
   realPath: string;
   compress: boolean;
+  /** From the first stat, so the entry keeps the source's modification time and permissions. */
+  mtime: Date;
+  mode: number;
 }
+
+/** yazl's callback also takes just an error (its typings demand a stream). */
+type LazyStreamCallback = (err: Error | null, stream?: NodeJS.ReadableStream) => void;
 
 /** Streams a file once; returns its size and CRC-32 without holding it in memory. */
 async function checksumFile(
@@ -145,6 +159,8 @@ async function writeZip(
   throwIfCancelled: () => void,
 ): Promise<void> {
   const zip = new yazl.ZipFile();
+  // Typed as NodeJS.ReadableStream, but yazl always creates a PassThrough.
+  const output = zip.outputStream as PassThrough;
   const out = fs.createWriteStream(tempPath, { flags: "wx" });
   let current: fs.ReadStream | undefined;
   let failed = false;
@@ -162,29 +178,32 @@ async function writeZip(
     const fail = (e: Error) => {
       if (failed) return;
       failed = true;
-      zip.outputStream.off("data", onData);
-      zip.outputStream.unpipe(out);
-      zip.outputStream.destroy();
+      output.off("data", onData);
+      output.unpipe(out);
+      output.destroy();
       void Promise.all([closed(out), current ? closed(current) : undefined]).then(() => reject(e));
     };
     failRef = fail;
     out.on("error", fail);
     zip.on("error", fail);
-    zip.outputStream.on("error", fail);
-    zip.outputStream.on("data", onData);
+    output.on("error", fail);
+    output.on("data", onData);
     out.on("close", () => {
       if (!failed) resolve();
     });
   });
-  zip.outputStream.pipe(out);
+  output.pipe(out);
   // Sources are opened lazily, one entry at a time, with back-pressure from the output.
   for (const f of files) {
-    zip.addReadStreamLazy(f.name, { compress: f.compress }, (cb) => {
+    const open = (cb: LazyStreamCallback) => {
       if (failed) return cb(new Error("aborted"));
       current = fs.createReadStream(f.realPath);
       current.on("error", (e) => failRef(e));
       cb(null, current);
-    });
+    };
+    zip.addReadStreamLazy(f.name, { compress: f.compress, mtime: f.mtime, mode: f.mode }, (cb) =>
+      open(cb as LazyStreamCallback),
+    );
   }
   zip.end();
   await done;
@@ -210,18 +229,18 @@ export async function createBackupZip(
     await removeStaleTempFiles(root);
 
     // Phase weights: checksum pass, write, verify (each counts the included bytes once).
-    const sized: { candidate: MigrationCandidate; pdfSize: number; sidecarSize: number }[] = [];
+    const sized: { candidate: MigrationCandidate; pdfStat: fs.Stats; sidecarStat: fs.Stats }[] = [];
     const excluded: { candidate: MigrationCandidate; message: string }[] = [];
     for (const candidate of candidates) {
       try {
-        const pdfSize = (await fs.promises.stat(candidate.pdfPath)).size;
-        const sidecarSize = (await fs.promises.stat(candidate.sidecarPath)).size;
-        sized.push({ candidate, pdfSize, sidecarSize });
+        const pdfStat = await fs.promises.stat(candidate.pdfPath);
+        const sidecarStat = await fs.promises.stat(candidate.sidecarPath);
+        sized.push({ candidate, pdfStat, sidecarStat });
       } catch (e) {
         excluded.push({ candidate, message: messageOf(e) });
       }
     }
-    const totalBytes = sized.reduce((sum, s) => sum + s.pdfSize + s.sidecarSize, 0) * 3;
+    const totalBytes = sized.reduce((sum, s) => sum + s.pdfStat.size + s.sidecarStat.size, 0) * 3;
     let doneBytes = 0;
     const advance = (bytes: number) => {
       doneBytes = Math.min(totalBytes, doneBytes + bytes);
@@ -231,7 +250,7 @@ export async function createBackupZip(
     const included: MigrationCandidate[] = [];
     const planned: PlannedFile[] = [];
     const expected: ExpectedZipEntry[] = [];
-    for (const { candidate, pdfSize, sidecarSize } of sized) {
+    for (const { candidate, pdfStat, sidecarStat } of sized) {
       throwIfCancelled();
       const dir = path.posix.dirname(candidate.relativePath);
       const sidecarName = path.basename(candidate.sidecarPath);
@@ -244,13 +263,25 @@ export async function createBackupZip(
       } catch (e) {
         if (e instanceof Cancelled) throw e;
         excluded.push({ candidate, message: messageOf(e) });
-        advance(3 * (pdfSize + sidecarSize));
+        advance(3 * (pdfStat.size + sidecarStat.size));
         continue;
       }
       included.push(candidate);
       planned.push(
-        { name: candidate.relativePath, realPath: candidate.pdfPath, compress: false },
-        { name: sidecarEntry, realPath: candidate.sidecarPath, compress: true },
+        {
+          name: candidate.relativePath,
+          realPath: candidate.pdfPath,
+          compress: false,
+          mtime: pdfStat.mtime,
+          mode: pdfStat.mode & 0xffff,
+        },
+        {
+          name: sidecarEntry,
+          realPath: candidate.sidecarPath,
+          compress: true,
+          mtime: sidecarStat.mtime,
+          mode: sidecarStat.mode & 0xffff,
+        },
       );
       expected.push(
         { name: candidate.relativePath, ...pdf },
@@ -266,7 +297,8 @@ export async function createBackupZip(
     advance(totalBytes); // sizes may have shifted slightly; always finish at 100 %
 
     const zipPath = freeZipPath(root, options.now);
-    await fs.promises.rename(tempPath, zipPath);
+    // Like atomicReplace: a sync client or virus scanner may hold the new file for a moment.
+    await retryWhileLocked(() => fs.promises.rename(tempPath, zipPath));
     return { status: "ok", zipPath, included, excluded };
   } catch (e) {
     await fs.promises.rm(tempPath, { force: true }).catch((rmErr) => {

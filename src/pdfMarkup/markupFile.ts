@@ -80,7 +80,7 @@ export function setLockRetryDelays(delaysMs: readonly number[]): readonly number
 }
 
 /** Runs `operation`, repeating it while it fails because the file is locked (see `isLockedError`). */
-async function retryWhileLocked<T>(operation: () => Promise<T>): Promise<T> {
+export async function retryWhileLocked<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await operation();
@@ -356,7 +356,9 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
     }
 
     if (input.deleteLegacySidecar) {
-      await fs.promises.rm(getSidecarPath(input.path), { force: true }).catch((e: unknown) => {
+      // A sidecar that stays (held by a sync client for a moment) would later look like a conflict.
+      const sidecarPath = getSidecarPath(input.path);
+      await retryWhileLocked(() => fs.promises.rm(sidecarPath, { force: true })).catch((e: unknown) => {
         console.warn("Could not delete the legacy markup sidecar", e);
       });
     }

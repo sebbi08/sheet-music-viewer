@@ -231,6 +231,27 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
       expect(tempFiles(dir)).toEqual([]);
     });
 
+    test("deleting the migrated legacy sidecar is retried while it is locked", async () => {
+      const pdf = await writeFixture(dir, "l.pdf", await makePdf({ xref: "table" }));
+      const sidecar = getSidecarPath(pdf);
+      fs.writeFileSync(sidecar, JSON.stringify([{ page: 1, data: { objects: [] }, drawWidth: 100, drawHeight: 140 }]));
+      const realRm = fs.promises.rm.bind(fs.promises);
+      let failures = 0;
+      const rm = vi.spyOn(fs.promises, "rm").mockImplementation((file, options) => {
+        if (String(file) === sidecar && failures < 2) {
+          failures++;
+          return Promise.reject(locked("EBUSY"));
+        }
+        return realRm(file, options);
+      });
+
+      expect(await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: true })).toEqual({
+        status: "pdf",
+      });
+      expect(rm.mock.calls.filter(([file]) => String(file) === sidecar)).toHaveLength(3);
+      expect(fs.existsSync(sidecar)).toBe(false);
+    });
+
     test("opening the temp file is retried while it is locked (EACCES)", async () => {
       const pdf = await writeFixture(dir, "t.pdf", await makePdf({ xref: "table" }));
       const open = vi.spyOn(fs.promises, "open").mockRejectedValueOnce(locked("EACCES"));
