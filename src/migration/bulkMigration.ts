@@ -110,6 +110,12 @@ export class BulkMigration {
       else candidates.push(c);
     }
 
+    if (this.cancelled) {
+      // Cancelled during the search: no backup (cancelBackup could not stop anything yet).
+      summary.cancelledRemaining = candidates.length;
+      return finish();
+    }
+
     let included: MigrationCandidate[] = [];
     if (candidates.length > 0) {
       deps.onPhase({ phase: "backup", doneBytes: 0, totalBytes: 0 });

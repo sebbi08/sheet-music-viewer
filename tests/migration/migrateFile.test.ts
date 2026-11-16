@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { LoadMarkupResult, MarkupPayload, SaveMarkupInput, SaveMarkupResult } from "../../src/models/markup";
 import { migrateFile, type MigrateFileDeps } from "../../src/migration/migrateFile";
-import type { MigrationCandidate } from "../../src/migration/types";
+import { PERMANENT_REASONS, type FailureReason, type MigrationCandidate } from "../../src/migration/types";
 
 const candidate: MigrationCandidate = { pdfPath: "/s/a.pdf", sidecarPath: "/s/.a.pdf.data", relativePath: "a.pdf" };
 const rect = { type: "rect", left: 100, top: 200, width: 50, height: 40, angle: 0, scaleX: 1, scaleY: 1 };
@@ -78,6 +78,27 @@ describe("migrateFile", () => {
     deps.discardEmptySidecar.mockResolvedValue({ deleted: false });
     expect(await migrateFile(candidate, deps)).toEqual({ kind: "failed", reason: "corruptData" });
     expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  test("a vanished sidecar (no legacy text, nothing deleted) is transient, not corruptData", async () => {
+    const { deps } = setup({ source: "none", legacyOverlayData: null });
+    deps.discardEmptySidecar.mockResolvedValue({ deleted: false });
+    const outcome = await migrateFile(candidate, deps);
+    expect(outcome).toEqual({ kind: "failed", reason: "other", message: "Markierungsdatei nicht gefunden" });
+    expect(PERMANENT_REASONS.has((outcome as { reason: FailureReason }).reason)).toBe(false);
+  });
+
+  test("a v1 sidecar with pages beyond the pdf is permanent corruptData and saves nothing", async () => {
+    const { deps } = setup({
+      source: "sidecar",
+      pages: [
+        { page: 1, rect: null, payload },
+        { page: 9, rect: null, payload },
+      ],
+    });
+    expect(await migrateFile(candidate, deps)).toEqual({ kind: "failed", reason: "corruptData" });
+    expect(deps.save).not.toHaveBeenCalled();
+    expect(deps.discardEmptySidecar).not.toHaveBeenCalled();
   });
 
   test("a rejecting discard becomes other and never throws", async () => {

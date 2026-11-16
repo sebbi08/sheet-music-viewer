@@ -47,6 +47,11 @@ export async function migrateFile(c: MigrationCandidate, deps: MigrateFileDeps):
         : { kind: "failed", reason: "other", message: errorMessage(e) };
     }
 
+    // A v1 sidecar with pages the PDF lacks can never be moved: the save would stay in the sidecar.
+    if (markup.source === "sidecar" && markup.pages.some((p) => p.page > pdf!.numPages)) {
+      return { kind: "failed", reason: "corruptData" };
+    }
+
     let changes: [number, PageState][] = [];
     if (markup.legacyOverlayData !== null) {
       const converted = await convertLegacyOverlayData(markup.legacyOverlayData, pdf.numPages, pdf.viewportOf);
@@ -59,7 +64,11 @@ export async function migrateFile(c: MigrationCandidate, deps: MigrateFileDeps):
     const hasV1Pages = markup.source === "sidecar" && markup.pages.length > 0;
     if (!hasMarkup(changes) && !hasV1Pages) {
       const { deleted } = await deps.discardEmptySidecar(c.pdfPath);
-      return deleted ? { kind: "migrated" } : { kind: "failed", reason: "corruptData" };
+      if (deleted) return { kind: "migrated" };
+      // Without legacy text the file is missing (vanished after the scan), not damaged: transient.
+      return markup.legacyOverlayData !== null
+        ? { kind: "failed", reason: "corruptData" }
+        : { kind: "failed", reason: "other", message: "Markierungsdatei nicht gefunden" };
     }
 
     const pages: SaveMarkupInput["pages"] = [];

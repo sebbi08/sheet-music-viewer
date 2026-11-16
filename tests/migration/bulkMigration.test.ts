@@ -235,6 +235,18 @@ describe("BulkMigration", () => {
     expect(deps.migrateFile).not.toHaveBeenCalled();
   });
 
+  test("cancel during the candidate search makes no backup", async () => {
+    const gate = deferred<MigrationCandidate[]>();
+    const { bulk, deps } = setup([], { findCandidates: () => gate.promise });
+    const run = bulk.run("/s");
+    await vi.waitFor(() => expect(deps.findCandidates).toHaveBeenCalled());
+    bulk.cancel();
+    gate.resolve([A, B]);
+    expect(await run).toMatchObject({ migrated: 0, cancelledRemaining: 2, zipName: null });
+    expect(deps.createBackup).not.toHaveBeenCalled();
+    expect(deps.migrateFile).not.toHaveBeenCalled();
+  });
+
   test("a second run while running returns the running one", async () => {
     const gate = deferred<FileOutcome>();
     const { bulk, deps } = setup([A], { migrateFile: vi.fn(() => gate.promise) });
