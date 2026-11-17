@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { _electron, type ElectronApplication, type Page } from "playwright-core";
+import { _electron, type ElectronApplication, errors, type Page } from "playwright-core";
 import { repoRoot } from "./corpus";
 import { decodePng, type Img } from "./imageCompare";
 
@@ -66,6 +67,8 @@ export interface SheetSession {
   snackbarText(): Promise<string>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
+  /** What the bulk migration reported before the sheet opened; null unless started with `bulkMigration: true`. */
+  bulkMigration(): BulkMigrationOutcome | null;
   close(): Promise<void>;
 }
 
@@ -83,12 +86,55 @@ function git(...args: string[]): string {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
 }
 
+/** Runs a build tool in `cwd`; throws with the end of its output if it fails. */
+function runTool(command: string, args: string[], cwd: string): void {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", shell: isWindows, maxBuffer: 256 * 1024 * 1024 });
+  if (result.status !== 0) {
+    const reason = result.error?.message ?? (result.signal ? `signal ${result.signal}` : `exit code ${result.status}`);
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+    throw new Error(`${command} ${args.join(" ")} failed in ${cwd} (${reason}):\n${output.slice(-8000)}`);
+  }
+}
+
+/** What `electron-forge package` must leave behind for `electron <root>` to show the app. */
+const buildOutputs = (root: string) => [
+  path.join(root, ".vite", "build", "main.cjs"),
+  path.join(root, ".vite", "renderer", "main_window", "index.html"),
+];
+/** A failed or interrupted build can leave main.cjs without the renderer: that is not a build. */
+const isBuilt = (root: string) => buildOutputs(root).every((file) => fs.existsSync(file));
+
 function forgePackage(root: string): AppUnderTest {
-  execFileSync(npx, ["electron-forge", "package"], { cwd: root, stdio: "ignore", shell: isWindows });
-  if (!fs.existsSync(path.join(root, ".vite", "build", "main.cjs"))) {
-    throw new Error(`electron-forge package did not produce .vite/build/main.cjs in ${root}`);
+  runTool(npx, ["electron-forge", "package"], root);
+  const missing = buildOutputs(root).filter((file) => !fs.existsSync(file));
+  if (missing.length > 0) {
+    throw new Error(`electron-forge package did not produce ${missing.map((f) => path.relative(root, f)).join(", ")} in ${root}`);
   }
   return { root };
+}
+
+const INSTALL_MARKER = ".smv-visual-installed";
+
+/**
+ * Gives the worktree at `root` its own node_modules from its own lockfile (`npm ci`), so dependencies
+ * removed on the current branch cannot break the old app's build. Install scripts are skipped: the
+ * apps run with the Electron binary of the current node_modules. Returns true if it installed.
+ */
+function installOwnDependencies(root: string): boolean {
+  const modules = path.join(root, "node_modules");
+  const marker = path.join(modules, INSTALL_MARKER);
+  const lockHash = createHash("sha256").update(fs.readFileSync(path.join(root, "package-lock.json"))).digest("hex");
+  const entry = fs.lstatSync(modules, { throwIfNoEntry: false });
+  if (entry?.isSymbolicLink()) {
+    // Older runs linked the current node_modules here: remove only the link, never its target.
+    fs.unlinkSync(modules);
+  } else if (entry && fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === lockHash) {
+    return false;
+  }
+  // npm ci replaces an incomplete node_modules; the marker is written only after it succeeded.
+  runTool(isWindows ? "npm.cmd" : "npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], root);
+  fs.writeFileSync(marker, lockHash);
+  return true;
 }
 
 /** Builds the app as of `ref` in a reusable git worktree below test-results/visual/worktrees/. */
@@ -98,11 +144,9 @@ export async function buildAppAtRef(ref: string): Promise<AppUnderTest> {
     fs.mkdirSync(path.dirname(root), { recursive: true });
     git("worktree", "add", "--detach", root, ref);
   }
-  const modules = path.join(root, "node_modules");
-  if (!fs.existsSync(modules)) {
-    fs.symlinkSync(path.join(repoRoot, "node_modules"), modules, "junction");
-  }
-  if (fs.existsSync(path.join(root, ".vite", "build", "main.cjs"))) return { root };
+  // New dependencies: whatever was built before was built with others.
+  if (installOwnDependencies(root)) fs.rmSync(path.join(root, ".vite"), { recursive: true, force: true });
+  if (isBuilt(root)) return { root };
   return forgePackage(root);
 }
 
@@ -225,27 +269,48 @@ async function capturePair(page: Page, what: string, pageLayer: string, markupLa
   return { with: withMarkup.img, without: without.img, cssSize: without.cssSize };
 }
 
-export interface OpenSheetOptions {
+export interface LaunchOptions {
   /** Extra environment variables for the app (e.g. `SMV_EXIT_GUARD_TIMEOUT_MS`). */
   env?: Record<string, string>;
+  /**
+   * Lets the bulk markup migration run on start. Off by default: the driver sets
+   * `SMV_DISABLE_BULK_MIGRATION=1`, so the visual tests keep checking the migration on open.
+   */
+  bulkMigration?: boolean;
+  /**
+   * Electron profile (userData) to use and keep, e.g. to start the app twice with the same skip list.
+   * Default: a fresh temporary profile, removed on close.
+   */
+  profile?: string;
 }
 
-/** Starts the app with an isolated profile, shows `pdfPath` (absolute or relative to `folder`) in the SheetViewer. */
-export async function openSheet(
-  app: AppUnderTest,
-  folder: string,
-  pdfPath: string,
-  options: OpenSheetOptions = {},
-): Promise<SheetSession> {
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "smv-visual-profile-"));
+/** A started app (see `launchApp`): window at `WINDOW` size, `folder` set as the sheet music folder. */
+export interface LaunchedApp {
+  electronApp: ElectronApplication;
+  page: Page;
+  /** Updates `networkRequests()` from the main process (no-op once the app has exited). */
+  refreshRequests(): Promise<void>;
+  networkRequests(): string[];
+  /** Waits until the Electron process has exited; false after `timeoutMs`. */
+  waitForExit(timeoutMs: number): Promise<boolean>;
+  /** Quits the app (killed after CLOSE_TIMEOUT_MS) and removes a temporary profile. */
+  close(): Promise<void>;
+}
+
+/** Starts the app headless with an isolated profile and `folder` as its sheet music folder. */
+export async function launchApp(app: AppUnderTest, folder: string, options: LaunchOptions = {}): Promise<LaunchedApp> {
+  const keepProfile = options.profile !== undefined;
+  const profile = options.profile ?? fs.mkdtempSync(path.join(os.tmpdir(), "smv-visual-profile-"));
   // IS_TEST keeps the unpackaged app from installing Vue devtools (a download). An inherited
   // ELECTRON_RUN_AS_NODE (set e.g. by VS Code terminals) would start Electron as plain Node.
-  const { ELECTRON_RUN_AS_NODE: _runAsNode, ...inherited } = process.env;
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, SMV_DISABLE_BULK_MIGRATION: _bulk, ...inherited } = process.env;
   const { DISPLAY: _x11, WAYLAND_DISPLAY: _wayland, ...withoutDisplay } = inherited;
   const headed = process.env.VISUAL_HEADED === "1";
   const networkLog = path.join(profile, "network-log.cjs");
   fs.writeFileSync(networkLog, NETWORK_LOG_SCRIPT);
-  const removeProfile = () => fs.rmSync(profile, { recursive: true, force: true });
+  const removeProfile = () => {
+    if (!keepProfile) fs.rmSync(profile, { recursive: true, force: true });
+  };
   const electronApp: ElectronApplication = await _electron.launch({
     executablePath: electronBinary,
     args: [
@@ -258,7 +323,12 @@ export async function openSheet(
       // server needed. VISUAL_HEADED=1 shows the window for debugging.
       ...(headed ? [] : ["--ozone-platform=headless", "--disable-gpu"]),
     ],
-    env: { ...(headed ? inherited : withoutDisplay), ...options.env, IS_TEST: "1" } as Record<string, string>,
+    env: {
+      ...(headed ? inherited : withoutDisplay),
+      ...(options.bulkMigration ? {} : { SMV_DISABLE_BULK_MIGRATION: "1" }),
+      ...options.env,
+      IS_TEST: "1",
+    } as Record<string, string>,
     cwd: app.root,
   }).catch((error: unknown) => {
     removeProfile();
@@ -277,6 +347,17 @@ export async function openSheet(
   const refreshRequests = async () => {
     if (hasExited) return;
     requests = await electronApp.evaluate(() => [...((globalThis as { __smvRequests?: string[] }).__smvRequests ?? [])]);
+  };
+  const waitForExit = async (timeoutMs: number) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    try {
+      return await Promise.race([exited.then(() => true), timedOut]);
+    } finally {
+      clearTimeout(timer);
+    }
   };
   try {
     const actualProfile = await electronApp.evaluate(({ app: electron }) => electron.getPath("userData"));
@@ -304,11 +385,151 @@ export async function openSheet(
       page.evaluate((s) => window.innerWidth === s.width && window.innerHeight === s.height, WINDOW),
     );
 
-    // The store reads the folder from localStorage once at startup, hence the reload.
+    // The store reads the folder from localStorage once at startup, hence the reload. A kept profile
+    // may have it already: then the app started with it (and with its migration, if enabled), which a
+    // reload would interrupt.
     await page.waitForLoadState("domcontentloaded");
-    await page.evaluate((f) => localStorage.setItem("sheetMusicFolder", f), folder);
-    await page.reload();
+    if (!(await page.evaluate((f) => localStorage.getItem("sheetMusicFolder") === f, folder))) {
+      await page.evaluate((f) => localStorage.setItem("sheetMusicFolder", f), folder);
+      await page.reload();
+    }
     await page.waitForFunction(() => (document.querySelector("#app") as { __vue_app__?: unknown } | null)?.__vue_app__);
+    await refreshRequests();
+
+    return {
+      electronApp,
+      page,
+      refreshRequests,
+      networkRequests: () => [...requests],
+      waitForExit,
+      async close() {
+        // Quitting does not leave edit mode; an open edit canvas with changes would be saved first (and
+        // a failing save would ask through the native dialog, which a headless run cannot answer).
+        await refreshRequests();
+        if (!hasExited) {
+          // A close the app keeps blocking (e.g. a broken close guard) must not hang the run.
+          const closing = electronApp.close().catch(() => undefined);
+          if (!(await waitForExit(CLOSE_TIMEOUT_MS))) {
+            electronApp.process().kill("SIGKILL");
+            await closing;
+            throw new Error(`the app did not quit within ${CLOSE_TIMEOUT_MS} ms and was killed`);
+          }
+        }
+        removeProfile();
+      },
+    };
+  } catch (error) {
+    await electronApp.close().catch(() => undefined);
+    removeProfile();
+    throw error;
+  }
+}
+
+/**
+ * Starts the app a second time with `profile` (headless, without Playwright) while another instance may
+ * hold it, and waits for that process to exit. Resolves with its exit code, or `null` if it was still
+ * running after `timeoutMs` (it is killed then).
+ */
+export function startExtraInstance(app: AppUnderTest, profile: string, timeoutMs: number): Promise<number | null> {
+  const { ELECTRON_RUN_AS_NODE: _runAsNode, DISPLAY: _x11, WAYLAND_DISPLAY: _wayland, ...env } = process.env;
+  const child = spawn(
+    electronBinary,
+    [app.root, `--user-data-dir=${profile}`, "--ozone-platform=headless", "--disable-gpu"],
+    { cwd: app.root, env: { ...env, IS_TEST: "1", SMV_DISABLE_BULK_MIGRATION: "1" }, stdio: "ignore" },
+  );
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve(null);
+    }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+}
+
+/** What the bulk migration dialog reported (src/components/MigrationDialog.vue). */
+export interface BulkMigrationOutcome {
+  /** `data-migrated` of the summary. */
+  migrated: number;
+  /** The lines below "Nicht übernommen:" (`{relativePath} – {Grund}`). */
+  failures: string[];
+  /** From the line "Sicherung: {zipName}"; null without it. */
+  zipName: string | null;
+  /** All paragraphs of the summary (without the failure lines). */
+  lines: string[];
+  /** False: no dialog within MIGRATION_DIALOG_WAIT_MS (nothing to migrate). */
+  dialogShown: boolean;
+}
+
+/** The migration starts with the app; its dialog comes up once it has found candidates. */
+const MIGRATION_DIALOG_WAIT_MS = 10_000;
+const MIGRATION_TIMEOUT_MS = 20 * 60_000;
+
+/** Waits for the bulk migration's summary and confirms it with OK, or notes that no dialog came up. */
+async function settleBulkMigration(page: Page): Promise<BulkMigrationOutcome> {
+  const dialog = page.getByTestId("migration-dialog");
+  try {
+    await dialog.waitFor({ state: "visible", timeout: MIGRATION_DIALOG_WAIT_MS });
+  } catch (error) {
+    if (!(error instanceof errors.TimeoutError)) throw error;
+    return { migrated: 0, failures: [], zipName: null, lines: [], dialogShown: false };
+  }
+  const summary = page.getByTestId("migration-summary");
+  await summary.waitFor({ state: "visible", timeout: MIGRATION_TIMEOUT_MS });
+  const migrated = Number(await summary.getAttribute("data-migrated"));
+  const failures = (await summary.locator(".failures li").allTextContents()).map((line) => line.trim());
+  const lines = (await summary.locator("p").allTextContents()).map((line) => line.trim());
+  console.log(`migration summary: ${[...lines, ...failures].join(" | ")}`);
+  const zipName = lines.find((line) => line.startsWith("Sicherung: "))?.slice("Sicherung: ".length) ?? null;
+  await page.getByTestId("migration-ok").click();
+  await dialog.waitFor({ state: "hidden" });
+  return { migrated, failures, zipName, lines, dialogShown: true };
+}
+
+/**
+ * Starts the app headless with the bulk migration enabled, waits for its summary (or 10 s without a
+ * dialog: `dialogShown: false`), confirms it with OK and quits the app.
+ */
+export async function runBulkMigration(
+  app: AppUnderTest,
+  folder: string,
+  options: Omit<LaunchOptions, "bulkMigration"> = {},
+): Promise<BulkMigrationOutcome & { networkRequests: string[] }> {
+  const launched = await launchApp(app, folder, { ...options, bulkMigration: true });
+  let outcome: BulkMigrationOutcome;
+  try {
+    outcome = await settleBulkMigration(launched.page);
+  } catch (error) {
+    await launched.close().catch(() => undefined);
+    throw error;
+  }
+  await launched.close();
+  return { ...outcome, networkRequests: launched.networkRequests() };
+}
+
+export type OpenSheetOptions = LaunchOptions;
+
+/**
+ * Starts the app (see `launchApp`) and shows `pdfPath` (absolute or relative to `folder`) in the
+ * SheetViewer. With `bulkMigration: true`, the migration is settled first (`SheetSession.bulkMigration`).
+ */
+export async function openSheet(
+  app: AppUnderTest,
+  folder: string,
+  pdfPath: string,
+  options: OpenSheetOptions = {},
+): Promise<SheetSession> {
+  const launched = await launchApp(app, folder, options);
+  const { electronApp, page, refreshRequests } = launched;
+  try {
+    // No sheet opens while the migration runs (App.vue's router guard).
+    const migration = options.bulkMigration ? await settleBulkMigration(page) : null;
     const showSheet = async () => {
       // Same route and path format as SheetSelection.selectItem.
       await page.evaluate((p) => {
@@ -421,17 +642,7 @@ export async function openSheet(
           queue.flush = () => new Promise<boolean>(() => undefined);
         });
       },
-      async waitForExit(timeoutMs) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const timedOut = new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), timeoutMs);
-        });
-        try {
-          return await Promise.race([exited.then(() => true), timedOut]);
-        } finally {
-          clearTimeout(timer);
-        }
-      },
+      waitForExit: launched.waitForExit,
       windowCount: () =>
         electronApp.evaluate(
           ({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.webContents.getURL().startsWith("devtools:")).length,
@@ -466,13 +677,14 @@ export async function openSheet(
         );
         await refreshRequests();
       },
-      networkRequests: () => [...requests],
+      networkRequests: launched.networkRequests,
       async probeNetworkLog() {
         // https: the app's own scheme is secure, so Chromium would block plain http as mixed content
         // before it reaches the session. The log cancels the request, so the fetch fails.
         const url = `https://smv-network-canary.invalid/${Date.now()}-${Math.random().toString(36).slice(2)}`;
         await page.evaluate((u) => fetch(u).then(() => "loaded", () => "failed"), url);
         await refreshRequests();
+        const requests = launched.networkRequests();
         if (!requests.includes(url)) {
           throw new Error(`network log not armed: canary ${url} missing from ${JSON.stringify(requests)}`);
         }
@@ -490,26 +702,12 @@ export async function openSheet(
             robotoLoaded: weights.every((w) => document.fonts.check(`${w} 16px Roboto`)),
           };
         }),
-      async close() {
-        // Quitting does not leave edit mode; an open edit canvas with changes would be saved first (and
-        // a failing save would ask through the native dialog, which a headless run cannot answer).
-        await refreshRequests();
-        if (!hasExited) {
-          // A close the app keeps blocking (e.g. a broken close guard) must not hang the run.
-          const closing = electronApp.close().catch(() => undefined);
-          if (!(await session.waitForExit(CLOSE_TIMEOUT_MS))) {
-            electronApp.process().kill("SIGKILL");
-            await closing;
-            throw new Error(`the app did not quit within ${CLOSE_TIMEOUT_MS} ms and was killed`);
-          }
-        }
-        removeProfile();
-      },
+      bulkMigration: () => migration,
+      close: launched.close,
     };
     return session;
   } catch (error) {
-    await electronApp.close().catch(() => undefined);
-    removeProfile();
+    await launched.close().catch(() => undefined);
     throw error;
   }
 }

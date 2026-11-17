@@ -21,6 +21,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   `test-results/visual/worktrees/`). The old app's reference images are cached in
   `test-results/visual/baseline/<ref>/` and recaptured when the PDF, its `.data` or the commit
   change. An uncached run takes several minutes.
+- The old app's build runs `npm ci --ignore-scripts` in its nested worktree (its own lockfile), so the
+  first uncached run needs the network.
 - Outputs go to `test-results/visual/` (gitignored): `diff/<pdf>/<page>-<check>.png`
   (reference | new | diff | markup masks) for every violation, `compare-summary.md` with all
   numbers. `VISUAL_DIFF_ALL=1` writes the images of passing checks, too.
@@ -65,7 +67,26 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   (renderer: `src/markup/closeGuard.ts`; main: `src/exitGuardMachine.ts` + `src/exitGuard.ts`). Main
   shows the dialog itself if the renderer has not reported within 10 s, on a second close while the
   save runs, or when the renderer hangs; a crashed renderer never blocks closing.
-- Visual tests (`npm run test:visual`, see above) compare migrated markup against the old app.
+- **Bulk migration** (spec: `docs/superpowers/specs/2026-11-16-bulk-markup-migration-design.md`): on
+  every start and after a folder change, all PDFs below the sheet folder that still have a legacy
+  `.data` file are migrated behind a blocking dialog (`src/components/MigrationDialog.vue`, store
+  `src/store/bulkMigration.ts`, logic in `src/migration/`, no Electron imports). The renderer converts
+  each file with the same code as the migration on open; main finds the candidates, writes the backup
+  and saves. Before anything is migrated, main writes **`Markierungen-Backup YYYY-MM-DD HH-MM.zip`**
+  (local time; ` (2)` … on a collision) into the sheet folder with every candidate PDF and `.data`,
+  and verifies it (size + CRC-32 per entry); a failed backup migrates nothing. Permanent failures
+  (`corruptData`, `alreadyEmbedded`, `notWritable`) go to `bulk-migration-skips.json` in the Electron
+  profile (userData) and are not reported again until the PDF or its `.data` changes; all other
+  failures are retried on the next start. A read-only sheet folder is reported once ("Der Notenordner
+  ist schreibgeschützt …", remembered in `bulk-migration-read-only.json` in userData) and then skipped
+  silently until it is writable again. A single-instance lock (per userData, `src/main.ts`) keeps a
+  second start from running a second migration; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the candidate search
+  return nothing (tests only: the visual driver sets it unless `bulkMigration: true`, so the visual
+  tests keep checking the migration on open).
+- Visual tests (`npm run test:visual`, see above) compare migrated markup against the old app;
+  `tests/visual/bulkMigration.visual.ts` checks that the bulk migration writes the same payloads and
+  stamp pixels as the migration on open (plus backup zip, skip list, a read-only PDF and a read-only
+  folder); `tests/visual/singleInstance.visual.ts` checks the single-instance lock.
 
 ## Auto-Update
 

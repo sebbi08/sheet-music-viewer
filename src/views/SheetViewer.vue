@@ -156,12 +156,12 @@ import {
   type Svg,
 } from "../Enums";
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
-import { displayTransform, legacyToPayload, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
+import { displayTransform, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
+import { convertLegacyOverlayData, sidecarPagesToChanges, type ViewportOf } from "../markup/legacyMigration";
 import { loadMarkupFonts } from "../markup/renderPng";
-import type { PageState } from "../markup/saveQueue";
-import { type LoadMarkupResult, type MarkupPayload, markupPayloadSchema, type Rect } from "../models/markup";
+import { type LoadMarkupResult, type MarkupPayload, type Rect } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
-import { type EditState, type OverlayData } from "../models/types";
+import { type EditState } from "../models/types";
 import router from "../router";
 import useStore from "../store";
 import { useMarkupSaves } from "../store/markupSaves";
@@ -305,23 +305,20 @@ onBeforeUnmount(() => {
  */
 async function applyLoadedMarkup(loaded: LoadMarkupResult): Promise<void> {
   const pending = markupSaves.queue.pendingPages(sheetPath);
+  const skipPages = new Set(pending.keys());
+  const viewportOf = async (page: number) => (await pdf.getPage(page)).getViewport({ scale: 1 });
   for (const { page, rect, payload } of loaded.pages) {
     markupPages.set(page, { rect, payload });
   }
 
   if (loaded.source === "sidecar") {
     // Written into the PDF (and the sidecar removed) with the next save, in the current page rotation.
-    const changes: [number, PageState][] = [];
-    for (const [page, entry] of markupPages) {
-      if (page > pdf.numPages || pending.has(page)) continue;
-      const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
-      changes.push([page, { rect: entry.rect, payload: rotatePayload(entry.payload, viewport.rotation) }]);
-    }
+    const changes = await sidecarPagesToChanges(loaded.pages, pdf.numPages, viewportOf, skipPages);
     markupSaves.queue.allowLegacyDelete(sheetPath);
     if (changes.length > 0) markupSaves.queue.setPages(sheetPath, changes);
   }
   if (loaded.legacyOverlayData !== null) {
-    await migrateLegacyOverlayData(loaded.legacyOverlayData, pending);
+    await migrateLegacyOverlayData(loaded.legacyOverlayData, skipPages, viewportOf);
   }
 
   for (const [page, state] of pending) {
@@ -336,67 +333,21 @@ async function applyLoadedMarkup(loaded: LoadMarkupResult): Promise<void> {
  * section 7). If any part of it cannot be read, the readable pages are still shown and saved, but the
  * file is never deleted (`deleteLegacySidecar` stays false); embedded data wins on the next load.
  */
-async function migrateLegacyOverlayData(text: string, pending: ReadonlyMap<number, PageState>): Promise<void> {
-  let entries: unknown = null;
-  try {
-    // The old app treated an empty file as no markup.
-    entries = text.trim() === "" ? [] : JSON.parse(text);
-  } catch (e) {
-    console.warn("Could not parse the legacy markup file", e);
+async function migrateLegacyOverlayData(
+  text: string,
+  skipPages: ReadonlySet<number>,
+  viewportOf: ViewportOf,
+): Promise<void> {
+  const { changes, unreadable } = await convertLegacyOverlayData(text, pdf.numPages, viewportOf, skipPages);
+  for (const [page, state] of changes) {
+    if (state) markupPages.set(page, state);
   }
-  if (!Array.isArray(entries)) {
-    notices.show(LEGACY_UNREADABLE);
-    return;
-  }
-
-  let unreadable = false;
-  const seen = new Set<number>();
-  const changes: [number, PageState][] = [];
-  for (const raw of entries as unknown[]) {
-    const entry = raw as Partial<OverlayData> | null;
-    const page = entry?.page;
-    if (typeof page !== "number" || !Number.isInteger(page) || page < 1) {
-      unreadable = true;
-      continue;
-    }
-    // Like the old edit mode, the first entry of a page wins; pages the PDF lacks were never shown.
-    if (page > pdf.numPages || seen.has(page)) continue;
-    seen.add(page);
-    // Unsaved changes of an earlier visit win.
-    if (pending.has(page)) continue;
-    const objects = (entry?.data as { objects?: unknown } | undefined)?.objects;
-    if (objects === undefined || (Array.isArray(objects) && objects.length === 0)) {
-      changes.push([page, null]); // no markup on this page
-      continue;
-    }
-    const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
-    const payload = toLegacyPayload(entry as OverlayData, objects, viewport);
-    if (!payload) {
-      unreadable = true;
-      continue;
-    }
-    markupPages.set(page, { rect: null, payload });
-    changes.push([page, { rect: null, payload }]);
-  }
-
   if (unreadable) {
     notices.show(LEGACY_UNREADABLE);
   } else {
     markupSaves.queue.allowLegacyDelete(sheetPath);
   }
   if (changes.length > 0) markupSaves.queue.setPages(sheetPath, changes);
-}
-
-/** null if the entry cannot be converted into a valid payload. */
-function toLegacyPayload(entry: OverlayData, objects: unknown, viewport: pdfJs.PageViewport): MarkupPayload | null {
-  const validSize = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
-  if (!Array.isArray(objects) || !validSize(entry.drawWidth) || !validSize(entry.drawHeight)) return null;
-  try {
-    const parsed = markupPayloadSchema.safeParse(legacyToPayload(entry, viewport));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Rect (PDF user space) -> normalized viewport rectangle at scale 1; null stays null. */

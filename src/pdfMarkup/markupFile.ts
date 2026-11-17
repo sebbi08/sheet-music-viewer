@@ -17,6 +17,7 @@ import {
   type LoadMarkupResult,
   type LoadedMarkupPage,
   type MarkupPayload,
+  type SaveFailureReason,
   type SaveMarkupInput,
   type SaveMarkupResult,
 } from "../models/markup";
@@ -79,7 +80,7 @@ export function setLockRetryDelays(delaysMs: readonly number[]): readonly number
 }
 
 /** Runs `operation`, repeating it while it fails because the file is locked (see `isLockedError`). */
-async function retryWhileLocked<T>(operation: () => Promise<T>): Promise<T> {
+export async function retryWhileLocked<T>(operation: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await operation();
@@ -198,6 +199,8 @@ const decodePng = (base64: string) => new Uint8Array(Buffer.from(base64.replace(
 // Sidecar
 // ---------------------------------------------------------------------------------------------------------
 
+type PdfIssue = LoadMarkupResult["pdfIssue"];
+
 type Sidecar =
   | { kind: "none" }
   | { kind: "v1"; pages: Map<number, MarkupPayload> }
@@ -250,15 +253,20 @@ async function writeSidecar(input: SaveMarkupInput): Promise<void> {
   await atomicReplace(sidecarPath, Buffer.from(JSON.stringify(content), "utf8"));
 }
 
-async function loadSidecar(pdfPath: string): Promise<LoadMarkupResult> {
+async function loadSidecar(pdfPath: string, pdfIssue: PdfIssue): Promise<LoadMarkupResult> {
   const sidecar = await readSidecar(pdfPath);
   if (sidecar.kind === "v1") {
     const pages = [...sidecar.pages.entries()]
       .sort(([a], [b]) => a - b)
       .map(([page, payload]) => ({ page, rect: null, payload }));
-    return { source: "sidecar", pages, legacyOverlayData: null };
+    return { source: "sidecar", pages, legacyOverlayData: null, pdfIssue };
   }
-  return { source: "none", pages: [], legacyOverlayData: sidecar.kind === "legacy" ? sidecar.text : null };
+  return {
+    source: "none",
+    pages: [],
+    legacyOverlayData: sidecar.kind === "legacy" ? sidecar.text : null,
+    pdfIssue,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -292,8 +300,8 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   }
 
   if (hasEmbeddedData(inspection))
-    return { source: "pdf", pages: toLoadedPages(inspection.markup), legacyOverlayData: null };
-  return loadSidecar(pdfPath);
+    return { source: "pdf", pages: toLoadedPages(inspection.markup), legacyOverlayData: null, pdfIssue: null };
+  return loadSidecar(pdfPath, inspection === null ? "unparseable" : inspection.encrypted ? "encrypted" : null);
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -315,8 +323,10 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
     const inspection = await inspectPdf(bytes);
 
     // Unparseable: no embedded data can be known (load then uses the sidecar too), the PDF stays untouched.
-    if (!inspection || inspection.encrypted || !(await isWritable(realPath))) return await fallback(input, inspection);
-    if (await mustStayInSidecar(input, inspection)) return await fallback(input, inspection);
+    if (!inspection) return await fallback(input, inspection, "unparseable");
+    if (inspection.encrypted) return await fallback(input, inspection, "encrypted");
+    if (!(await isWritable(realPath))) return await fallback(input, inspection, "readOnly");
+    if (await mustStayInSidecar(input, inspection)) return await fallback(input, inspection, "other");
 
     const changes: PageChange[] = input.pages.map(({ page, payload, pngBase64 }) => ({
       page,
@@ -327,7 +337,7 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
     try {
       marked = await buildMarkedPdf(bytes, changes);
     } catch (e) {
-      if (e instanceof EncryptedPDFError) return await fallback(input, { encrypted: true });
+      if (e instanceof EncryptedPDFError) return await fallback(input, { encrypted: true }, "encrypted");
       throw e;
     }
 
@@ -341,18 +351,20 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
     } catch (e) {
       // Still locked after the retries (spec section 1): a PDF without embedded data falls back to the
       // sidecar, which the migration picks up later; with embedded data the error is reported.
-      if (isLockedError(e) && !hasEmbeddedData(inspection)) return await fallback(input, inspection);
+      if (isLockedError(e) && !hasEmbeddedData(inspection)) return await fallback(input, inspection, "locked");
       throw e;
     }
 
     if (input.deleteLegacySidecar) {
-      await fs.promises.rm(getSidecarPath(input.path), { force: true }).catch((e: unknown) => {
+      // A sidecar that stays (held by a sync client for a moment) would later look like a conflict.
+      const sidecarPath = getSidecarPath(input.path);
+      await retryWhileLocked(() => fs.promises.rm(sidecarPath, { force: true })).catch((e: unknown) => {
         console.warn("Could not delete the legacy markup sidecar", e);
       });
     }
     return { status: "pdf" };
   } catch (e) {
-    return { status: "error", message: errorMessage(e) };
+    return { status: "error", message: errorMessage(e), reason: isLockedError(e) ? "locked" : "other" };
   }
 }
 
@@ -377,9 +389,60 @@ async function mustStayInSidecar(input: SaveMarkupInput, inspection: Inspection)
  * Encrypted, unparseable, not writable or locked: sidecar only if the PDF has no embedded data, never two
  * competing states.
  */
-async function fallback(input: SaveMarkupInput, inspection: Inspection | null): Promise<SaveMarkupResult> {
+async function fallback(
+  input: SaveMarkupInput,
+  inspection: Inspection | null,
+  reason: SaveFailureReason,
+): Promise<SaveMarkupResult> {
   if (hasEmbeddedData(inspection))
-    return { status: "error", message: "The PDF already contains markup but cannot be written (read-only?)." };
+    return {
+      status: "error",
+      message: "The PDF already contains markup but cannot be written (read-only?).",
+      reason,
+    };
   await writeSidecar(input);
-  return { status: "sidecar" };
+  return { status: "sidecar", reason };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Empty legacy sidecars
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * Whether the text of a legacy `.data` file holds markup. Empty text, `[]` and pages without objects do
+ * not; anything unreadable counts as markup, so such a file is never deleted.
+ */
+export function legacySidecarHasMarkup(text: string): boolean {
+  if (text.trim() === "") return false;
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return true;
+  }
+  if (!Array.isArray(json)) return true;
+  return json.some((entry: unknown) => {
+    const data = entry !== null && typeof entry === "object" ? (entry as { data?: unknown }).data : undefined;
+    const objects = data !== null && typeof data === "object" ? (data as { objects?: unknown }).objects : undefined;
+    return !(Array.isArray(objects) && objects.length === 0);
+  });
+}
+
+/**
+ * Deletes the sidecar of `pdfPath` if it holds no markup. Reads the file itself and never reads or writes
+ * the PDF. Sidecars with markup, v1 sidecars and unreadable files are kept.
+ */
+export function discardEmptyLegacySidecar(pdfPath: string): Promise<{ deleted: boolean }> {
+  return serialized(pdfPath, async () => {
+    const sidecarPath = getSidecarPath(pdfPath);
+    let text: string;
+    try {
+      text = await fs.promises.readFile(sidecarPath, "utf8");
+    } catch {
+      return { deleted: false };
+    }
+    if (legacySidecarHasMarkup(text)) return { deleted: false };
+    await fs.promises.rm(sidecarPath, { force: true });
+    return { deleted: true };
+  });
 }

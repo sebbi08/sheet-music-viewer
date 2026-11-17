@@ -3,6 +3,7 @@ import fs from "fs-extra";
 import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
+import { resolveListedEntry } from "./sheetFiles";
 import {
     type SetList,
     type SetListSheet,
@@ -42,7 +43,7 @@ export const searchForSheetParams = z.object({
 export async function searchForSheet(opts: input<typeof searchForSheetParams>) {
   const basePath = opts.input.basePath;
   const searchTerm = opts.input.searchTerm;
-  const matches = await glob("**/*" + searchTerm + "*.*", {
+  const matches = await glob("**/*" + searchTerm + "*.pdf", {
     cwd: basePath,
     nocase: true,
     nodir: true,
@@ -74,18 +75,19 @@ export async function loadFilesAndFolder(
   } = opts;
 
   const folderPath = path.join(basePath, relativePath);
-  let folderContent = await fs.readdir(folderPath, { withFileTypes: true });
+  const folderContent = await fs.readdir(folderPath, { withFileTypes: true });
 
-  folderContent = folderContent.filter((item) => !item.name.startsWith("."));
-
-  const filesAndFolders: SheetFile[] = folderContent.map((item) => {
-    return {
+  const filesAndFolders: SheetFile[] = [];
+  for (const item of folderContent) {
+    const resolved = await resolveListedEntry(folderPath, item);
+    if (!resolved) continue;
+    filesAndFolders.push({
       path: basePath,
       name: item.name,
-      isFile: item.isFile(),
+      isFile: !resolved.isDirectory,
       isSearch: false,
-    };
-  });
+    });
+  }
 
   return filesAndFolders;
 }
