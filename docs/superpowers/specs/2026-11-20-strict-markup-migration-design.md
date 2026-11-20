@@ -173,7 +173,8 @@ Ergebnis je Datei:
 
 | Grund | Wann | Was der Nutzer liest (sinngemäß) |
 |---|---|---|
-| Begleitdatei beschädigt | alte Daten ganz oder teilweise nicht umwandelbar; v1-Seite jenseits der Seitenzahl; ein PNG lässt sich nicht rendern | „Die alte Markierungsdatei ‚.X.data‘ ist beschädigt. Bitte die Datei löschen und die Markierungen neu eintragen.“ |
+| Begleitdatei beschädigt | alte Daten ganz oder teilweise nicht umwandelbar; v1-Seite jenseits der Seitenzahl | „Die alte Markierungsdatei ‚.X.data‘ ist beschädigt. Bitte die Datei löschen und die Markierungen neu eintragen.“ |
+| Markierungen nicht zeichenbar | ein PNG lässt sich nicht rendern | „Die Markierungen aus ‚.X.data‘ konnten nicht gezeichnet werden: ‹Meldung›. Bitte erneut prüfen; bleibt der Fehler, die Datei löschen und die Markierungen neu eintragen.“ |
 | Begleitdatei nicht lesbar | Lesefehler (gesperrt, Rechte) | „Die Markierungsdatei kann nicht gelesen werden: ‹Meldung›.“ |
 | PDF hat andere Markierungen | eingebettete Daten weichen von der Begleitdatei ab | „Die PDF enthält bereits Markierungen. Bitte die Datei ‚.X.data‘ löschen; die Markierungen in der PDF bleiben.“ |
 | verschlüsselt | PDF ist verschlüsselt | „Die PDF ist verschlüsselt. Bitte den Kennwortschutz entfernen.“ |

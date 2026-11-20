@@ -68,6 +68,18 @@ describe("failureText", () => {
     );
   });
 
+  test("renderFailed with and without a message", () => {
+    expect(failureText(f("renderFailed", { sidecarName: ".Africa.data", message: "canvas too large" }))).toBe(
+      "Die Markierungen aus „.Africa.data“ konnten nicht gezeichnet werden: canvas too large. Bitte erneut prüfen; bleibt der Fehler, die Datei löschen und die Markierungen neu eintragen.",
+    );
+    expect(failureText(f("renderFailed", { sidecarName: ".Africa.data" }))).toBe(
+      "Die Markierungen aus „.Africa.data“ konnten nicht gezeichnet werden. Bitte erneut prüfen; bleibt der Fehler, die Datei löschen und die Markierungen neu eintragen.",
+    );
+    expect(failureText(f("renderFailed", { sidecarName: ".a.data", message: "Kein Speicher." }))).toBe(
+      "Die Markierungen aus „.a.data“ konnten nicht gezeichnet werden: Kein Speicher. Bitte erneut prüfen; bleibt der Fehler, die Datei löschen und die Markierungen neu eintragen.",
+    );
+  });
+
   test("dataUnreadable", () => {
     expect(failureText(f("dataUnreadable", { sidecarName: ".Africa.data", message: "EACCES: permission denied" }))).toBe(
       "Die Markierungsdatei „.Africa.data“ kann nicht gelesen werden: EACCES: permission denied.",
@@ -207,6 +219,16 @@ describe("failedHeadline", () => {
     expect(
       failedHeadline(failed({ stage: "write", migrated: 1, total: 3, zipName: "z.zip", failures: [backupFailed, failure, failure] })),
     ).toBe("1 von 3 Dateien übernommen. Sicherung: z.zip. 2 Dateien haben ein Problem.");
+  });
+
+  test("renderFailed counts as a file problem", () => {
+    const render = f("renderFailed", { sidecarName: ".a.data", message: "x" });
+    expect(failedHeadline(failed({ failures: [render] }))).toBe(
+      "1 von 214 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
+    );
+    expect(failedHeadline(failed({ stage: "write", migrated: 2, total: 3, zipName: null, failures: [render] }))).toBe(
+      "2 von 3 Dateien übernommen. 1 Datei hat ein Problem.",
+    );
   });
 
   test("write stage with one problem: singular", () => {

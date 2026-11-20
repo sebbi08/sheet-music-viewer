@@ -318,17 +318,19 @@ describe("MigrationGate", () => {
     expect(deps.processFile).toHaveBeenCalledWith(B, "check");
   });
 
-  test("failures carry sidecarName for dataDamaged, dataUnreadable, conflict and sidecarNotDeleted", async () => {
+  test("failures carry sidecarName for dataDamaged, renderFailed, dataUnreadable, conflict and sidecarNotDeleted", async () => {
     const D = cand("d");
     const E = cand("e");
+    const F = cand("f");
     const reasons: Record<string, FileOutcome> = {
       "a.pdf": failed("dataDamaged"),
       "b.pdf": failed("dataUnreadable", "EACCES"),
       "c.pdf": failed("conflict"),
       "d.pdf": failed("sidecarNotDeleted", "EBUSY"),
       "e.pdf": failed("encrypted"),
+      "f.pdf": failed("renderFailed", "canvas too large"),
     };
-    const { gate } = setup([A, B, C, D, E], { processFile: async (c) => reasons[c.relativePath] });
+    const { gate } = setup([A, B, C, D, E, F], { processFile: async (c) => reasons[c.relativePath] });
     const result = await gate.run("/s");
     expect((result as GateFailed).failures).toEqual([
       { relativePath: "a.pdf", reason: "dataDamaged", sidecarName: ".a.data" },
@@ -336,6 +338,7 @@ describe("MigrationGate", () => {
       { relativePath: "c.pdf", reason: "conflict", sidecarName: ".c.data" },
       { relativePath: "d.pdf", reason: "sidecarNotDeleted", message: "EBUSY", sidecarName: ".d.data" },
       { relativePath: "e.pdf", reason: "encrypted" },
+      { relativePath: "f.pdf", reason: "renderFailed", message: "canvas too large", sidecarName: ".f.data" },
     ]);
   });
 

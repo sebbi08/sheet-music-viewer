@@ -142,12 +142,12 @@ describe("processFile", () => {
     expect(deps.migrate).not.toHaveBeenCalled();
   });
 
-  test("a PNG that cannot be rendered -> failed dataDamaged with the message", async () => {
+  test("a PNG that cannot be rendered -> failed renderFailed with the message", async () => {
     const { deps } = setup({ kind: "legacy", text: legacy() });
     deps.renderPng.mockRejectedValue(new Error("canvas too large"));
     expect(await processFile(candidate, deps, "check")).toEqual({
       kind: "failed",
-      reason: "dataDamaged",
+      reason: "renderFailed",
       message: "canvas too large",
     });
     expect(deps.migrate).not.toHaveBeenCalled();

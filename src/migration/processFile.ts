@@ -91,7 +91,8 @@ export async function processFile(
         );
       }
     } catch (e) {
-      return failed("dataDamaged", errorMessage(e));
+      // May be the renderer (memory, canvas size), not the data: report it with its message.
+      return failed("renderFailed", errorMessage(e));
     }
 
     const result = await deps.migrate({ path: c.pdfPath, pages, dryRun: mode === "check" });

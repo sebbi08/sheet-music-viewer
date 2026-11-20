@@ -51,6 +51,7 @@ export interface GateDeps {
 /** Reasons whose text names the `.data` file. */
 const NAMES_SIDECAR: ReadonlySet<GateFailureReason> = new Set<GateFailureReason>([
   "dataDamaged",
+  "renderFailed",
   "dataUnreadable",
   "conflict",
   "sidecarNotDeleted",

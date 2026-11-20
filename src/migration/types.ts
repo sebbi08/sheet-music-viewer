@@ -20,6 +20,7 @@ export interface ScanResult {
 /** Why one file (or the scan, or the backup) keeps the migration gate shut. */
 export type GateFailureReason =
   | "dataDamaged"
+  | "renderFailed"
   | "dataUnreadable"
   | "conflict"
   | "encrypted"

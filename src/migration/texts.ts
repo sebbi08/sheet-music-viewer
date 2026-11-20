@@ -17,6 +17,8 @@ export function failureText({ reason, message, sidecarName }: GateFailure): stri
   switch (reason) {
     case "dataDamaged":
       return `Die alte Markierungsdatei${quoted(sidecarName)} ist beschädigt. Bitte die Datei löschen und die Markierungen neu eintragen.`;
+    case "renderFailed":
+      return `${withDetail(`Die Markierungen aus${quoted(sidecarName)} konnten nicht gezeichnet werden`, message)} Bitte erneut prüfen; bleibt der Fehler, die Datei löschen und die Markierungen neu eintragen.`;
     case "dataUnreadable":
       return withDetail(`Die Markierungsdatei${quoted(sidecarName)} kann nicht gelesen werden`, message);
     case "conflict":
