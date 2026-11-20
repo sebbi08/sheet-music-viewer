@@ -5,6 +5,18 @@ export interface MigrationCandidate {
   relativePath: string;
 }
 
+/** A folder or link the scan could not read. `relativePath` uses `/`; the root itself is `"."`. */
+export interface ScanError {
+  relativePath: string;
+  kind: "folder" | "link";
+  message: string;
+}
+
+export interface ScanResult {
+  candidates: MigrationCandidate[];
+  errors: ScanError[];
+}
+
 export type FailureReason =
   | "corruptData"
   | "alreadyEmbedded"

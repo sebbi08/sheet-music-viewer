@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { entryKind, findMigrationCandidates } from "../../src/migration/candidates";
+import { entryKind, findMigrationCandidates, scanMigrationCandidates } from "../../src/migration/candidates";
 import { SkipList } from "../../src/migration/skipList";
 
 let base: string;
@@ -153,5 +153,105 @@ describe("entryKind (Windows reparse points)", () => {
     } finally {
       readdir.mockRestore();
     }
+  });
+});
+
+describe("scanMigrationCandidates", () => {
+  const isRoot = process.getuid?.() === 0;
+  const scan = () => scanMigrationCandidates(root);
+  const rels = async () => (await scan()).candidates.map((c) => c.relativePath);
+
+  it("finds pdfs with a sidecar in subfolders, .PDF in any case, sorted by relative path", async () => {
+    put("z.pdf");
+    put(".z.data");
+    put("b/Y.PDF");
+    put("b/.Y.data");
+    put("a/deep/x.pdf");
+    put("a/deep/.x.data");
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["a/deep/x.pdf", "b/Y.PDF", "z.pdf"]);
+    expect(result.candidates[2].pdfPath).toBe(path.join(root, "z.pdf"));
+    expect(result.candidates[2].sidecarPath).toBe(path.join(root, ".z.data"));
+    expect(result.errors).toEqual([]);
+  });
+
+  it("skips entries starting with a dot and sidecars without a pdf", async () => {
+    put(".hidden/a.pdf");
+    put(".hidden/.a.data");
+    put(".h.pdf");
+    put("..h.data");
+    put(".orphan.data");
+    put("plain.pdf");
+    expect(await rels()).toEqual([]);
+  });
+
+  it("finds a pdf named with $$ by the old app's rule", async () => {
+    put("Mo Money$$.pdf");
+    put(".Mo Money$.data");
+    expect(await rels()).toEqual(["Mo Money$$.pdf"]);
+  });
+
+  it("follows a linked folder and a linked pdf", async () => {
+    const outside = path.join(base, "outside");
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "a.pdf"), "x");
+    fs.writeFileSync(path.join(outside, ".a.data"), "x");
+    fs.symlinkSync(outside, path.join(root, "link"), "dir");
+    fs.writeFileSync(path.join(base, "c.pdf"), "x");
+    fs.writeFileSync(path.join(root, ".c.data"), "x"); // the sidecar sits next to the link, not the target
+    fs.symlinkSync(path.join(base, "c.pdf"), path.join(root, "c.pdf"));
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["c.pdf", "link/a.pdf"]);
+    expect(result.candidates[1].pdfPath).toBe(path.join(root, "link", "a.pdf"));
+    expect(result.candidates[1].sidecarPath).toBe(path.join(root, "link", ".a.data"));
+    expect(result.errors).toEqual([]);
+  });
+
+  it("a link back to a parent folder ends: every pdf once", async () => {
+    put("sub/a.pdf");
+    put("sub/.a.data");
+    fs.symlinkSync(root, path.join(root, "sub", "up"), "dir");
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["sub/a.pdf"]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("the same folder reached on two ways is visited once", async () => {
+    put("real/a.pdf");
+    put("real/.a.data");
+    fs.symlinkSync(path.join(root, "real"), path.join(root, "alias"), "dir");
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["alias/a.pdf"]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("a link whose target cannot be read is an error", async () => {
+    fs.symlinkSync(path.join(base, "missing"), path.join(root, "dead"));
+    put("a.pdf");
+    put(".a.data");
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["a.pdf"]);
+    expect(result.errors).toEqual([{ relativePath: "dead", kind: "link", message: expect.any(String) }]);
+  });
+
+  it.skipIf(isRoot)("a subfolder that cannot be listed is an error; the rest is still scanned", async () => {
+    put("a.pdf");
+    put(".a.data");
+    put("locked/b.pdf");
+    put("locked/.b.data");
+    fs.chmodSync(path.join(root, "locked"), 0o000);
+    try {
+      const result = await scan();
+      expect(result.candidates.map((c) => c.relativePath)).toEqual(["a.pdf"]);
+      expect(result.errors).toEqual([{ relativePath: "locked", kind: "folder", message: expect.any(String) }]);
+    } finally {
+      fs.chmodSync(path.join(root, "locked"), 0o755);
+    }
+  });
+
+  it("a root that cannot be listed is an error with relativePath '.'", async () => {
+    const result = await scanMigrationCandidates(path.join(base, "missing"));
+    expect(result.candidates).toEqual([]);
+    expect(result.errors).toEqual([{ relativePath: ".", kind: "folder", message: expect.any(String) }]);
   });
 });
