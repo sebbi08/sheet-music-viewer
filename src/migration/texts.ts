@@ -43,17 +43,30 @@ export function failureText({ reason, message, sidecarName }: GateFailure): stri
   }
 }
 
-/** Headline of the failure list. */
+/** Failures that are not about one file: the scan's folders and links, the backup. */
+const NOT_A_FILE: ReadonlySet<GateFailure["reason"]> = new Set<GateFailure["reason"]>([
+  "folderUnreadable",
+  "linkUnreadable",
+  "backupFailed",
+]);
+
+/** Headline of the failure list. Only file problems count as "Dateien". */
 export function failedHeadline({ stage, total, migrated, zipName, failures }: GateFailed): string {
-  const n = failures.length;
-  const problems = n === 1 ? "1 Datei hat ein Problem." : `${n} Dateien haben ein Problem.`;
+  const n = failures.filter((f) => !NOT_A_FILE.has(f.reason)).length;
+  const parts: string[] = [];
   if (stage === "write") {
-    const backup = zipName === null ? "" : ` Sicherung: ${zipName}.`;
-    return `${migrated} von ${total} Dateien übernommen.${backup} ${problems}`;
+    parts.push(`${migrated} von ${total} Dateien übernommen.`);
+    if (zipName !== null) parts.push(`Sicherung: ${zipName}.`);
+    if (n > 0) parts.push(n === 1 ? "1 Datei hat ein Problem." : `${n} Dateien haben ein Problem.`);
+    return parts.join(" ");
   }
-  if (total === 0) return "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.";
-  const checked = n === 1 ? `1 von ${total} Dateien hat ein Problem.` : `${n} von ${total} Dateien haben ein Problem.`;
-  return `${checked} Es wurde nichts verändert. Bitte beheben und erneut prüfen.`;
+  if (failures.some((f) => f.reason === "folderUnreadable" || f.reason === "linkUnreadable")) {
+    parts.push("Der Notenordner konnte nicht vollständig geprüft werden.");
+  }
+  if (n > 0) parts.push(n === 1 ? `1 von ${total} Dateien hat ein Problem.` : `${n} von ${total} Dateien haben ein Problem.`);
+  parts.push("Es wurde nichts verändert.");
+  if (n > 0) parts.push("Bitte beheben und erneut prüfen.");
+  return parts.join(" ");
 }
 
 export const DIALOG_TITLE = "Markierungen werden in die PDFs übernommen";

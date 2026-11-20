@@ -52,6 +52,8 @@ export async function processFile(
     if (sidecar.kind === "gone") return { kind: "gone" };
     if (sidecar.kind === "unreadable") return failed("dataUnreadable", sidecar.message);
     if (sidecar.kind === "empty") {
+      // Only the sidecar gets deleted, so only "readOnly" matters; pass 1 must predict that pass 2 fails.
+      if (writeBlock?.reason === "readOnly") return failed("readOnly", writeBlock.message);
       if (mode === "check") return { kind: "ok", plan: "deleteEmpty" };
       const { deleted } = await deps.discardEmptySidecar(c.pdfPath);
       return deleted

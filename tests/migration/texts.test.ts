@@ -167,9 +167,25 @@ describe("failedHeadline", () => {
     );
   });
 
-  test("check stage without any file: the scan was incomplete", () => {
+  test("check stage with only folder or link failures: the scan was incomplete", () => {
     expect(failedHeadline(failed({ total: 0, failures: [f("folderUnreadable", { relativePath: "." })] }))).toBe(
       "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.",
+    );
+    // Folders and links are no files: also with candidates that all passed.
+    const scanOnly = [f("folderUnreadable", { relativePath: "Pop" }), f("linkUnreadable", { relativePath: "Link" })];
+    expect(failedHeadline(failed({ total: 214, failures: scanOnly }))).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.",
+    );
+  });
+
+  test("check stage with folder and file failures: both sentences, only files counted", () => {
+    expect(failedHeadline(failed({ failures: [f("linkUnreadable", { relativePath: "Link" }), failure] }))).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. 1 von 214 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
+    );
+    expect(
+      failedHeadline(failed({ failures: [f("folderUnreadable", { relativePath: "Pop" }), failure, failure] })),
+    ).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. 2 von 214 Dateien haben ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
     );
   });
 
@@ -181,6 +197,16 @@ describe("failedHeadline", () => {
     expect(failedHeadline(failed({ stage: "write", migrated: 0, zipName: null }))).toBe(
       "0 von 214 Dateien übernommen. 3 Dateien haben ein Problem.",
     );
+  });
+
+  test("write stage counts only file problems; a backup failure alone names no file problem", () => {
+    const backupFailed = f("backupFailed", { relativePath: null, message: "voll" });
+    expect(failedHeadline(failed({ stage: "write", migrated: 0, total: 2, failures: [backupFailed] }))).toBe(
+      "0 von 2 Dateien übernommen.",
+    );
+    expect(
+      failedHeadline(failed({ stage: "write", migrated: 1, total: 3, zipName: "z.zip", failures: [backupFailed, failure, failure] })),
+    ).toBe("1 von 3 Dateien übernommen. Sicherung: z.zip. 2 Dateien haben ein Problem.");
   });
 
   test("write stage with one problem: singular", () => {

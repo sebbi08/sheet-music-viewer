@@ -65,6 +65,27 @@ describe("processFile", () => {
     expect(write.deps.migrate).not.toHaveBeenCalled();
   });
 
+  test("empty sidecar next to a read-only PDF or folder -> failed readOnly in both modes, nothing discarded", async () => {
+    for (const mode of ["check", "write"] as const) {
+      const { deps } = setup({ kind: "empty" }, { reason: "readOnly" });
+      expect(await processFile(candidate, deps, mode)).toEqual({ kind: "failed", reason: "readOnly" });
+      expect(deps.discardEmptySidecar).not.toHaveBeenCalled();
+      expect(deps.loadPdf).not.toHaveBeenCalled();
+      expect(deps.migrate).not.toHaveBeenCalled();
+    }
+  });
+
+  test.each(["encrypted", "unparseable", "structure"] as const)(
+    "empty sidecar with write block %s stays ok deleteEmpty",
+    async (reason) => {
+      const check = setup({ kind: "empty" }, { reason, message: "detail" });
+      expect(await processFile(candidate, check.deps, "check")).toEqual({ kind: "ok", plan: "deleteEmpty" });
+      const write = setup({ kind: "empty" }, { reason, message: "detail" });
+      expect(await processFile(candidate, write.deps, "write")).toEqual({ kind: "ok", plan: "deleteEmpty" });
+      expect(write.deps.discardEmptySidecar).toHaveBeenCalledWith(candidate.pdfPath);
+    },
+  );
+
   test("empty sidecar that cannot be discarded in write mode -> failed other", async () => {
     const { deps } = setup({ kind: "empty" });
     deps.discardEmptySidecar.mockResolvedValue({ deleted: false });
