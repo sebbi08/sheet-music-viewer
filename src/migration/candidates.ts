@@ -72,7 +72,21 @@ export async function findMigrationCandidates(
   return result.sort((a, b) => a.relativePath.localeCompare(b.relativePath, "de"));
 }
 
-const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/**
+ * Whether a legacy sidecar has to be looked at. Only "does not exist" (ENOENT/ENOTDIR) and "is not a
+ * regular file" mean no; any other stat failure counts as present, so the gate's read reports the error
+ * for exactly this PDF instead of the scan silently finding nothing.
+ */
+async function hasSidecar(file: string): Promise<boolean> {
+  try {
+    return (await fs.promises.stat(file)).isFile();
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    return code !== "ENOENT" && code !== "ENOTDIR";
+  }
+}
+
+const messageOf =(e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function scanFolder(dir: string, rel: string, visited: Set<string>, result: ScanResult): Promise<void> {
   let entries: fs.Dirent[];
@@ -108,7 +122,7 @@ async function scanFolder(dir: string, rel: string, visited: Set<string>, result
       await scanFolder(full, relative, visited, result);
     } else if (isRegularFile) {
       const sidecarPath = getSidecarPath(full);
-      if (!(await isFile(sidecarPath))) continue;
+      if (!(await hasSidecar(sidecarPath))) continue;
       try {
         const real = await fs.promises.realpath(full);
         if (visited.has(real)) continue;

@@ -249,6 +249,32 @@ describe("scanMigrationCandidates", () => {
     }
   });
 
+  it("a sidecar that cannot be stat'ed (not ENOENT) still makes the pdf a candidate; a missing one does not", async () => {
+    put("a.pdf");
+    put(".a.data");
+    put("b.pdf");
+    const sidecar = path.join(root, ".a.data");
+    const realStat = fs.promises.stat.bind(fs.promises);
+    const stat = vi.spyOn(fs.promises, "stat").mockImplementation((async (p: fs.PathLike, ...rest: unknown[]) => {
+      if (p === sidecar) throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+      return (realStat as (...a: unknown[]) => Promise<fs.Stats>)(p, ...rest);
+    }) as never);
+    try {
+      const result = await scan();
+      expect(result.candidates.map((c) => c.relativePath)).toEqual(["a.pdf"]);
+      expect(result.candidates[0].sidecarPath).toBe(sidecar);
+      expect(result.errors).toEqual([]);
+    } finally {
+      stat.mockRestore();
+    }
+  });
+
+  it("a sidecar path that is a directory is no sidecar", async () => {
+    put("a.pdf");
+    fs.mkdirSync(path.join(root, ".a.data"));
+    expect(await rels()).toEqual([]);
+  });
+
   it("a root that cannot be listed is an error with relativePath '.'", async () => {
     const result = await scanMigrationCandidates(path.join(base, "missing"));
     expect(result.candidates).toEqual([]);
