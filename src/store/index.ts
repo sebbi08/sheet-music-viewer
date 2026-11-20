@@ -22,6 +22,14 @@ const useStore = defineStore("app", {
   }),
   getters: {},
   actions: {
+    /** A sheet folder was chosen: remember it and load its set lists. Empty (selection cancelled): nothing. */
+    setSheetMusicFolder(folder: string) {
+      if (!folder) return;
+      this.sheetMusicFolder = folder;
+      this.loadSetLists();
+      this.saveSetLists();
+      localStorage.setItem("sheetMusicFolder", folder);
+    },
     toggleEditMode: function () {
       this.editMode = !this.editMode;
     },

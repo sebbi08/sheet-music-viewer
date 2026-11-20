@@ -42,19 +42,3 @@ export interface GateFailure {
   message?: string;
   sidecarName?: string;
 }
-
-export type FailureReason =
-  | "corruptData"
-  | "alreadyEmbedded"
-  | "notWritable"
-  | "locked"
-  | "notBackedUp"
-  | "pendingChanges"
-  | "other";
-
-/** Failures that will not go away by retrying; they are remembered until the files change. */
-export const PERMANENT_REASONS: ReadonlySet<FailureReason> = new Set<FailureReason>([
-  "corruptData",
-  "alreadyEmbedded",
-  "notWritable",
-]);

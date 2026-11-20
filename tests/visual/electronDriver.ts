@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { _electron, type ElectronApplication, errors, type Page } from "playwright-core";
+import { _electron, type ElectronApplication, type Page } from "playwright-core";
 import { repoRoot } from "./corpus";
 import { decodePng, type Img } from "./imageCompare";
 
@@ -67,7 +67,7 @@ export interface SheetSession {
   snackbarText(): Promise<string>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
-  /** What the bulk migration reported before the sheet opened; null unless started with `bulkMigration: true`. */
+  /** What the migration gate reported before the sheet opened; null unless started with `bulkMigration: true`. */
   bulkMigration(): BulkMigrationOutcome | null;
   close(): Promise<void>;
 }
@@ -273,12 +273,12 @@ export interface LaunchOptions {
   /** Extra environment variables for the app (e.g. `SMV_EXIT_GUARD_TIMEOUT_MS`). */
   env?: Record<string, string>;
   /**
-   * Lets the bulk markup migration run on start. Off by default: the driver sets
-   * `SMV_DISABLE_BULK_MIGRATION=1`, so the visual tests keep checking the migration on open.
+   * Lets the markup migration gate run on start. Off by default: the driver sets
+   * `SMV_DISABLE_BULK_MIGRATION=1`, so every folder counts as migrated (nothing is stored).
    */
   bulkMigration?: boolean;
   /**
-   * Electron profile (userData) to use and keep, e.g. to start the app twice with the same skip list.
+   * Electron profile (userData) to use and keep, e.g. to start the app twice with the same migrated folders.
    * Default: a fresh temporary profile, removed on close.
    */
   profile?: string;
@@ -453,48 +453,75 @@ export function startExtraInstance(app: AppUnderTest, profile: string, timeoutMs
   });
 }
 
-/** What the bulk migration dialog reported (src/components/MigrationDialog.vue). */
+/** What the migration gate reported (src/components/MigrationDialog.vue). */
 export interface BulkMigrationOutcome {
-  /** `data-migrated` of the summary. */
+  /** `document.documentElement.dataset.migrationGate` once it left "pending". */
+  status: "passed" | "failed";
+  /** `data-migrated` of the summary; 0 without one. */
   migrated: number;
-  /** The lines below "Nicht übernommen:" (`{relativePath} – {Grund}`). */
-  failures: string[];
-  /** From the line "Sicherung: {zipName}"; null without it. */
+  /** From the summary line "Sicherung: {zipName}"; null without it. */
   zipName: string | null;
-  /** All paragraphs of the summary (without the failure lines). */
+  /** All paragraphs of the summary. */
   lines: string[];
-  /** False: no dialog within MIGRATION_DIALOG_WAIT_MS (nothing to migrate). */
+  /** Headline of the failure list; null unless `failed`. */
+  headline: string | null;
+  /** The failure list: relative path ("" for an entry about no file) and text of each entry. */
+  failures: { path: string; text: string }[];
+  /** False: the gate settled without the window ever being seen (nothing to migrate, or already migrated). */
   dialogShown: boolean;
 }
 
-/** The migration starts with the app; its dialog comes up once it has found candidates. */
-const MIGRATION_DIALOG_WAIT_MS = 10_000;
 const MIGRATION_TIMEOUT_MS = 20 * 60_000;
 
-/** Waits for the bulk migration's summary and confirms it with OK, or notes that no dialog came up. */
-async function settleBulkMigration(page: Page): Promise<BulkMigrationOutcome> {
+/**
+ * Waits until the migration gate has passed or failed for the current folder. A summary is read and
+ * confirmed with OK; a failure list is read and left open (nothing is clicked).
+ */
+export async function settleBulkMigration(page: Page): Promise<BulkMigrationOutcome> {
   const dialog = page.getByTestId("migration-dialog");
-  try {
-    await dialog.waitFor({ state: "visible", timeout: MIGRATION_DIALOG_WAIT_MS });
-  } catch (error) {
-    if (!(error instanceof errors.TimeoutError)) throw error;
-    return { migrated: 0, failures: [], zipName: null, lines: [], dialogShown: false };
+  let dialogShown = false;
+  const deadline = Date.now() + MIGRATION_TIMEOUT_MS;
+  let status: string | undefined;
+  for (;;) {
+    if (await dialog.isVisible()) dialogShown = true;
+    status = await page.evaluate(() => document.documentElement.dataset.migrationGate);
+    if (status === "passed" || status === "failed") break;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for the migration gate (state ${status})`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
+
+  if (status === "failed") {
+    const failed = page.getByTestId("migration-failed");
+    await failed.waitFor({ state: "visible" });
+    const headline = ((await page.getByTestId("migration-headline").textContent()) ?? "").trim();
+    const failures: BulkMigrationOutcome["failures"] = [];
+    for (const entry of await failed.getByTestId("migration-failure").all()) {
+      const pathElement = entry.locator(".failure-path");
+      failures.push({
+        path: (await pathElement.count()) > 0 ? ((await pathElement.textContent()) ?? "").trim() : "",
+        text: ((await entry.locator(".failure-text").textContent()) ?? "").trim(),
+      });
+    }
+    console.log(`migration gate failed: ${headline} | ${failures.map((f) => `${f.path}: ${f.text}`).join(" | ")}`);
+    return { status, migrated: 0, zipName: null, lines: [], headline, failures, dialogShown: true };
+  }
+
   const summary = page.getByTestId("migration-summary");
-  await summary.waitFor({ state: "visible", timeout: MIGRATION_TIMEOUT_MS });
+  if (!(await summary.isVisible())) {
+    return { status: "passed", migrated: 0, zipName: null, lines: [], headline: null, failures: [], dialogShown };
+  }
   const migrated = Number(await summary.getAttribute("data-migrated"));
-  const failures = (await summary.locator(".failures li").allTextContents()).map((line) => line.trim());
   const lines = (await summary.locator("p").allTextContents()).map((line) => line.trim());
-  console.log(`migration summary: ${[...lines, ...failures].join(" | ")}`);
+  console.log(`migration summary: ${lines.join(" | ")}`);
   const zipName = lines.find((line) => line.startsWith("Sicherung: "))?.slice("Sicherung: ".length) ?? null;
   await page.getByTestId("migration-ok").click();
   await dialog.waitFor({ state: "hidden" });
-  return { migrated, failures, zipName, lines, dialogShown: true };
+  return { status: "passed", migrated, zipName, lines, headline: null, failures: [], dialogShown: true };
 }
 
 /**
- * Starts the app headless with the bulk migration enabled, waits for its summary (or 10 s without a
- * dialog: `dialogShown: false`), confirms it with OK and quits the app.
+ * Starts the app headless with the migration gate enabled, waits until it passed or failed (see
+ * `settleBulkMigration`) and quits the app.
  */
 export async function runBulkMigration(
   app: AppUnderTest,
@@ -517,7 +544,8 @@ export type OpenSheetOptions = LaunchOptions;
 
 /**
  * Starts the app (see `launchApp`) and shows `pdfPath` (absolute or relative to `folder`) in the
- * SheetViewer. With `bulkMigration: true`, the migration is settled first (`SheetSession.bulkMigration`).
+ * SheetViewer once the migration gate passed. With `bulkMigration: true`, the gate runs and is settled
+ * first (`SheetSession.bulkMigration`); a failed gate is an error.
  */
 export async function openSheet(
   app: AppUnderTest,
@@ -528,8 +556,17 @@ export async function openSheet(
   const launched = await launchApp(app, folder, options);
   const { electronApp, page, refreshRequests } = launched;
   try {
-    // No sheet opens while the migration runs (App.vue's router guard).
+    // No sheet opens before the gate passed (App.vue's router guard). Without `bulkMigration` the folder
+    // counts as migrated (SMV_DISABLE_BULK_MIGRATION), so the gate passes at once.
     const migration = options.bulkMigration ? await settleBulkMigration(page) : null;
+    if (migration && migration.status !== "passed") {
+      throw new Error(`the migration gate failed: ${migration.headline} ${JSON.stringify(migration.failures)}`);
+    }
+    if (!migration) {
+      await page.waitForFunction(() => document.documentElement.dataset.migrationGate === "passed", undefined, {
+        timeout: WAIT_TIMEOUT_MS,
+      });
+    }
     const showSheet = async () => {
       // Same route and path format as SheetSelection.selectItem.
       await page.evaluate((p) => {

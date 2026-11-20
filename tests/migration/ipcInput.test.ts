@@ -1,10 +1,13 @@
+import fs from "fs";
+import os from "os";
 import path from "path";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   absoluteFolderSchema,
   isInsideFolder,
+  migrateMarkupSidecarInputSchema,
   migrationBackupInputSchema,
-  recordMigrationSkipInputSchema,
+  readMigrationSourceInputSchema,
 } from "../../src/migration/ipcInput";
 import type { MigrationCandidate } from "../../src/migration/types";
 
@@ -83,23 +86,65 @@ describe("migrationBackupInputSchema", () => {
   });
 });
 
-describe("recordMigrationSkipInputSchema", () => {
-  test("accepts a permanent reason", () => {
-    for (const reason of ["corruptData", "alreadyEmbedded", "notWritable"]) {
-      expect(recordMigrationSkipInputSchema.safeParse({ candidate: candidate("a.pdf"), reason }).success, reason).toBe(true);
+/** Both inputs carry one candidate; it must lie lexically in the folder and own its sidecar. */
+describe.each([
+  ["readMigrationSourceInputSchema", (c: MigrationCandidate) => readMigrationSourceInputSchema.safeParse({ root, candidate: c })],
+  [
+    "migrateMarkupSidecarInputSchema",
+    (c: MigrationCandidate) =>
+      migrateMarkupSidecarInputSchema.safeParse({ root, candidate: c, pages: [{ page: 1, payload: null, pngBase64: null }], dryRun: true }),
+  ],
+])("%s", (_name, parse) => {
+  test("accepts a candidate below the root", () => {
+    expect(parse(candidate("Weihnachten/Amen.pdf")).success).toBe(true);
+  });
+
+  test("rejects a candidate outside the root (other folder, traversal, name prefix)", () => {
+    for (const pdfPath of ["/other/a.pdf", "/noten/../etc/a.pdf", "/noten2/a.pdf"]) {
+      const c = { pdfPath, sidecarPath: path.join(path.dirname(pdfPath), ".a.data"), relativePath: "a.pdf" };
+      expect(parse(c).success, pdfPath).toBe(false);
     }
   });
 
-  test("rejects transient and unknown reasons: they must never skip a file", () => {
-    for (const reason of ["locked", "notBackedUp", "pendingChanges", "other", "nonsense", 1]) {
-      expect(recordMigrationSkipInputSchema.safeParse({ candidate: candidate("a.pdf"), reason }).success).toBe(false);
-    }
+  test("rejects a sidecar that is not the pdf's own", () => {
+    expect(parse({ ...candidate("a.pdf"), sidecarPath: "/noten/.b.data" }).success).toBe(false);
+    expect(parse({ ...candidate("a.pdf"), sidecarPath: "/other/.a.data" }).success).toBe(false);
   });
 
-  test("rejects a malformed candidate", () => {
-    const relative = { ...candidate("a.pdf"), pdfPath: "a.pdf" };
-    const foreign = { ...candidate("a.pdf"), sidecarPath: "/elsewhere/.a.data" };
-    expect(recordMigrationSkipInputSchema.safeParse({ candidate: relative, reason: "corruptData" }).success).toBe(false);
-    expect(recordMigrationSkipInputSchema.safeParse({ candidate: foreign, reason: "corruptData" }).success).toBe(false);
+  test("rejects a relative pdf path", () => {
+    expect(parse({ ...candidate("a.pdf"), pdfPath: "a.pdf", sidecarPath: ".a.data" }).success).toBe(false);
+  });
+});
+
+describe("candidate through a link", () => {
+  let base: string;
+  beforeEach(() => {
+    base = fs.mkdtempSync(path.join(os.tmpdir(), "smv-ipc-"));
+  });
+  afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
+
+  test("a pdf behind a linked folder lies lexically in the root and is accepted", () => {
+    const linkRoot = path.join(base, "Noten");
+    const outside = path.join(base, "outside");
+    fs.mkdirSync(linkRoot);
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, path.join(linkRoot, "Linked"), "dir");
+    const pdfPath = path.join(linkRoot, "Linked", "a.pdf");
+    const c = { pdfPath, sidecarPath: path.join(linkRoot, "Linked", ".a.data"), relativePath: "Linked/a.pdf" };
+    expect(readMigrationSourceInputSchema.safeParse({ root: linkRoot, candidate: c }).success).toBe(true);
+    expect(
+      migrateMarkupSidecarInputSchema.safeParse({ root: linkRoot, candidate: c, pages: [], dryRun: false }).success,
+    ).toBe(true);
+  });
+});
+
+describe("migrateMarkupSidecarInputSchema", () => {
+  test("needs dryRun and valid pages", () => {
+    const c = candidate("a.pdf");
+    expect(migrateMarkupSidecarInputSchema.safeParse({ root, candidate: c, pages: [] }).success).toBe(false);
+    expect(
+      migrateMarkupSidecarInputSchema.safeParse({ root, candidate: c, pages: [{ page: 0, payload: null, pngBase64: null }], dryRun: true })
+        .success,
+    ).toBe(false);
   });
 });

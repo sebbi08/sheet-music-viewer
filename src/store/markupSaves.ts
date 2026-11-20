@@ -18,7 +18,7 @@ const sidecarHintText = (path: string) =>
 
 /** Paths are case-insensitive on Windows (the preload exposes Node's path separator). */
 const isWindows = typeof window !== "undefined" && (window as { path?: { sep?: string } }).path?.sep === "\\";
-const keyOf = (path: string) => (isWindows ? path.replace(/\//g, "\\").toLowerCase() : path);
+export const keyOf = (path: string) => (isWindows ? path.replace(/\//g, "\\").toLowerCase() : path);
 
 /** The sidecar hint is shown once per PDF, ever (persisted; storage errors only mean it shows again). */
 function sidecarHintSeen(path: string): boolean {

@@ -1,22 +1,19 @@
 import { describe, expect, test } from "vitest";
 import type { GateFailed } from "../../src/migration/gate";
 import {
-  backupFailedText,
-  cancelledLine,
+  backupLine,
   CHECK_TEXT,
   CHOOSE_FOLDER_BUTTON,
   CLOSE_BUTTON,
   FAILED_TITLE,
   failedHeadline,
-  failureLine,
   failureText,
-  READ_ONLY_FOLDER_TEXT,
-  reasonText,
+  progressLine,
   RECHECK_BUTTON,
   SCAN_TEXT,
   summaryLine,
 } from "../../src/migration/texts";
-import type { FailureReason, GateFailure, GateFailureReason } from "../../src/migration/types";
+import type { GateFailure, GateFailureReason } from "../../src/migration/types";
 
 describe("texts", () => {
   test("summary singular and plural", () => {
@@ -25,33 +22,9 @@ describe("texts", () => {
     expect(summaryLine(7)).toBe("7 Dateien übernommen.");
   });
 
-  test("cancelled singular and plural", () => {
-    expect(cancelledLine(1)).toBe("Abgebrochen. 1 Datei folgt beim nächsten Start.");
-    expect(cancelledLine(3)).toBe("Abgebrochen. 3 Dateien folgen beim nächsten Start.");
-  });
-
-  test("backup failure", () => {
-    expect(backupFailedText("voll")).toBe(
-      "Die Sicherung konnte nicht erstellt werden (voll). Es wurde nichts übernommen; beim nächsten Start wird es erneut versucht.",
-    );
-  });
-
-  test("read-only sheet folder", () => {
-    expect(READ_ONLY_FOLDER_TEXT).toBe("Der Notenordner ist schreibgeschützt. Die Markierungen bleiben in den .data-Dateien.");
-  });
-
-  test("all reasons verbatim", () => {
-    const expected: [FailureReason, string][] = [
-      ["corruptData", "Alte Markierungsdatei ist beschädigt"],
-      ["alreadyEmbedded", "PDF enthält bereits Markierungen; alte Datei bleibt liegen"],
-      ["notWritable", "PDF kann nicht beschrieben werden"],
-      ["locked", "Datei ist in einem anderen Programm geöffnet"],
-      ["notBackedUp", "Datei konnte nicht gesichert werden"],
-      ["pendingChanges", "Ungespeicherte Änderungen; wird beim nächsten Start übernommen"],
-    ];
-    for (const [reason, text] of expected) expect(reasonText(reason)).toBe(text);
-    expect(reasonText("other", "boom")).toBe("Unbekannter Fehler: boom");
-    expect(failureLine("x/a.pdf", "locked")).toBe("x/a.pdf – Datei ist in einem anderen Programm geöffnet");
+  test("backup and progress lines", () => {
+    expect(backupLine("Markierungen-Backup 2026-11-20 10-00.zip")).toBe("Sicherung: Markierungen-Backup 2026-11-20 10-00.zip");
+    expect(progressLine(3, 214)).toBe("3 von 214");
   });
 });
 

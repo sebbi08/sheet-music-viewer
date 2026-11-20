@@ -132,7 +132,7 @@
 import _ from "lodash";
 import { marked } from "marked";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import MigrationDialog from "./components/MigrationDialog.vue";
 import { RouteNames } from "./Enums";
 import type { UpdateData } from "./models/types";
@@ -157,13 +157,22 @@ const markupSaves = useMarkupSaves();
 markupSaves.installCloseGuard();
 const bulkMigration = useBulkMigration();
 
-// Migration and sheet view never touch the same PDF: no sheet opens while a migration runs.
+// The migration gate (spec 2026-11-20): no sheet opens before the gate passed for the current folder.
 router.beforeEach((to) => {
-  if (to.name === RouteNames.SheetViewer && bulkMigration.isRunning()) return false;
+  if (to.name === RouteNames.SheetViewer && !bulkMigration.isPassed(store.sheetMusicFolder)) return false;
 });
 
-/** Moves all legacy `.data` markup of `folder` into the PDFs (spec 2026-11-16); joins a running one. */
-async function startBulkMigration(folder: string) {
+// For the e2e tests: "pending" until the gate passed for the current folder, "failed" while the list shows.
+const migrationGateState = computed(() => {
+  if (bulkMigration.isPassed(store.sheetMusicFolder)) return "passed";
+  return bulkMigration.phase.phase === "failed" ? "failed" : "pending";
+});
+watchEffect(() => {
+  document.documentElement.dataset.migrationGate = migrationGateState.value;
+});
+
+/** Runs the migration gate for `folder` (spec 2026-11-20), after leaving an open sheet; not while one runs. */
+async function startMigrationGate(folder: string) {
   if (!folder || bulkMigration.isRunning()) return;
   try {
     await router.isReady();
@@ -181,10 +190,10 @@ async function startBulkMigration(folder: string) {
 }
 
 onMounted(() => {
-  if (store.sheetMusicFolder) void startBulkMigration(store.sheetMusicFolder);
+  if (store.sheetMusicFolder) void startMigrationGate(store.sheetMusicFolder);
 });
 watch(() => store.sheetMusicFolder, (folder) => {
-  if (folder) void startBulkMigration(folder);
+  if (folder) void startMigrationGate(folder);
 });
 
 
