@@ -78,6 +78,21 @@ export interface SaveMarkupResult {
   reason?: SaveFailureReason;
 }
 
+/** `conflict`: the PDF holds other markup; `sidecarNotDeleted`: the PDF holds the markup, the sidecar stayed. */
+export type MigrateFailureReason = SaveFailureReason | "conflict" | "sidecarNotDeleted";
+
+/** One legacy sidecar converted to page changes, to move into its PDF (`dryRun`: check only, write nothing). */
+export interface MigrateSidecarInput {
+  path: string;
+  pages: SaveMarkupInput["pages"];
+  dryRun: boolean;
+}
+
+export type MigrateSidecarResult =
+  | { status: "migrated" } // dryRun: would be written. Otherwise: written, read back, sidecar deleted
+  | { status: "alreadyMigrated" } // the PDF already holds exactly these pages. Otherwise also: sidecar deleted
+  | { status: "error"; reason: MigrateFailureReason; message?: string };
+
 export const sidecarV1Schema = z.object({
   version: z.literal(1),
   pages: z.array(z.object({ page: z.number().int().positive(), payload: markupPayloadSchema })),

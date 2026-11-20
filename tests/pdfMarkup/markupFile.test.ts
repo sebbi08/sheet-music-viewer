@@ -12,6 +12,7 @@ import {
   getSidecarPath,
   legacySidecarHasMarkup,
   loadMarkupFromFile,
+  migrateSidecarToFile,
   saveMarkupToFile,
   setLockRetryDelays,
   trySaveMarkupToFile,
@@ -364,7 +365,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
         : (realReadFile as (...args: unknown[]) => Promise<Buffer>)(file, ...rest)) as typeof fs.promises.readFile);
 
     const result = await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false });
-    expect(result.status).toBe("error");
+    expect(result).toMatchObject({ status: "error", reason: "structure" });
     expect(result.message).toContain("pages [2]");
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect(tempFiles(dir)).toEqual([]);
@@ -379,7 +380,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     ).toBe("pdf");
   });
 
-  test("a failed read-back verification reports an error, PDF unchanged, no temp left", async () => {
+  test("a failed read-back verification reports structure like the trial, PDF unchanged, no temp", async () => {
     const pdf = await writeFixture(dir, "v.pdf", await makePdf({ xref: "table" }));
     const before = fs.readFileSync(pdf);
     const realReadFile = fs.promises.readFile.bind(fs.promises);
@@ -390,7 +391,11 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
         : (realReadFile as (...args: unknown[]) => Promise<Buffer>)(file, ...rest)) as typeof fs.promises.readFile);
 
     const result = await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
-    expect(result.status).toBe("error");
+    expect(result).toMatchObject({
+      status: "error",
+      reason: "structure",
+      message: expect.stringContaining("verification"),
+    });
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect(tempFiles(dir)).toEqual([]);
   });
@@ -818,6 +823,216 @@ describe("write block and trial save", () => {
   });
 });
 
+describe("migrateSidecarToFile", () => {
+  const legacyText = JSON.stringify([
+    { page: 1, data: { objects: [{ type: "path" }] }, drawWidth: 100, drawHeight: 140 },
+  ]);
+  /** Writes an old app's `.data` next to the PDF and returns its path. */
+  const legacy = (pdf: string) => {
+    const sidecar = getSidecarPath(pdf);
+    fs.writeFileSync(sidecar, legacyText);
+    return sidecar;
+  };
+  const errorWith = (code: string) => Object.assign(new Error(`${code}: test`), { code });
+  let previousDelays: readonly number[];
+  beforeEach(() => {
+    previousDelays = setLockRetryDelays([]);
+  });
+  afterEach(() => {
+    setLockRetryDelays(previousDelays);
+  });
+
+  test("dry run: migrated, PDF and sidecar untouched", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table", pages: 2 }));
+    const sidecar = legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1(), page2()], dryRun: true })).toEqual({
+      status: "migrated",
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText);
+    expect(fs.readdirSync(dir).sort()).toEqual([".a.data", "a.pdf"]);
+  });
+
+  test("writes the PDF, reads it back and deletes the sidecar", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "stream", pages: 2 }));
+    legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1(), page2()], dryRun: false })).toEqual({
+      status: "migrated",
+    });
+    const loaded = await loadMarkupFromFile(pdf);
+    expect({ source: loaded.source, pages: loaded.pages.map((p) => [p.page, p.payload]) }).toEqual({
+      source: "pdf",
+      pages: [
+        [1, payload(1)],
+        [2, payload(2)],
+      ],
+    });
+    expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+    expect(fs.readFileSync(pdf).subarray(0, before.length).equals(before), "original bytes kept as prefix").toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(["a.pdf"]);
+  });
+
+  test("PDF already holds exactly these pages: alreadyMigrated; only the sidecar goes", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1(), page2()], deleteLegacySidecar: false });
+    legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    // Page order and payload key order do not matter; a page without payload is not part of the comparison.
+    const { version, width, height, fabric } = payload(1);
+    const reordered = { fabric, height, width, version } as ReturnType<typeof payload>;
+    const pages = [page2(), { ...page1(), payload: reordered }, { page: 3, payload: null, pngBase64: null }];
+    expect(await migrateSidecarToFile({ path: pdf, pages, dryRun: false })).toEqual({ status: "alreadyMigrated" });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(["a.pdf"]);
+  });
+
+  test("alreadyMigrated in a dry run keeps the sidecar", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+    const sidecar = legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: true })).toEqual({
+      status: "alreadyMigrated",
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText);
+  });
+
+  test("PDF holds other markup: conflict, nothing changes", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+    const sidecar = legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    const otherPayload = [{ ...page1(), payload: payload(5) }];
+    for (const pages of [otherPayload, [page1(), page2()], [page2()]])
+      for (const dryRun of [true, false])
+        expect(await migrateSidecarToFile({ path: pdf, pages, dryRun })).toMatchObject({
+          status: "error",
+          reason: "conflict",
+          message: expect.any(String),
+        });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText);
+    expect(fs.readdirSync(dir).sort()).toEqual([".a.data", "a.pdf"]);
+  });
+
+  test("encrypted, read-only and structure are reported with their reason; no file is created", async () => {
+    const cases: [string, Uint8Array, string][] = [
+      ["e.pdf", makeEncryptedPdf(), "encrypted"],
+      ["s.pdf", padAfterEof(await makePdf({ xref: "table" })), "structure"],
+    ];
+    if (!isRoot) cases.push(["r.pdf", await makePdf({ xref: "table" }), "readOnly"]); // root ignores chmod
+    for (const [name, bytes, reason] of cases) {
+      const pdf = await writeFixture(dir, name, bytes);
+      if (reason === "readOnly") fs.chmodSync(pdf, 0o444);
+      const sidecar = legacy(pdf);
+      const before = fs.readFileSync(pdf);
+      for (const dryRun of [true, false]) {
+        const result = await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun });
+        expect(result, `${name}, dryRun ${dryRun}`).toMatchObject({ status: "error", reason });
+      }
+      expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+      expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText);
+    }
+    const expected = cases.flatMap(([name]) => [name, `.${name.replace(".pdf", ".data")}`]);
+    expect(fs.readdirSync(dir).sort()).toEqual(expected.sort());
+  });
+
+  test("the sidecar cannot be deleted: sidecarNotDeleted, the PDF holds the markup", async () => {
+    setLockRetryDelays([1, 1]);
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const sidecar = legacy(pdf);
+    // Only the sidecar is held; the folder probe and the temp file are removed as usual.
+    const realRm = fs.promises.rm.bind(fs.promises);
+    const held = () => Object.assign(new Error("held"), { code: "EPERM" });
+    const rm = vi
+      .spyOn(fs.promises, "rm")
+      .mockImplementation((file, options) => (String(file) === sidecar ? Promise.reject(held()) : realRm(file, options)));
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: false })).toMatchObject({
+      status: "error",
+      reason: "sidecarNotDeleted",
+      message: expect.stringContaining("held"),
+    });
+    expect(rm.mock.calls.filter(([file]) => String(file) === sidecar)).toHaveLength(3); // retried while locked
+    expect(fs.existsSync(sidecar)).toBe(true);
+    vi.restoreAllMocks();
+    expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1]);
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: false })).toEqual({
+      status: "alreadyMigrated",
+    });
+    expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+  });
+
+  test("the PDF stays locked: locked, PDF unchanged, sidecar kept", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const sidecar = legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    vi.spyOn(fs.promises, "rename").mockRejectedValue(errorWith("EBUSY"));
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: false })).toMatchObject({
+      status: "error",
+      reason: "locked",
+      message: expect.stringContaining("EBUSY"),
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText); // never replaced by a v1 sidecar
+    expect(fs.readdirSync(dir).sort()).toEqual([".a.data", "a.pdf"]);
+  });
+
+  test("a failed read-back is structure, another I/O error is other; PDF and sidecar unchanged", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const sidecar = legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    const realReadFile = fs.promises.readFile.bind(fs.promises);
+    // The temp file reads back as the unmarked original: the expected page 1 is missing.
+    const readFile = vi.spyOn(fs.promises, "readFile").mockImplementation(((file: fs.PathLike, ...rest: unknown[]) =>
+      String(file).endsWith(".smv-tmp")
+        ? Promise.resolve(before)
+        : (realReadFile as (...args: unknown[]) => Promise<Buffer>)(file, ...rest)) as typeof fs.promises.readFile);
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: false })).toMatchObject({
+      status: "error",
+      reason: "structure",
+      message: expect.stringContaining("verification"),
+    });
+    readFile.mockRestore();
+
+    vi.spyOn(fs.promises, "rename").mockRejectedValue(errorWith("EIO"));
+    expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: false })).toMatchObject({
+      status: "error",
+      reason: "other",
+      message: expect.stringContaining("EIO"),
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText);
+    expect(fs.readdirSync(dir).sort()).toEqual([".a.data", "a.pdf"]);
+  });
+
+  test("without any page that has a payload: error other", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const sidecar = legacy(pdf);
+    const before = fs.readFileSync(pdf);
+    for (const pages of [[], [{ page: 1, payload: null, pngBase64: null }]])
+      for (const dryRun of [true, false])
+        expect(await migrateSidecarToFile({ path: pdf, pages, dryRun })).toMatchObject({
+          status: "error",
+          reason: "other",
+          message: expect.any(String),
+        });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(sidecar, "utf8")).toBe(legacyText);
+  });
+
+  test("a PDF that cannot be read is an error, never a throw", async () => {
+    const missing = path.join(dir, "missing.pdf");
+    expect(await migrateSidecarToFile({ path: missing, pages: [page1()], dryRun: true })).toMatchObject({
+      status: "error",
+      reason: "other",
+      message: expect.stringContaining("ENOENT"),
+    });
+  });
+});
+
 describe("legacySidecarHasMarkup", () => {
   test.each(["", "  ", "[]", '[{"page":1,"data":{"objects":[]}}]'])("%j has no markup", (text) => {
     expect(legacySidecarHasMarkup(text)).toBe(false);
@@ -859,5 +1074,18 @@ describe("discardEmptyLegacySidecar", () => {
   test("missing sidecar", async () => {
     const pdf = await writeFixture(dir, "c.pdf", await makePdf({ xref: "table" }));
     expect(await discardEmptyLegacySidecar(pdf)).toEqual({ deleted: false });
+  });
+
+  test("discardEmptyLegacySidecar also deletes a v1 file without pages", async () => {
+    const pdf = await writeFixture(dir, "d.pdf", await makePdf({ xref: "table" }));
+    fs.writeFileSync(getSidecarPath(pdf), JSON.stringify({ version: 1, pages: [] }));
+    expect(await discardEmptyLegacySidecar(pdf)).toEqual({ deleted: true });
+    expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+
+    // A v1 file with pages is kept.
+    const withPages = JSON.stringify({ version: 1, pages: [{ page: 1, payload: payload(1) }] });
+    fs.writeFileSync(getSidecarPath(pdf), withPages);
+    expect(await discardEmptyLegacySidecar(pdf)).toEqual({ deleted: false });
+    expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(withPages);
   });
 });
