@@ -22,16 +22,10 @@ import {
   type SaveMarkupResult,
 } from "../models/markup";
 import { buildMarkedPdf, type PageChange } from "./buildMarkedPdf";
+import { getSidecarPath, legacySidecarHasMarkup } from "./legacySidecar";
 import { readMarkup, type ReadMarkupResult } from "./readMarkup";
 
-/**
- * `.<name>.data` next to the PDF. Same name logic as the old app's `getOverlayDataFilePathFromSheetPath` in
- * `trcpLib.ts` (including its `String.replace` of the extension), so existing legacy files are found.
- */
-export function getSidecarPath(pdfPath: string): string {
-  const base = path.basename(pdfPath);
-  return path.join(path.dirname(pdfPath), "." + base.replace(path.extname(base), ".data"));
-}
+export { getSidecarPath, legacySidecarHasMarkup };
 
 // ---------------------------------------------------------------------------------------------------------
 // Per-path serialization
@@ -407,26 +401,6 @@ async function fallback(
 // ---------------------------------------------------------------------------------------------------------
 // Empty legacy sidecars
 // ---------------------------------------------------------------------------------------------------------
-
-/**
- * Whether the text of a legacy `.data` file holds markup. Empty text, `[]` and pages without objects do
- * not; anything unreadable counts as markup, so such a file is never deleted.
- */
-export function legacySidecarHasMarkup(text: string): boolean {
-  if (text.trim() === "") return false;
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    return true;
-  }
-  if (!Array.isArray(json)) return true;
-  return json.some((entry: unknown) => {
-    const data = entry !== null && typeof entry === "object" ? (entry as { data?: unknown }).data : undefined;
-    const objects = data !== null && typeof data === "object" ? (data as { objects?: unknown }).objects : undefined;
-    return !(Array.isArray(objects) && objects.length === 0);
-  });
-}
 
 /**
  * Deletes the sidecar of `pdfPath` if it holds no markup. Reads the file itself and never reads or writes
