@@ -81,7 +81,6 @@ describe("createBackupZip", () => {
     expect(r.status).toBe("ok");
     if (r.status !== "ok" || !r.zipPath) throw new Error("no zip");
     expect(r.included).toHaveLength(2);
-    expect(r.excluded).toEqual([]);
     const entries = await readZip(r.zipPath);
     const byName = new Map(entries.map((e) => [e.name, e]));
     expect([...byName.keys()].sort()).toEqual(
@@ -118,42 +117,62 @@ describe("createBackupZip", () => {
     expect(fs.readFileSync(path.join(root, "Markierungen-Backup 2026-11-16 10-15.zip"), "utf8")).toBe("existing");
   });
 
-  it.skipIf(process.getuid?.() === 0)("excludes a file that cannot be read and still zips the rest", async () => {
+  it.skipIf(process.getuid?.() === 0)("a file that cannot be read fails the whole backup, leaving no files", async () => {
+    put("a.pdf", "A");
+    put(".a.data", "d");
+    put("sub/b.pdf", "B");
+    put("sub/.b.data", "d2");
+    fs.chmodSync(path.join(root, "sub", ".b.data"), 0o000);
+    const r = await createBackupZip(root, [cand("a.pdf", ".a.data"), cand("sub/b.pdf", ".b.data")], { now: NOW });
+    expect(r.status).toBe("error");
+    if (r.status !== "error") return;
+    expect(r.message).toContain("sub/b.pdf");
+    expect(r.message).toMatch(/EACCES/);
+    expect(r.message).not.toContain("a.pdf (");
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("a file that vanished fails the whole backup and every unreadable path is named", async () => {
+    put("a.pdf", "A");
+    put(".a.data", "d");
+    put(".gone.data", "d");
+    const r = await createBackupZip(
+      root,
+      [cand("gone.pdf", ".gone.data"), cand("a.pdf", ".a.data"), cand("lost.pdf", ".lost.data")],
+      { now: NOW },
+    );
+    expect(r.status).toBe("error");
+    if (r.status !== "error") return;
+    expect(r.message).toContain("gone.pdf");
+    expect(r.message).toContain("lost.pdf");
+    expect(r.message).toMatch(/ENOENT/);
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("a file that fails while it is checksummed fails the whole backup, leaving no files", async () => {
     put("a.pdf", "A");
     put(".a.data", "d");
     put("b.pdf", "B");
     put(".b.data", "d2");
-    fs.chmodSync(path.join(root, ".b.data"), 0o000);
-    const a = cand("a.pdf", ".a.data");
-    const b = cand("b.pdf", ".b.data");
-    const r = await createBackupZip(root, [a, b], { now: NOW });
-    if (r.status !== "ok" || !r.zipPath) throw new Error("no zip");
-    expect(r.included).toEqual([a]);
-    expect(r.excluded).toHaveLength(1);
-    expect(r.excluded[0].candidate).toBe(b);
-    expect(r.excluded[0].message).toMatch(/EACCES/);
-    expect((await readZip(r.zipPath)).map((e) => e.name).sort()).toEqual([".a.data", "a.pdf"]);
+    const realCreateReadStream = fs.createReadStream;
+    const spy = vi.spyOn(fs, "createReadStream").mockImplementation(((file: fs.PathLike, options?: unknown) =>
+      String(file).endsWith(".b.data")
+        ? realCreateReadStream(path.join(root, "missing"))
+        : realCreateReadStream(file, options as never)) as typeof fs.createReadStream);
+    try {
+      const r = await createBackupZip(root, [cand("a.pdf", ".a.data"), cand("b.pdf", ".b.data")], { now: NOW });
+      expect(r.status).toBe("error");
+      if (r.status !== "error") return;
+      expect(r.message).toContain("b.pdf");
+      expect(leftovers()).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
-  it("excludes a file that vanished", async () => {
-    put("a.pdf", "A");
-    put(".a.data", "d");
-    put(".gone.data", "d");
-    const gone = cand("gone.pdf", ".gone.data");
-    const a = cand("a.pdf", ".a.data");
-    const r = await createBackupZip(root, [gone, a], { now: NOW });
-    if (r.status !== "ok") throw new Error("not ok");
-    expect(r.included).toEqual([a]);
-    expect(r.excluded.map((x) => x.candidate)).toEqual([gone]);
-    expect(r.excluded[0].message).toMatch(/ENOENT/);
-  });
-
-  it("creates no file when everything is excluded", async () => {
-    const r = await createBackupZip(root, [cand("gone.pdf", ".gone.data")], { now: NOW });
-    expect(r.status).toBe("ok");
-    if (r.status !== "ok") return;
-    expect(r.zipPath).toBeNull();
-    expect(r.included).toEqual([]);
+  it("creates no file for no candidates", async () => {
+    const r = await createBackupZip(root, [], { now: NOW });
+    expect(r).toEqual({ status: "ok", zipPath: null, included: [] });
     expect(leftovers()).toEqual([]);
   });
 

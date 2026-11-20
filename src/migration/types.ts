@@ -17,6 +17,31 @@ export interface ScanResult {
   errors: ScanError[];
 }
 
+/** Why one file (or the scan, or the backup) keeps the migration gate shut. */
+export type GateFailureReason =
+  | "dataDamaged"
+  | "dataUnreadable"
+  | "conflict"
+  | "encrypted"
+  | "readOnly"
+  | "unparseable"
+  | "structure"
+  | "locked"
+  | "pendingChanges"
+  | "folderUnreadable"
+  | "linkUnreadable"
+  | "sidecarNotDeleted"
+  | "backupFailed"
+  | "other";
+
+/** `relativePath` null: not about one file (backup). `sidecarName`: basename of the `.data` file, for the text. */
+export interface GateFailure {
+  relativePath: string | null;
+  reason: GateFailureReason;
+  message?: string;
+  sidecarName?: string;
+}
+
 export type FailureReason =
   | "corruptData"
   | "alreadyEmbedded"

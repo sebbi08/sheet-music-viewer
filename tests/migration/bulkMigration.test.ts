@@ -31,7 +31,6 @@ function setup(candidates: MigrationCandidate[], over: Partial<BulkMigrationDeps
         status: "ok",
         zipPath: "/s/Markierungen-Backup 2026-11-16 10-00.zip",
         included: c,
-        excluded: [],
       }),
     ),
     cancelBackup: vi.fn(async () => {}),
@@ -76,11 +75,11 @@ describe("BulkMigration", () => {
 
   test("zip name works with Windows paths and a missing zip", async () => {
     const win = setup([A], {
-      createBackup: async (_r, c) => ({ status: "ok", zipPath: "C:\\Noten\\x.zip", included: c, excluded: [] }),
+      createBackup: async (_r, c) => ({ status: "ok", zipPath: "C:\\Noten\\x.zip", included: c }),
     });
     expect((await win.bulk.run("/s"))?.zipName).toBe("x.zip");
     const none = setup([A], {
-      createBackup: async (_r, c) => ({ status: "ok", zipPath: null, included: c, excluded: [] }),
+      createBackup: async (_r, c) => ({ status: "ok", zipPath: null, included: c }),
     });
     expect((await none.bulk.run("/s"))?.zipName).toBeNull();
   });
@@ -136,7 +135,7 @@ describe("BulkMigration", () => {
     const { bulk, phases } = setup([A], {
       createBackup: async (_r, c, onProgress) => {
         onProgress({ doneBytes: 5, totalBytes: 10 });
-        return { status: "ok", zipPath: null, included: c, excluded: [] };
+        return { status: "ok", zipPath: null, included: c };
       },
     });
     await bulk.run("/s");
@@ -280,7 +279,7 @@ describe("BulkMigration", () => {
     const run = bulk.run("/s");
     await vi.waitFor(() => expect(deps.createBackup).toHaveBeenCalled());
     bulk.cancel();
-    gate.resolve({ status: "ok", zipPath: "/s/z.zip", included: [A, B], excluded: [] });
+    gate.resolve({ status: "ok", zipPath: "/s/z.zip", included: [A, B] });
     expect(await run).toMatchObject({ migrated: 0, cancelledRemaining: 2, zipName: "z.zip" });
     expect(deps.migrateFile).not.toHaveBeenCalled();
   });

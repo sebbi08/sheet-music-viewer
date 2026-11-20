@@ -158,7 +158,9 @@ export class BulkMigration {
         return finish();
       }
       summary.zipName = backup.zipPath === null ? null : baseName(backup.zipPath);
-      for (const { candidate, message } of backup.excluded) fail(candidate, "notBackedUp", message);
+      // The backup no longer reports excluded files (an unreadable one is an error now).
+      const { excluded } = backup as { excluded?: { candidate: MigrationCandidate; message: string }[] };
+      for (const { candidate, message } of excluded ?? []) fail(candidate, "notBackedUp", message);
       included = backup.included;
     }
 
