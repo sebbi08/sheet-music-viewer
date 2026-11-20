@@ -7,22 +7,28 @@ import { SMV_CATALOG_KEY } from "../../src/models/markupConstants";
 import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
 import { buildMarkedPdf } from "../../src/pdfMarkup/buildMarkedPdf";
 import {
+  checkMarkupWritable,
   discardEmptyLegacySidecar,
   getSidecarPath,
   legacySidecarHasMarkup,
   loadMarkupFromFile,
   saveMarkupToFile,
   setLockRetryDelays,
+  trySaveMarkupToFile,
 } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import {
   annotationsPerPage,
+  dropStartXref,
+  makeEncryptedPdf,
   makePdf,
   markEncrypted,
+  padAfterEof,
   page1,
   page2,
   payload,
   stripSmvData,
+  wrongStartXref,
   writeFixture,
 } from "./fixtures";
 
@@ -65,7 +71,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
 
   test("a PDF without markup or sidecar loads as source none", async () => {
     const pdf = await writeFixture(dir, "n.pdf", await makePdf({ xref: "table" }));
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: null, pdfIssue: null });
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "none",
+      pages: [],
+      legacyOverlayData: null,
+      pdfIssue: null,
+      writeBlock: null,
+    });
   });
 
   test("accepts a data-URL PNG", async () => {
@@ -78,7 +90,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
     const legacy = JSON.stringify([{ page: 1, data: { objects: [] }, drawWidth: 100, drawHeight: 140 }]);
     fs.writeFileSync(getSidecarPath(pdf), legacy);
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: legacy, pdfIssue: null });
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "none",
+      pages: [],
+      legacyOverlayData: legacy,
+      pdfIssue: null,
+      writeBlock: null,
+    });
 
     // A failed save (page does not exist) keeps the legacy file.
     const failed = await saveMarkupToFile({
@@ -97,7 +115,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     const pdf = await writeFixture(dir, "c.pdf", await makePdf({ xref: "table", pages: 2 }));
     const corrupt = '[{"page": 1, "data": {"objects": [ broken';
     fs.writeFileSync(getSidecarPath(pdf), corrupt);
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: corrupt, pdfIssue: null });
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "none",
+      pages: [],
+      legacyOverlayData: corrupt,
+      pdfIssue: null,
+      writeBlock: null,
+    });
 
     // The renderer keeps deleteLegacySidecar false for a file it could not read.
     expect(await saveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false })).toEqual({
@@ -112,7 +136,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
       (await saveMarkupToFile({ path: pdf, pages: [{ page: 2, payload: null, pngBase64: null }], deleteLegacySidecar: false }))
         .status,
     ).toBe("pdf");
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: corrupt, pdfIssue: null });
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "none",
+      pages: [],
+      legacyOverlayData: corrupt,
+      pdfIssue: null,
+      writeBlock: null,
+    });
     expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(corrupt);
   });
 
@@ -164,7 +194,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
   test("an encrypted PDF with a legacy sidecar reports the legacy data", async () => {
     const pdf = await writeFixture(dir, "l.pdf", markEncrypted(await makePdf({ xref: "table" })));
     fs.writeFileSync(getSidecarPath(pdf), "[]");
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], legacyOverlayData: "[]", pdfIssue: "encrypted" });
+    expect(await loadMarkupFromFile(pdf)).toEqual({
+      source: "none",
+      pages: [],
+      legacyOverlayData: "[]",
+      pdfIssue: "encrypted",
+      writeBlock: { reason: "encrypted" },
+    });
   });
 
   test.skipIf(isRoot)("read-only PDF without embedded data falls back to a v1 sidecar (skipped as root)", async () => {
@@ -254,9 +290,18 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
 
     test("opening the temp file is retried while it is locked (EACCES)", async () => {
       const pdf = await writeFixture(dir, "t.pdf", await makePdf({ xref: "table" }));
-      const open = vi.spyOn(fs.promises, "open").mockRejectedValueOnce(locked("EACCES"));
+      // Only the temp file is locked once; the folder's write probe (also opened) works.
+      const realOpen = fs.promises.open.bind(fs.promises);
+      let failed = false;
+      const open = vi.spyOn(fs.promises, "open").mockImplementation((file, ...rest) => {
+        if (String(file).endsWith(".smv-tmp") && !failed) {
+          failed = true;
+          return Promise.reject(locked("EACCES"));
+        }
+        return realOpen(file, ...rest);
+      });
       expect((await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).status).toBe("pdf");
-      expect(open).toHaveBeenCalledTimes(2);
+      expect(open.mock.calls.filter(([file]) => String(file).endsWith(".smv-tmp"))).toHaveLength(2);
     });
 
     test("a PDF with embedded data that stays locked: error, PDF unchanged, no temp, no sidecar", async () => {
@@ -392,6 +437,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
       pages: [{ page: 2, rect: null, payload: payload(2) }],
       legacyOverlayData: null,
       pdfIssue: null,
+      writeBlock: null,
     });
     expect((await readMarkupOf(pdf)).orphans).toEqual([]); // repaired nevertheless
   });
@@ -491,6 +537,7 @@ describe("a v1 sidecar written earlier in the same visit (B1)", () => {
       ],
       legacyOverlayData: null,
       pdfIssue: null,
+      writeBlock: null,
     });
 
     // The renderer's migrating write: every page of the sidecar, with deleteLegacySidecar.
@@ -633,6 +680,141 @@ describe("failure reasons and pdfIssue", () => {
     expect((await loadMarkupFromFile(enc)).pdfIssue).toBe("encrypted");
     expect((await loadMarkupFromFile(bad)).pdfIssue).toBe("unparseable");
     expect((await loadMarkupFromFile(ok)).pdfIssue).toBeNull();
+  });
+});
+
+describe("write block and trial save", () => {
+  const legacy = JSON.stringify([{ page: 1, data: { objects: [{ type: "path" }] }, drawWidth: 100, drawHeight: 140 }]);
+
+  test("a writable PDF has no write block", async () => {
+    const plain = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    expect(await checkMarkupWritable(plain)).toBeNull();
+    expect((await loadMarkupFromFile(plain)).writeBlock).toBeNull();
+
+    // Our markup on page 1 already: the trial replaces it in memory only.
+    const marked = await writeFixture(dir, "b.pdf", await makePdf({ xref: "stream", pages: 2 }));
+    await saveMarkupToFile({ path: marked, pages: [page1(), page2()], deleteLegacySidecar: false });
+    const before = fs.readFileSync(marked);
+    expect(await checkMarkupWritable(marked)).toBeNull();
+    expect((await loadMarkupFromFile(marked)).writeBlock).toBeNull();
+    expect(fs.readFileSync(marked).equals(before)).toBe(true);
+    expect(fs.readdirSync(dir).sort()).toEqual(["a.pdf", "b.pdf"]); // the folder probe is gone again
+  });
+
+  test("encrypted", async () => {
+    const pdf = await writeFixture(dir, "e.pdf", makeEncryptedPdf());
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "encrypted" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "encrypted" });
+  });
+
+  test("bytes that are no PDF", async () => {
+    const pdf = await writeFixture(dir, "g.pdf", new Uint8Array(Buffer.from("this is not a pdf at all")));
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "unparseable" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "unparseable" });
+    // A file that cannot be read at all.
+    expect(await checkMarkupWritable(path.join(dir, "missing.pdf"))).toEqual({
+      reason: "unparseable",
+      message: expect.stringContaining("ENOENT"),
+    });
+  });
+
+  test.skipIf(isRoot)("read-only file", async () => {
+    const pdf = await writeFixture(dir, "ro.pdf", await makePdf({ xref: "table" }));
+    fs.chmodSync(pdf, 0o444);
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "readOnly" });
+  });
+
+  test.skipIf(isRoot)("folder that accepts no new file", async () => {
+    const pdf = await writeFixture(dir, "d.pdf", await makePdf({ xref: "table" }));
+    fs.chmodSync(dir, 0o555);
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "readOnly" });
+  });
+
+  test("a folder whose probe file is denied (Windows ACL: access() passes) blocks the PDF", async () => {
+    const pdf = await writeFixture(dir, "w.pdf", await makePdf({ xref: "table" }));
+    const before = fs.readFileSync(pdf);
+    const denied = Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
+    vi.spyOn(fs.promises, "open").mockRejectedValue(denied);
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
+    expect(await trySaveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).toMatchObject({
+      status: "error",
+      reason: "readOnly",
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+  });
+
+  test.each([
+    ["dropStartXref", dropStartXref],
+    ["wrongStartXref", wrongStartXref],
+    ["padAfterEof", padAfterEof],
+  ])("%s: structure, for the check, the trial and the real save", async (_n, breakIt) => {
+    const pdf = await writeFixture(dir, "s.pdf", breakIt(await makePdf({ xref: "table" })));
+    const before = fs.readFileSync(pdf);
+    expect(await checkMarkupWritable(pdf)).toMatchObject({ reason: "structure", message: expect.any(String) });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toMatchObject({ reason: "structure" });
+    const input = { path: pdf, pages: [page1()], deleteLegacySidecar: false };
+    expect(await trySaveMarkupToFile(input)).toMatchObject({ status: "error", reason: "structure" });
+    expect(await saveMarkupToFile(input)).toMatchObject({ status: "error", reason: "structure" });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(["s.pdf"]); // no temp file, no sidecar
+  });
+
+  test("the trial save changes nothing", async () => {
+    const pdf = await writeFixture(dir, "t.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false });
+    fs.writeFileSync(getSidecarPath(pdf), legacy);
+    const before = fs.readFileSync(pdf);
+    const listing = fs.readdirSync(dir).sort();
+
+    for (const pages of [[page2()], [page1(), { page: 2, payload: null, pngBase64: null }]])
+      expect(await trySaveMarkupToFile({ path: pdf, pages, deleteLegacySidecar: true })).toEqual({ status: "pdf" });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readFileSync(getSidecarPath(pdf), "utf8")).toBe(legacy);
+    expect(fs.readdirSync(dir).sort()).toEqual(listing);
+  });
+
+  test("the trial save reports what the real save would fail on", async () => {
+    const pdf = await writeFixture(dir, "p.pdf", await makePdf({ xref: "table" }));
+    const result = await trySaveMarkupToFile({ path: pdf, pages: [page2()], deleteLegacySidecar: false });
+    expect(result).toMatchObject({ status: "error", reason: "structure", message: expect.stringContaining("page 2") });
+    expect(fs.readdirSync(dir)).toEqual(["p.pdf"]);
+  });
+
+  test("the trial save of an encrypted PDF is an error and writes no sidecar", async () => {
+    const pdf = await writeFixture(dir, "e.pdf", makeEncryptedPdf());
+    const before = fs.readFileSync(pdf);
+    expect(await trySaveMarkupToFile({ path: pdf, pages: [page1()], deleteLegacySidecar: false })).toMatchObject({
+      status: "error",
+      reason: "encrypted",
+    });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(["e.pdf"]);
+  });
+
+  test.skipIf(isRoot)("a PDF with an orphan that cannot be written is not repaired on load", async () => {
+    const pdf = await writeFixture(dir, "o.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1(), page2()], deleteLegacySidecar: false });
+    fs.writeFileSync(pdf, await stripSmvData(fs.readFileSync(pdf)));
+    fs.chmodSync(pdf, 0o444);
+    const before = fs.readFileSync(pdf);
+
+    const loaded = await loadMarkupFromFile(pdf);
+    expect(loaded).toMatchObject({ source: "pdf", pages: [{ page: 2 }], writeBlock: { reason: "readOnly" } });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
+  });
+
+  test("a PDF with an orphan and a broken structure is not repaired on load", async () => {
+    const pdf = await writeFixture(dir, "q.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1(), page2()], deleteLegacySidecar: false });
+    fs.writeFileSync(pdf, padAfterEof(await stripSmvData(fs.readFileSync(pdf))));
+    const before = fs.readFileSync(pdf);
+
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toMatchObject({ reason: "structure" });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(["q.pdf"]);
   });
 });
 

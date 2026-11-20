@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { inflateSync, deflateSync, crc32 } from "node:zlib";
@@ -123,6 +124,103 @@ export function markEncrypted(bytes: Uint8Array): Uint8Array {
     text.slice(0, open + 2) + " /Encrypt << /Filter /Standard >>" + text.slice(open + 2);
   return new Uint8Array(Buffer.from(patched, "latin1"));
 }
+
+/** RC4 (OpenSSL 3 no longer offers it). */
+function rc4(key: Uint8Array, data: Uint8Array): Uint8Array {
+  const s = Uint8Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 0, j = 0; i < 256; i++) {
+    j = (j + s[i] + key[i % key.length]) & 0xff;
+    [s[i], s[j]] = [s[j], s[i]];
+  }
+  const out = new Uint8Array(data.length);
+  for (let k = 0, i = 0, j = 0; k < data.length; k++) {
+    i = (i + 1) & 0xff;
+    j = (j + s[i]) & 0xff;
+    [s[i], s[j]] = [s[j], s[i]];
+    out[k] = data[k] ^ s[(s[i] + s[j]) & 0xff];
+  }
+  return out;
+}
+
+const md5 = (...parts: Uint8Array[]) => new Uint8Array(createHash("md5").update(Buffer.concat(parts)).digest());
+
+/** Password padding string of the standard security handler (PDF 32000-1, 7.6.3.3, Algorithm 2 step a). */
+const PASSWORD_PAD = Buffer.from("28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a", "hex");
+const padPassword = (password: string) =>
+  new Uint8Array(Buffer.concat([Buffer.from(password, "latin1"), PASSWORD_PAD]).subarray(0, 32));
+
+/**
+ * A really encrypted one-page PDF, written by hand: standard security handler `/V 1 /R 2` (RC4, 40-bit
+ * key), empty user password (every viewer opens it), owner password "owner", `/P -4`. `/O`, `/U` and the
+ * file key follow PDF 32000-1 section 7.6.3 (Algorithms 3, 2 and 4); the page's content stream (a blue
+ * square) is encrypted with its object key (Algorithm 1). The file has no strings that need encrypting.
+ */
+export function makeEncryptedPdf(): Uint8Array {
+  const id = md5(Buffer.from("smv encrypted fixture", "latin1"));
+  const permissions = -4;
+  const keyLength = 5; // R2: 40 bit
+  const user = padPassword("");
+  // Algorithm 3: /O = RC4 of the padded user password, keyed with the MD5 of the padded owner password.
+  const owner = rc4(md5(padPassword("owner")).subarray(0, keyLength), user);
+  // Algorithm 2: the file key.
+  const p = Buffer.alloc(4);
+  p.writeInt32LE(permissions);
+  const fileKey = md5(user, owner, p, id).subarray(0, keyLength);
+  // Algorithm 4 (R2): /U = RC4 of the padding string with the file key.
+  const userEntry = rc4(fileKey, PASSWORD_PAD);
+  // Algorithm 1: the key of object 4, generation 0 (3 bytes object number, 2 bytes generation, low byte first).
+  const objectKey = md5(fileKey, Uint8Array.of(4, 0, 0, 0, 0)).subarray(0, Math.min(keyLength + 5, 16));
+  const content = rc4(objectKey, Buffer.from("0 0 1 rg 72 600 144 144 re f\n", "latin1"));
+
+  const hex = (b: Uint8Array) => `<${Buffer.from(b).toString("hex")}>`;
+  const chunks: Buffer[] = [];
+  let length = 0;
+  const add = (...parts: (string | Uint8Array)[]) => {
+    for (const part of parts) {
+      const buf = typeof part === "string" ? Buffer.from(part, "latin1") : Buffer.from(part);
+      chunks.push(buf);
+      length += buf.length;
+    }
+  };
+  const offsets: number[] = [];
+  const object = (num: number, ...body: (string | Uint8Array)[]) => {
+    offsets.push(length);
+    add(`${num} 0 obj\n`, ...body, "\nendobj\n");
+  };
+  add("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
+  object(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  object(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  object(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << >> >>");
+  object(4, `<< /Length ${content.length} >>\nstream\n`, content, "\nendstream");
+  object(5, `<< /Filter /Standard /V 1 /R 2 /O ${hex(owner)} /U ${hex(userEntry)} /P ${permissions} >>`);
+  const xref = length;
+  add(
+    `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`,
+    ...offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`),
+    `trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R /Encrypt 5 0 R /ID [${hex(id)} ${hex(id)}] >>\n`,
+    `startxref\n${xref}\n%%EOF\n`,
+  );
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
+/** Replaces the last `startxref <n>` of the file with `replacement`. */
+function replaceLastStartXref(bytes: Uint8Array, replacement: string): Uint8Array {
+  const text = Buffer.from(bytes).toString("latin1");
+  const last = [...text.matchAll(/startxref\s+\d+/g)].at(-1);
+  if (!last || last.index === undefined) throw new Error("the PDF has no startxref");
+  const patched = text.slice(0, last.index) + replacement + text.slice(last.index + last[0].length);
+  return new Uint8Array(Buffer.from(patched, "latin1"));
+}
+
+/** Removes the last `startxref <n>`; `%%EOF` stays. */
+export const dropStartXref = (bytes: Uint8Array): Uint8Array => replaceLastStartXref(bytes, "");
+
+/** Points the last `startxref` at offset 9, where no cross-reference section starts. */
+export const wrongStartXref = (bytes: Uint8Array): Uint8Array => replaceLastStartXref(bytes, "startxref\n9");
+
+/** Appends `n` line feeds after `%%EOF`, which moves `startxref` out of the 4096-byte tail window. */
+export const padAfterEof = (bytes: Uint8Array, n = 5000): Uint8Array =>
+  new Uint8Array(Buffer.concat([bytes, Buffer.alloc(n, 0x0a)]));
 
 /**
  * Object number -> byte offset of the in-use (type 1) entries of the single xref section at

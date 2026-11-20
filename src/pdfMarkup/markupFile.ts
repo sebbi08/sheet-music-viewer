@@ -5,8 +5,9 @@
  * do PDFs without embedded data that stay locked (EBUSY/EPERM/EACCES) after the retries; once a PDF has
  * embedded data, a failed write is reported and the PDF stays byte-identical. While such a PDF has a v1
  * sidecar, only the migrating save (all sidecar pages, `deleteLegacySidecar`) writes the PDF; other saves
- * keep merging into the sidecar (see `mustStayInSidecar`). No Electron imports: this
- * module is unit-tested in Node.
+ * keep merging into the sidecar (see `mustStayInSidecar`). Why a PDF cannot take markup at all is its
+ * write block (`checkMarkupWritable`, `LoadMarkupResult.writeBlock`); `trySaveMarkupToFile` runs a save
+ * without writing anything. No Electron imports: this module is unit-tested in Node.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -20,8 +21,10 @@ import {
   type SaveFailureReason,
   type SaveMarkupInput,
   type SaveMarkupResult,
+  type WriteBlock,
 } from "../models/markup";
 import { buildMarkedPdf, type PageChange } from "./buildMarkedPdf";
+import { isFolderWritable } from "./folderProbe";
 import { getSidecarPath, legacySidecarHasMarkup } from "./legacySidecar";
 import { readMarkup, type ReadMarkupResult } from "./readMarkup";
 
@@ -107,15 +110,17 @@ const hasEmbeddedData = (
   !inspection.encrypted &&
   (inspection.markup.pages.length > 0 || inspection.markup.meta !== null);
 
-/** The file and its folder are writable (the folder is needed for the temp file and the rename). */
+/**
+ * The file and its folder are writable. The folder is needed for the temp file and the rename, and is
+ * probed with a real file (`isFolderWritable`), because `access` ignores folder ACLs on Windows.
+ */
 async function isWritable(file: string): Promise<boolean> {
   try {
     await fs.promises.access(file, fs.constants.W_OK);
-    await fs.promises.access(path.dirname(file), fs.constants.W_OK);
-    return true;
   } catch {
     return false;
   }
+  return isFolderWritable(path.dirname(file));
 }
 
 /**
@@ -183,6 +188,40 @@ async function verifyPages(written: Uint8Array, expected: ExpectedPages): Promis
     throw new Error(`verification failed: the markup data of pages [${differing.join(", ")}] differs from what was saved`);
 }
 
+/** Stamp of the trial build: an empty payload and a transparent 1×1 PNG. */
+const PROBE_PAYLOAD: MarkupPayload = { version: 1, width: 1, height: 1, fabric: { objects: [] } };
+const PROBE_PNG = new Uint8Array(
+  Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGhgAAABBQCBIxe6sAAAAABJRU5ErkJggg==", "base64"),
+);
+
+/**
+ * Builds the update a save would write, in memory, with a stamp on page 1 (replacing our markup there),
+ * and reads it back. Throws whatever a save would fail on in the file's structure.
+ */
+async function trialBuild(bytes: Uint8Array, markup: ReadMarkupResult): Promise<void> {
+  const marked = await buildMarkedPdf(bytes, [{ page: 1, payload: PROBE_PAYLOAD, png: PROBE_PNG }]);
+  const expected = expectedFromMarkup(markup);
+  expected.set(1, expectedPayload(PROBE_PAYLOAD));
+  await verifyPages(marked, expected);
+}
+
+/** Why markup cannot be saved into the PDF `bytes` read from `realPath`; `null` = it can. Never throws. */
+async function writeBlockOf(
+  realPath: string,
+  bytes: Uint8Array,
+  inspection: Inspection | null,
+): Promise<WriteBlock | null> {
+  if (!inspection) return { reason: "unparseable" };
+  if (inspection.encrypted) return { reason: "encrypted" };
+  if (!(await isWritable(realPath))) return { reason: "readOnly" };
+  try {
+    await trialBuild(bytes, inspection.markup);
+    return null;
+  } catch (e) {
+    return { reason: "structure", message: errorMessage(e) };
+  }
+}
+
 const toLoadedPages = (markup: ReadMarkupResult): LoadedMarkupPage[] =>
   markup.pages.map(({ page, rect, payload }) => ({ page, rect, payload }));
 
@@ -247,19 +286,24 @@ async function writeSidecar(input: SaveMarkupInput): Promise<void> {
   await atomicReplace(sidecarPath, Buffer.from(JSON.stringify(content), "utf8"));
 }
 
-async function loadSidecar(pdfPath: string, pdfIssue: PdfIssue): Promise<LoadMarkupResult> {
+async function loadSidecar(
+  pdfPath: string,
+  pdfIssue: PdfIssue,
+  writeBlock: WriteBlock | null,
+): Promise<LoadMarkupResult> {
   const sidecar = await readSidecar(pdfPath);
   if (sidecar.kind === "v1") {
     const pages = [...sidecar.pages.entries()]
       .sort(([a], [b]) => a - b)
       .map(([page, payload]) => ({ page, rect: null, payload }));
-    return { source: "sidecar", pages, legacyOverlayData: null, pdfIssue };
+    return { source: "sidecar", pages, legacyOverlayData: null, pdfIssue, writeBlock };
   }
   return {
     source: "none",
     pages: [],
     legacyOverlayData: sidecar.kind === "legacy" ? sidecar.text : null,
     pdfIssue,
+    writeBlock,
   };
 }
 
@@ -270,7 +314,7 @@ async function loadSidecar(pdfPath: string, pdfIssue: PdfIssue): Promise<LoadMar
 /**
  * Markup of a PDF. Embedded data wins (the sidecar is then ignored); otherwise a v1 sidecar is loaded,
  * and anything else in the sidecar is returned raw as `legacyOverlayData` for migration. Orphaned
- * stamps are repaired first when the file is writable (a failed repair is logged, not fatal).
+ * stamps are repaired first when the PDF has no write block (a failed repair is logged, not fatal).
  */
 export function loadMarkupFromFile(pdfPath: string): Promise<LoadMarkupResult> {
   return serialized(pdfPath, () => loadNow(pdfPath));
@@ -279,11 +323,13 @@ export function loadMarkupFromFile(pdfPath: string): Promise<LoadMarkupResult> {
 async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   const realPath = await fs.promises.realpath(pdfPath);
   const bytes = await fs.promises.readFile(realPath);
-  // `source` and pages come from the state before the repair: the repair only renames orphans (the
-  // valid pages stay), but it writes `meta`, which must not hide a v1 sidecar of a PDF without data.
+  // `source`, pages and the write block come from the state before the repair: the repair only renames
+  // orphans (the valid pages stay), but it writes `meta`, which must not hide a v1 sidecar of a PDF
+  // without data.
   const inspection = await inspectPdf(bytes);
+  const writeBlock = await writeBlockOf(realPath, bytes, inspection);
 
-  if (inspection && !inspection.encrypted && inspection.markup.orphans.length > 0 && (await isWritable(realPath))) {
+  if (writeBlock === null && inspection && !inspection.encrypted && inspection.markup.orphans.length > 0) {
     const expected = expectedFromMarkup(inspection.markup);
     try {
       const repaired = await buildMarkedPdf(bytes, []);
@@ -294,8 +340,33 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   }
 
   if (hasEmbeddedData(inspection))
-    return { source: "pdf", pages: toLoadedPages(inspection.markup), legacyOverlayData: null, pdfIssue: null };
-  return loadSidecar(pdfPath, inspection === null ? "unparseable" : inspection.encrypted ? "encrypted" : null);
+    return {
+      source: "pdf",
+      pages: toLoadedPages(inspection.markup),
+      legacyOverlayData: null,
+      pdfIssue: null,
+      writeBlock,
+    };
+  const pdfIssue = inspection === null ? "unparseable" : inspection.encrypted ? "encrypted" : null;
+  return loadSidecar(pdfPath, pdfIssue, writeBlock);
+}
+
+/**
+ * Why markup cannot be saved into this PDF; null = it can. Writes nothing but the folder probe. Never
+ * throws: a file that cannot be read is `unparseable` (with the error as `message`).
+ */
+export function checkMarkupWritable(pdfPath: string): Promise<WriteBlock | null> {
+  return serialized(pdfPath, async () => {
+    let realPath: string;
+    let bytes: Uint8Array;
+    try {
+      realPath = await fs.promises.realpath(pdfPath);
+      bytes = await fs.promises.readFile(realPath);
+    } catch (e) {
+      return { reason: "unparseable", message: errorMessage(e) };
+    }
+    return writeBlockOf(realPath, bytes, await inspectPdf(bytes));
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -307,39 +378,57 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
  * `{ status: "error", message }` with the PDF unchanged. Saves of the same file run one after another.
  */
 export function saveMarkupToFile(input: SaveMarkupInput): Promise<SaveMarkupResult> {
-  return serialized(input.path, () => saveNow(input));
+  return serialized(input.path, () => saveNow(input, false));
 }
 
-async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
+/**
+ * `saveMarkupToFile` without replacing the PDF or touching a sidecar; `{ status: "pdf" }` = would be
+ * saved. Builds the update in memory and verifies it as a save verifies the written file; where a save
+ * would fall back to the sidecar, this reports an error with the reason. Writes nothing but the folder probe.
+ */
+export function trySaveMarkupToFile(input: SaveMarkupInput): Promise<SaveMarkupResult> {
+  return serialized(input.path, () => saveNow(input, true));
+}
+
+async function saveNow(input: SaveMarkupInput, dryRun: boolean): Promise<SaveMarkupResult> {
+  /** The PDF cannot be written: the sidecar fallback, or in the trial an error with the reason. */
+  const notIntoPdf = async (inspection: Inspection | null, reason: SaveFailureReason): Promise<SaveMarkupResult> =>
+    dryRun
+      ? { status: "error", message: `The markup cannot be saved into the PDF (${reason}).`, reason }
+      : fallback(input, inspection, reason);
+
   try {
     const realPath = await fs.promises.realpath(input.path);
     const bytes = await fs.promises.readFile(realPath);
     const inspection = await inspectPdf(bytes);
 
     // Unparseable: no embedded data can be known (load then uses the sidecar too), the PDF stays untouched.
-    if (!inspection) return await fallback(input, inspection, "unparseable");
-    if (inspection.encrypted) return await fallback(input, inspection, "encrypted");
-    if (!(await isWritable(realPath))) return await fallback(input, inspection, "readOnly");
-    if (await mustStayInSidecar(input, inspection)) return await fallback(input, inspection, "other");
+    if (!inspection) return await notIntoPdf(inspection, "unparseable");
+    if (inspection.encrypted) return await notIntoPdf(inspection, "encrypted");
+    if (!(await isWritable(realPath))) return await notIntoPdf(inspection, "readOnly");
+    if (await mustStayInSidecar(input, inspection)) return await notIntoPdf(inspection, "other");
 
     const changes: PageChange[] = input.pages.map(({ page, payload, pngBase64 }) => ({
       page,
       payload,
       png: pngBase64 === null ? null : decodePng(pngBase64),
     }));
-    let marked: Uint8Array;
-    try {
-      marked = await buildMarkedPdf(bytes, changes);
-    } catch (e) {
-      if (e instanceof EncryptedPDFError) return await fallback(input, { encrypted: true }, "encrypted");
-      throw e;
-    }
-
     const expected = expectedFromMarkup(inspection.markup);
     for (const { page, payload } of input.pages) {
       if (payload) expected.set(page, expectedPayload(payload));
       else expected.delete(page);
     }
+    let marked: Uint8Array;
+    try {
+      marked = await buildMarkedPdf(bytes, changes);
+      if (dryRun) await verifyPages(marked, expected);
+    } catch (e) {
+      if (e instanceof EncryptedPDFError) return await notIntoPdf({ encrypted: true }, "encrypted");
+      // The file's structure (or the request, e.g. a page the PDF lacks) does not allow the update.
+      return { status: "error", message: errorMessage(e), reason: "structure" };
+    }
+    if (dryRun) return { status: "pdf" };
+
     try {
       await atomicReplace(realPath, marked, (written) => verifyPages(written, expected));
     } catch (e) {

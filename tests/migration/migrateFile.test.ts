@@ -19,6 +19,7 @@ const markup = (over: Partial<LoadMarkupResult>): LoadMarkupResult => ({
   pages: [],
   legacyOverlayData: null,
   pdfIssue: null,
+  writeBlock: null,
   ...over,
 });
 

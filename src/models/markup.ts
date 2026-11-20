@@ -25,12 +25,25 @@ export interface LoadedMarkupPage {
   payload: MarkupPayload;
 }
 
+/**
+ * Why markup cannot be saved into a PDF: `encrypted`, `unparseable` (pdf-lib cannot read it, or the file
+ * cannot be read), `readOnly` (the file or its folder does not take writes), `structure` (building and
+ * reading back an update in memory fails, e.g. a broken `startxref`; `message` says why).
+ */
+export type WriteBlockReason = "encrypted" | "unparseable" | "readOnly" | "structure";
+export interface WriteBlock {
+  reason: WriteBlockReason;
+  message?: string;
+}
+
 export interface LoadMarkupResult {
   source: "pdf" | "sidecar" | "none";
   pages: LoadedMarkupPage[];
   legacyOverlayData: string | null;
   /** Why the PDF's own markup cannot be read (`null`: the PDF is parseable and not encrypted). */
   pdfIssue: "encrypted" | "unparseable" | null;
+  /** Why markup cannot be saved into this PDF (`null`: it can), determined before any repair. */
+  writeBlock: WriteBlock | null;
 }
 
 /**
@@ -56,7 +69,7 @@ export const saveMarkupInputSchema = z.object({
 });
 export type SaveMarkupInput = z.infer<typeof saveMarkupInputSchema>;
 
-export type SaveFailureReason = "locked" | "readOnly" | "encrypted" | "unparseable" | "other";
+export type SaveFailureReason = "locked" | "readOnly" | "encrypted" | "unparseable" | "structure" | "other";
 
 export interface SaveMarkupResult {
   status: "pdf" | "sidecar" | "error";

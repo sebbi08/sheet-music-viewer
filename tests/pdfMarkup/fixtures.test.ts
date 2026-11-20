@@ -1,8 +1,19 @@
 import { inflateSync } from "node:zlib";
 import { PDFDocument } from "pdf-lib";
+import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { expect, test } from "vitest";
 import { findLastStartXref, getSectionTrailer, getXrefKind } from "../../src/pdfMarkup/fileStructure";
-import { makePdf, makePng, markEncrypted, readXrefEntries } from "./fixtures";
+import {
+  dropStartXref,
+  makeEncryptedPdf,
+  makePdf,
+  makePng,
+  markEncrypted,
+  padAfterEof,
+  readXrefEntries,
+  wrongStartXref,
+} from "./fixtures";
+import { inspectWithPdfjs, openWithPdfjs } from "./pdfjs";
 
 test("makePdf honours pages, rotation, crop box, media boxes and annotations", async () => {
   const pdf = await makePdf({
@@ -43,4 +54,38 @@ test("markEncrypted adds /Encrypt to the trailer and keeps the xref intact", asy
   expect(getSectionTrailer(enc, start).size).toBe(getSectionTrailer(pdf, start).size);
   expect(Buffer.from(enc).toString("latin1")).toContain("/Encrypt << /Filter /Standard >>");
   expect(readXrefEntries(enc, start)).toEqual(readXrefEntries(pdf, start));
+});
+
+test("makeEncryptedPdf is really encrypted and opens with the empty user password", async () => {
+  const pdf = makeEncryptedPdf();
+  expect((await PDFDocument.load(pdf, { ignoreEncryption: true, updateMetadata: false })).isEncrypted).toBe(true);
+  expect(await openWithPdfjs(pdf)).toMatchObject({ numPages: 1 });
+  // The content stream decrypts to the blue square (a wrong object key would give garbage).
+  const { value: ops } = await inspectWithPdfjs(
+    pdf,
+    async (doc) => (await (await doc.getPage(1)).getOperatorList()).fnArray,
+  );
+  expect(ops).toEqual([OPS.setFillRGBColor, OPS.constructPath]);
+});
+
+test.each([
+  ["dropStartXref", dropStartXref],
+  ["wrongStartXref", wrongStartXref],
+  ["padAfterEof", padAfterEof],
+])("%s keeps a PDF that pdf-lib and pdf.js open", async (_name, breakIt) => {
+  const original = await makePdf({ xref: "table" });
+  const broken = breakIt(original);
+  expect(Buffer.from(broken).equals(Buffer.from(original))).toBe(false);
+  expect((await PDFDocument.load(broken, { updateMetadata: false })).getPageCount()).toBe(1);
+  expect(await openWithPdfjs(broken)).toMatchObject({ numPages: 1 });
+});
+
+test("the structure breakers change exactly what they promise", async () => {
+  const pdf = await makePdf({ xref: "table" });
+  const text = (b: Uint8Array) => Buffer.from(b).toString("latin1");
+  expect(text(dropStartXref(pdf))).not.toContain("startxref");
+  expect(text(dropStartXref(pdf))).toMatch(/%%EOF\s*$/);
+  expect(findLastStartXref(wrongStartXref(pdf))).toBe(9);
+  expect(text(padAfterEof(pdf))).toBe(text(pdf) + "\n".repeat(5000));
+  expect(padAfterEof(pdf, 3).length).toBe(pdf.length + 3);
 });
