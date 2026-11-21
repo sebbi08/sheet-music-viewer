@@ -36,7 +36,8 @@ const hasBaseline = entry !== undefined && fs.existsSync(baselineImagePath(basel
 
 if (!entry || !hasBaseline) test.skip(`${PDF} with .data and its old-app baseline (${BASELINE_REF}) are required`);
 else {
-  test(`markup inside the PDF: ${PDF}`, async () => {
+  // Skipped: the viewer no longer migrates on open; Task 10 starts this with the migration gate.
+  test.skip(`markup inside the PDF: ${PDF}`, async () => {
     fs.rmSync(outDir, { recursive: true, force: true });
     fs.mkdirSync(outDir, { recursive: true });
     const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
@@ -141,82 +142,9 @@ else {
   });
 }
 
-const LEGACY_UNREADABLE = "Die alte Markierungsdatei konnte nicht gelesen werden und bleibt unverändert liegen.";
-
-async function waitForSnackbar(session: { snackbarText(): Promise<string> }, timeoutMs = 20_000): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const text = await session.snackbarText();
-    if (text || Date.now() > deadline) return text;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-}
-
 if (entry) {
-  test(`unparseable legacy file: warning, file and PDF untouched: ${PDF}`, async () => {
-    const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
-    try {
-      const pdfFile = path.join(folder, PDF);
-      const dataFile = legacyDataPath(pdfFile);
-      const corrupt = '[{"page": 1, "data": {"objects": [ broken';
-      fs.writeFileSync(dataFile, corrupt);
-      const pdfBefore = fs.readFileSync(pdfFile);
-      const session = await openSheet(await currentApp(), folder, PDF); // resolves once all pages rendered
-      try {
-        expect(await waitForSnackbar(session)).toContain(LEGACY_UNREADABLE);
-        expect(fs.readFileSync(dataFile, "utf8")).toBe(corrupt);
-        expect(fs.readFileSync(pdfFile).equals(pdfBefore)).toBe(true);
-      } finally {
-        await session.close();
-      }
-    } finally {
-      fs.rmSync(folder, { recursive: true, force: true });
-    }
-  });
+  // The cases "unparseable legacy file" and "partly unconvertible legacy file" are gone with the migration on open (Task 10).
 
-  test(`partly unconvertible legacy file: readable pages go into the writable PDF, file kept: ${PDF}`, async () => {
-    const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
-    try {
-      const pdfFile = path.join(folder, PDF);
-      const dataFile = legacyDataPath(pdfFile);
-      const legacy = JSON.parse(fs.readFileSync(dataFile, "utf8")) as { page: number; drawWidth: number }[];
-      const broken = legacy.find((e) => e.page === 2);
-      if (!broken) throw new Error("expected legacy data for page 2");
-      broken.drawWidth = 0; // cannot be converted
-      const legacyText = JSON.stringify(legacy);
-      fs.writeFileSync(dataFile, legacyText);
-      const sizeBefore = fs.statSync(pdfFile).size;
-      const app = await currentApp();
-
-      const first = await openSheet(app, folder, PDF);
-      try {
-        expect(await waitForSnackbar(first)).toContain(LEGACY_UNREADABLE);
-        await waitUntil("pages 1 and 3 saved into the PDF", () => fs.statSync(pdfFile).size > sizeBefore);
-        expect(fs.readFileSync(dataFile, "utf8")).toBe(legacyText);
-        const view = await first.captureView(1);
-        expect(area(markupMask(view.with, view.without))).toBeGreaterThan(0);
-      } finally {
-        await first.close();
-      }
-
-      // Embedded data wins now: no warning, page 1 from the PDF, the legacy file still untouched.
-      const second = await openSheet(app, folder, PDF);
-      try {
-        expect(await waitForSnackbar(second, 8000)).toBe("");
-        const view = await second.captureView(1);
-        expect(area(markupMask(view.with, view.without))).toBeGreaterThan(0);
-        expect(fs.readFileSync(dataFile, "utf8")).toBe(legacyText);
-        expect(second.networkRequests()).toEqual([]);
-      } finally {
-        await second.close();
-      }
-    } finally {
-      fs.rmSync(folder, { recursive: true, force: true });
-    }
-  });
-
-  /** chmod-based read-only files do not stop root. */
-  const isRoot = process.getuid?.() === 0;
   const SAVE_FAILED = "konnten nicht gespeichert werden";
   const SAVED_LATER = "wurden jetzt gespeichert";
 
@@ -236,7 +164,8 @@ if (entry) {
     }
   }
 
-  test.skipIf(isRoot)(`a failed save keeps the markup when leaving the sheet and closing, then saves it: ${PDF}`, async () => {
+  // Skipped: it waits for the migration on open, which is gone; Task 10 starts it with the migration gate.
+  test.skip(`a failed save keeps the markup when leaving the sheet and closing, then saves it: ${PDF}`, async () => {
     const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
     const pdfFile = path.join(folder, PDF);
     try {

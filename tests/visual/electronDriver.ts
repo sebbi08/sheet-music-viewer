@@ -65,6 +65,19 @@ export interface SheetSession {
   probeNetworkLog(): Promise<string>;
   /** Text of the open snackbar, "" if none is shown. */
   snackbarText(): Promise<string>;
+  /**
+   * Paragraphs of the open "no markup possible" dialog (src/components/WriteBlockDialog.vue), joined by
+   * a space; null if it is not shown.
+   */
+  writeBlockText(): Promise<string | null>;
+  /** Confirms that dialog with its button and waits until it is gone. */
+  confirmWriteBlock(): Promise<void>;
+  /** Whether the app bar's edit button (pencil) can be clicked. */
+  editButtonEnabled(): Promise<boolean>;
+  /** Whether the page canvas of `page` has a size and any non-white pixel. */
+  pageRendered(page: number): Promise<boolean>;
+  /** Number of markup overlay canvases in the view (0: no markup shown on any page). */
+  markupLayerCount(): Promise<number>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
   /** What the migration gate reported before the sheet opened; null unless started with `bulkMigration: true`. */
@@ -729,6 +742,28 @@ export async function openSheet(
       },
       snackbarText: () =>
         page.evaluate(() => (document.querySelector(".v-snackbar .v-snackbar__content")?.textContent ?? "").trim()),
+      async writeBlockText() {
+        const text = page.getByTestId("write-block-text");
+        if (!(await text.isVisible())) return null;
+        return (await text.locator("p").allTextContents()).map((line) => line.trim()).join(" ");
+      },
+      async confirmWriteBlock() {
+        await page.getByTestId("write-block-ok").click();
+        await page.getByTestId("write-block-dialog").waitFor({ state: "hidden" });
+      },
+      editButtonEnabled: () => editButton.isEnabled(),
+      pageRendered: (pageNumber) =>
+        page.evaluate((n) => {
+          const canvas = document.querySelector<HTMLCanvasElement>(`#sheetViewerWrapper canvas[data-page="${n}"]`);
+          if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+          const pixels = canvas.getContext("2d")?.getImageData(0, 0, canvas.width, canvas.height).data;
+          if (!pixels) return false;
+          for (let i = 0; i < pixels.length; i += 4) {
+            if (pixels[i + 3] !== 0 && (pixels[i] < 250 || pixels[i + 1] < 250 || pixels[i + 2] < 250)) return true;
+          }
+          return false;
+        }, pageNumber),
+      markupLayerCount: () => page.locator("#sheetViewerWrapper canvas.overlayCanvas").count(),
       fontStatus: () =>
         page.evaluate(async () => {
           const weights = [100, 300, 400, 500, 700, 900];

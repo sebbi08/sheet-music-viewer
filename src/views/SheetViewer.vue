@@ -138,6 +138,8 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <WriteBlockDialog v-model="writeBlockDialog" :file-name="sheetFileName" :block="writeBlock" />
   </div>
 </template>
 
@@ -155,11 +157,12 @@ import {
   MUSIC_SVG,
   type Svg,
 } from "../Enums";
+import WriteBlockDialog from "../components/WriteBlockDialog.vue";
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
 import { displayTransform, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
-import { convertLegacyOverlayData, sidecarPagesToChanges, type ViewportOf } from "../markup/legacyMigration";
 import { loadMarkupFonts } from "../markup/renderPng";
-import { type LoadMarkupResult, type MarkupPayload, type Rect } from "../models/markup";
+import { writeBlockText } from "../markup/writeBlockTexts";
+import { type LoadMarkupResult, type MarkupPayload, type Rect, type WriteBlock } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
 import { type EditState } from "../models/types";
 import router from "../router";
@@ -171,7 +174,6 @@ import { client } from "../trcpClient";
 type MarkupEntry = { rect: Rect | null; payload: MarkupPayload };
 type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptionalContentConfig"]>>;
 
-const LEGACY_UNREADABLE = "Die alte Markierungsdatei konnte nicht gelesen werden und bleibt unverändert liegen.";
 const LOAD_FAILED =
   "Die Markierungen dieser PDF konnten nicht geladen werden. Bearbeiten ist deaktiviert, damit sie nicht überschrieben werden.";
 const PAGE_LOAD_FAILED =
@@ -198,6 +200,12 @@ const pdfJsAssetBaseUrl = window.location.protocol.startsWith("http")
   : "app://bundle/pdfjs/";
 // The route changes before this component unmounts, so the path is read once.
 const sheetPath = router.currentRoute.value.params.path as string;
+const sheetFileName = sheetPath.split(/[\\/]/).pop() ?? sheetPath;
+/** Why markup cannot be saved into this PDF, found anew on every open (null: it can). */
+const writeBlock = ref<WriteBlock | null>(null);
+const writeBlockDialog = ref(false);
+/** Set when the sheet is left: a load still running for it must not change the app any more. */
+let unmounted = false;
 /**
  * Markup per 1-based page as shown; `rect` (PDF user space) null = drawn against the whole visible page.
  * Unsaved changes live in the markupSaves store (outside this component), keyed by the PDF path.
@@ -250,15 +258,23 @@ onMounted(async () => {
   // Closing the window while editing saves the open edit canvas first.
   markupSaves.setEditCapture(() => saveDrawnData());
 
-  let loaded: LoadMarkupResult | null = null;
-  try {
-    loaded = await client.loadMarkup.query(sheetPath);
-  } catch (e) {
-    // The sheet is still shown; editing stays off, so markup that could not be read is never overwritten.
+  const loaded: LoadMarkupResult | null = await client.loadMarkup.query(sheetPath).catch((e: unknown) => {
     console.warn("Could not load the markup", e);
+    return null;
+  });
+  if (unmounted) return;
+  if (!loaded || loaded.writeBlock) {
+    // The sheet is still shown; editing stays off, so markup that could not be read is never overwritten
+    // and markup that cannot be saved is never drawn in vain.
     store.markupEditDisabled = true;
     store.editMode = false;
+  }
+  if (!loaded) {
     notices.show(LOAD_FAILED);
+  } else if (loaded.writeBlock) {
+    // On every open: the reason may have gone (or come) since the last one.
+    writeBlock.value = loaded.writeBlock;
+    writeBlockDialog.value = true;
   }
 
   currentPage.value = 1;
@@ -273,22 +289,31 @@ onMounted(async () => {
     disableAutoFetch: true,
   });
   pdf = await pdfLoadingTask.promise;
+  if (unmounted) return;
 
-  // Our stamps duplicate the fabric overlay: hide their optional content group (spec section 4).
-  optionalContentConfig = await pdf.getOptionalContentConfig();
-  for (const [id, group] of optionalContentConfig) {
-    if (group?.name === OCG_NAME) {
-      optionalContentConfig.setVisibility(id, false);
+  // Our stamps duplicate the fabric overlay: hide their optional content group (spec section 4), but only
+  // if the markup data could be read; otherwise the stamps are all there is to see of it.
+  const blockReason = loaded?.writeBlock?.reason;
+  const markupRead = loaded !== null && blockReason !== "encrypted" && blockReason !== "unparseable";
+  if (markupRead) {
+    const config = await pdf.getOptionalContentConfig();
+    if (unmounted) return;
+    for (const [id, group] of config) {
+      if (group?.name === OCG_NAME) {
+        config.setVisibility(id, false);
+      }
     }
+    optionalContentConfig = config;
   }
 
-  if (loaded) await applyLoadedMarkup(loaded);
+  if (loaded) applyLoadedMarkup(loaded);
 
   await renderPdf();
 
 });
 
 onBeforeUnmount(() => {
+  unmounted = true;
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
@@ -299,55 +324,21 @@ onBeforeUnmount(() => {
 })
 
 /**
- * Shows the loaded markup and queues what has to be written: a v1 sidecar goes into the PDF, a legacy
- * `.data` file is migrated. Unsaved changes of an earlier visit take precedence over the file and are
- * retried.
+ * Shows the markup saved in the PDF (a `.data` file next to it is ignored: the migration gate moved it
+ * before any sheet opens). Unsaved changes of an earlier visit take precedence and are retried.
  */
-async function applyLoadedMarkup(loaded: LoadMarkupResult): Promise<void> {
+function applyLoadedMarkup(loaded: LoadMarkupResult): void {
+  if (loaded.source === "pdf") {
+    for (const { page, rect, payload } of loaded.pages) {
+      markupPages.set(page, { rect, payload });
+    }
+  }
   const pending = markupSaves.queue.pendingPages(sheetPath);
-  const skipPages = new Set(pending.keys());
-  const viewportOf = async (page: number) => (await pdf.getPage(page)).getViewport({ scale: 1 });
-  for (const { page, rect, payload } of loaded.pages) {
-    markupPages.set(page, { rect, payload });
-  }
-
-  if (loaded.source === "sidecar") {
-    // Written into the PDF (and the sidecar removed) with the next save, in the current page rotation.
-    const changes = await sidecarPagesToChanges(loaded.pages, pdf.numPages, viewportOf, skipPages);
-    markupSaves.queue.allowLegacyDelete(sheetPath);
-    if (changes.length > 0) markupSaves.queue.setPages(sheetPath, changes);
-  }
-  if (loaded.legacyOverlayData !== null) {
-    await migrateLegacyOverlayData(loaded.legacyOverlayData, skipPages, viewportOf);
-  }
-
   for (const [page, state] of pending) {
     if (state) markupPages.set(page, state);
     else markupPages.delete(page);
   }
   if (pending.size > 0) void markupSaves.queue.save(sheetPath);
-}
-
-/**
- * Old `.data` file (screen pixels + drawWidth/drawHeight) -> points, then written into the PDF (spec
- * section 7). If any part of it cannot be read, the readable pages are still shown and saved, but the
- * file is never deleted (`deleteLegacySidecar` stays false); embedded data wins on the next load.
- */
-async function migrateLegacyOverlayData(
-  text: string,
-  skipPages: ReadonlySet<number>,
-  viewportOf: ViewportOf,
-): Promise<void> {
-  const { changes, unreadable } = await convertLegacyOverlayData(text, pdf.numPages, viewportOf, skipPages);
-  for (const [page, state] of changes) {
-    if (state) markupPages.set(page, state);
-  }
-  if (unreadable) {
-    notices.show(LEGACY_UNREADABLE);
-  } else {
-    markupSaves.queue.allowLegacyDelete(sheetPath);
-  }
-  if (changes.length > 0) markupSaves.queue.setPages(sheetPath, changes);
 }
 
 /** Rect (PDF user space) -> normalized viewport rectangle at scale 1; null stays null. */
@@ -419,10 +410,11 @@ function onResize(): void {
 }
 
 watch(editMode, async (editMode) => {
-  // Not while the sheet is still loading, and not if its markup could not be loaded (it would be overwritten).
+  // Not while the sheet is still loading, and not if its markup could not be loaded (it would be overwritten)
+  // or cannot be saved into the PDF (the hint says why).
   if (editMode && (pageNumbers.value === 0 || pagesLoaded.value !== pageNumbers.value || store.markupEditDisabled)) {
     store.editMode = false
-    if (store.markupEditDisabled) notices.show(LOAD_FAILED);
+    if (store.markupEditDisabled) notices.show(writeBlock.value ? writeBlockText(writeBlock.value) : LOAD_FAILED);
     return;
   }
   if (editMode) {
@@ -978,14 +970,16 @@ async function createOverlay(
 }
 
 async function renderPdf(): Promise<void> {
-  if (!pdfLoadingTask) {
+  if (!pdfLoadingTask || unmounted) {
     return;
   }
   pdf = await pdfLoadingTask.promise;
+  if (unmounted) return;
   pageNumbers.value = pdf?.numPages || 0;
   pagesLoaded.value = 0;
 
   setTimeout(() => {
+    if (unmounted) return;
     const $wrapper = document.getElementById(
       "sheetViewerWrapper"
     ) as HTMLDivElement;

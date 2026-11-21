@@ -258,7 +258,8 @@ function formatCheck(c: Check): string {
 if (corpus.length === 0) test.skip("Noten/ corpus with .data files is missing");
 
 for (const { pdfPath, markedPages } of corpus) {
-  test(`new app against the old app: ${pdfPath}`, async () => {
+  // Skipped: the viewer no longer migrates on open; Task 10 runs this through the migration gate.
+  test.skip(`new app against the old app: ${pdfPath}`, async () => {
     const started = Date.now();
     const dir = await ensureBaseline(BASELINE_REF, [pdfPath]);
     const baselineDone = Date.now();

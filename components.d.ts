@@ -14,5 +14,6 @@ declare module 'vue' {
     MigrationDialog: typeof import('./src/components/MigrationDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    WriteBlockDialog: typeof import('./src/components/WriteBlockDialog.vue')['default']
   }
 }
