@@ -142,6 +142,10 @@ muss der Nutzer selbst reparieren. Solche Fälle sind sehr selten.
   aus Testbuilds mit solchen Namen werden dadurch nicht gefunden; das ist hingenommen.
 - **Neu:** Ein Ordner, der sich nicht lesen lässt, ist ein Fehler in der Liste („Ordner kann nicht
   gelesen werden“ mit der Meldung), und eine gescheiterte Suche gilt nie als „nichts gefunden“.
+  *(Entscheidung Sebastian, 2026-11-21:)* Das gilt ausdrücklich auch für Ordner, die der Nutzer nicht
+  lesbar machen kann (z. B. `System Volume Information` in einem Laufwerks-Hauptordner oder versteckte
+  Systemverknüpfungen in `Dokumente`): Sie werden nicht übersprungen, sondern blockieren den Start. Der
+  Ausweg ist ein anderer Notenordner.
 - Es gibt keine Liste bleibender Fehler mehr: Jeder Start prüft alle Kandidaten.
 - Eine `.data` ohne PDF ist kein Kandidat; sie bleibt liegen und wird nicht gemeldet.
 
