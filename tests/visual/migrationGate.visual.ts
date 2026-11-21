@@ -21,6 +21,7 @@ const MIGRATED_FOLDERS = "markup-migrated-folders.json";
 const DAMAGED_TEXT = "Die alte Markierungsdatei „.b.data“ ist beschädigt. Bitte die Datei löschen und die Markierungen neu eintragen.";
 const READ_ONLY_TEXT = "Die PDF oder ihr Ordner ist schreibgeschützt. Bitte den Schreibschutz entfernen.";
 const ENCRYPTED_TEXT = "Die PDF ist verschlüsselt. Bitte den Kennwortschutz entfernen.";
+const CHECK_TEXT = "Dateien werden geprüft …";
 /** chmod-based read-only files do not work as root or on Windows. */
 const canMakeReadOnly = process.getuid?.() !== 0 && process.platform !== "win32";
 
@@ -93,12 +94,14 @@ async function start(folder: string, profile: string): Promise<LaunchedApp> {
 /** The app's set lists: written into the sheet folder on every start, not by the gate. */
 const SET_LISTS_FILE = ".set-lists.json";
 
-/** sha256 of every file in `folder` (except the set lists), by name. */
+/** Every entry of `folder`, dot-files included (except the set lists), by name: sha256 of a file, "<not a file>" else. */
 function snapshot(folder: string): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const name of fs.readdirSync(folder).sort()) {
-    if (name === SET_LISTS_FILE) continue;
-    result[name] = createHash("sha256").update(fs.readFileSync(path.join(folder, name))).digest("hex");
+  for (const entry of fs.readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.name === SET_LISTS_FILE) continue;
+    result[entry.name] = entry.isFile()
+      ? createHash("sha256").update(fs.readFileSync(path.join(folder, entry.name))).digest("hex")
+      : "<not a file>";
   }
   return result;
 }
@@ -133,6 +136,13 @@ async function stubFolderDialog(launched: LaunchedApp, folder: string): Promise<
     Object.defineProperty(dialog, "showOpenDialog", { value: stub, configurable: true, writable: true });
   }, folder);
 }
+
+/**
+ * Waits until the dialog shows pass 1 (the check) of the 300 files: its count line alone ("… von 300")
+ * would also match pass 2. The check runs long enough to click "Abbrechen" while it is shown.
+ */
+const waitForCheck = (launched: LaunchedApp) =>
+  launched.page.getByTestId("migration-progress").filter({ hasText: CHECK_TEXT }).filter({ hasText: "von 300" }).waitFor({ timeout: 120_000 });
 
 const waitForGate = (launched: LaunchedApp, state: "passed" | "failed") =>
   launched.page.waitForFunction((s) => document.documentElement.dataset.migrationGate === s, state, { timeout: 120_000 });
@@ -297,10 +307,10 @@ test("Abbrechen during the check closes the app and changes nothing", { timeout:
   const before = snapshot(folder);
 
   const launched = await start(folder, profile);
-  // The check of 300 files runs long enough to click "Abbrechen" while it shows its progress.
-  await launched.page.getByTestId("migration-progress").filter({ hasText: "von 300" }).waitFor({ timeout: 120_000 });
+  await waitForCheck(launched);
   await launched.page.getByTestId("migration-cancel").click();
   expect(await launched.waitForExit(30_000), "app ended by Abbrechen").toBe(true);
+  // Also no folder probe of the file that was being checked (`.Markierungen-Backup-….zip.tmp`).
   expect(snapshot(folder)).toEqual(before);
   expect(zipsIn(folder)).toEqual([]);
   expect(migratedFolders(profile)).toEqual([]);
@@ -314,7 +324,7 @@ test("Abbrechen whose close is cancelled keeps a window with the three choices",
 
   const launched = await start(folder, profile);
   const { page, electronApp } = launched;
-  await page.getByTestId("migration-progress").filter({ hasText: "von 300" }).waitFor({ timeout: 120_000 });
+  await waitForCheck(launched);
   // The close that "Abbrechen" starts is kept from happening the real way: the markup queue reports
   // unsaved changes it cannot save, so the close guard asks main, and main's dialog answers "Abbrechen".
   // Only the queue's whole-queue view is faked: the gate's per-file check is not affected.

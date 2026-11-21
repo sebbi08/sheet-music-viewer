@@ -342,29 +342,69 @@ describe("MigrationGate", () => {
     ]);
   });
 
-  test("cancel during scan or pass 1: cancelled at once, nothing written, not marked", async () => {
-    // During the scan: the scan never settles, the run still ends.
-    const scan = setup([], { scan: () => new Promise<ScanResult>(() => {}) });
-    const scanRun = scan.gate.run("/s");
-    await vi.waitFor(() => expect(scan.deps.scan).toHaveBeenCalled());
-    scan.gate.cancel();
-    expect(await scanRun).toEqual({ status: "cancelled" });
-    expect(scan.deps.processFile).not.toHaveBeenCalled();
-    expect(scan.deps.markMigrated).not.toHaveBeenCalled();
-    expect(scan.phases.at(-1)).toEqual({ phase: "idle" });
-    expect(scan.gate.isRunning()).toBe(false);
+  test("cancel during the scan still ends at once", async () => {
+    // The scan never settles (a stalled share), the run still ends.
+    const { gate, deps, phases } = setup([], { scan: () => new Promise<ScanResult>(() => {}) });
+    const run = gate.run("/s");
+    await vi.waitFor(() => expect(deps.scan).toHaveBeenCalled());
+    gate.cancel();
+    expect(await run).toEqual({ status: "cancelled" });
+    expect(deps.processFile).not.toHaveBeenCalled();
+    expect(deps.markMigrated).not.toHaveBeenCalled();
+    expect(phases.at(-1)).toEqual({ phase: "idle" });
+    expect(gate.isRunning()).toBe(false);
+  });
 
-    // During pass 1: the current check never settles, the run still ends.
-    const check = setup([A, B], { processFile: () => new Promise<FileOutcome>(() => {}) });
-    const checkRun = check.gate.run("/s");
-    await vi.waitFor(() => expect(check.deps.processFile).toHaveBeenCalledTimes(1));
-    check.gate.cancel();
-    expect(await checkRun).toEqual({ status: "cancelled" });
-    expect(check.deps.processFile).toHaveBeenCalledTimes(1);
-    expect(check.deps.createBackup).not.toHaveBeenCalled();
-    expect(check.deps.cancelBackup).not.toHaveBeenCalled();
-    expect(check.deps.markMigrated).not.toHaveBeenCalled();
-    expect(check.phases.at(-1)).toEqual({ phase: "idle" });
+  test("cancel while pending saves are flushed still ends at once", async () => {
+    const { gate, deps, phases } = setup([A], { flushPending: () => new Promise<void>(() => {}) });
+    const run = gate.run("/s");
+    await vi.waitFor(() => expect(deps.flushPending).toHaveBeenCalled());
+    gate.cancel();
+    expect(await run).toEqual({ status: "cancelled" });
+    expect(deps.scan).not.toHaveBeenCalled();
+    expect(phases.at(-1)).toEqual({ phase: "idle" });
+  });
+
+  test("cancel during pass 1 waits for the file being checked, then ends without checking the next one", async () => {
+    // The check of a file may create the folder probe in the main process: the run must not end (and the
+    // app must not close) while it is in flight.
+    const current = deferred<FileOutcome>();
+    const { gate, deps, phases } = setup([A, B], {
+      processFile: (c) => (c === A ? current.promise : Promise.resolve(ok)),
+    });
+    const run = gate.run("/s");
+    await vi.waitFor(() => expect(deps.processFile).toHaveBeenCalledTimes(1));
+    gate.cancel();
+    let settled = false;
+    void run.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+    expect(gate.isRunning()).toBe(true);
+
+    current.resolve(ok);
+    expect(await run).toEqual({ status: "cancelled" });
+    expect(deps.processFile).toHaveBeenCalledTimes(1);
+    expect(deps.processFile).toHaveBeenCalledWith(A, "check");
+    expect(deps.createBackup).not.toHaveBeenCalled();
+    expect(deps.cancelBackup).not.toHaveBeenCalled();
+    expect(deps.markMigrated).not.toHaveBeenCalled();
+    expect(phases.at(-1)).toEqual({ phase: "idle" });
+    expect(gate.isRunning()).toBe(false);
+  });
+
+  test("cancelAndWait during pass 1 resolves only after the file being checked", async () => {
+    const current = deferred<FileOutcome>();
+    const { gate, deps } = setup([A, B], { processFile: () => current.promise });
+    const run = gate.run("/s");
+    await vi.waitFor(() => expect(deps.processFile).toHaveBeenCalledTimes(1));
+    let waited = false;
+    const waiting = gate.cancelAndWait().then(() => (waited = true));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(waited).toBe(false);
+    current.resolve(failed("dataDamaged"));
+    await waiting;
+    expect(await run).toEqual({ status: "cancelled" });
+    expect(deps.processFile).toHaveBeenCalledTimes(1);
   });
 
   test("cancel during the backup: cancelBackup is called, cancelled", async () => {

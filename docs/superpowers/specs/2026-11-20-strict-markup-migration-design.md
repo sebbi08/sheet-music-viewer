@@ -207,10 +207,10 @@ Nur nach einem Durchgang 1 ohne Fehler und mit mindestens einem Kandidaten.
 - Ohne Fehler: Ordner eintragen, Zusammenfassung wie heute („214 Dateien übernommen. Sicherung: …“,
   Knopf „OK“), danach ist die App benutzbar. Ohne Kandidaten: Ordner eintragen, kein Fenster.
 
-**Abbrechen, Fenster schließen, Update-Neustart:** Während Suche und Durchgang 1 endet der Durchlauf
-sofort (nichts wurde verändert). Während der Sicherung wird die ZIP verworfen. Während des Übernehmens
-wird die aktuelle Datei fertig, dann ist Schluss. In jedem Fall wird der Ordner nicht eingetragen, und
-„Abbrechen“ schließt die App. Schließen blockiert nie (bestehende Regeln des Close-Guards).
+**Abbrechen, Fenster schließen, Update-Neustart:** Während der Suche endet der Durchlauf sofort, in
+Durchgang 1 nach der Datei, die gerade geprüft wird (nichts wurde verändert). Während der Sicherung wird
+die ZIP verworfen. Während des Übernehmens wird die aktuelle Datei fertig, dann ist Schluss. In jedem
+Fall wird der Ordner nicht eingetragen, und „Abbrechen“ schließt die App. Schließen blockiert nie (bestehende Regeln des Close-Guards).
 
 ### 6. Fehlerliste
 

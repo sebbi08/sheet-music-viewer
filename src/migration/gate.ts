@@ -80,7 +80,7 @@ export class MigrationGate {
   private running: Promise<GateResult> | null = null;
   private cancelled = false;
   private inBackup = false;
-  /** Settles when `cancel()` is called during the current run (scan and pass 1 stop waiting at once). */
+  /** Settles when `cancel()` is called during the current run (flush and scan stop waiting at once). */
   private cancelSignal: Promise<typeof CANCELLED> = new Promise(() => {});
   private signalCancel: () => void = () => undefined;
 
@@ -127,7 +127,7 @@ export class MigrationGate {
     }
   }
 
-  /** `p`, or `CANCELLED` as soon as the run is cancelled (nothing is written before the backup). */
+  /** `p`, or `CANCELLED` as soon as the run is cancelled (only for steps that create nothing in the folder). */
   private untilCancelled<T>(p: Promise<T>): Promise<T | typeof CANCELLED> {
     return Promise.race([p, this.cancelSignal]);
   }
@@ -191,8 +191,10 @@ export class MigrationGate {
         failedFiles++;
         continue;
       }
-      const outcome = await this.untilCancelled(this.processFile(c, "check"));
-      if (outcome === CANCELLED) return { status: "cancelled" };
+      // Not raced against the cancel: the check may have the folder probe in flight in main, and the app
+      // closes once the run ends. The current file finishes; a cancel stops before the next one.
+      const outcome = await this.processFile(c, "check");
+      if (this.cancelled) return { status: "cancelled" };
       if (outcome.kind === "ok") toWrite.push(c);
       else if (outcome.kind === "failed") {
         failures.push(fileFailure(c, outcome.reason, outcome.message));
