@@ -9,6 +9,8 @@ export const RECHECK_BUTTON = "Erneut prüfen";
 export const CHOOSE_FOLDER_BUTTON = "Anderen Notenordner wählen";
 export const CLOSE_BUTTON = "Schließen";
 export const CANCELLED_TEXT = "Die Übernahme wurde abgebrochen. Die Markierungen sind noch nicht vollständig übernommen.";
+/** The only entry of the failure list when the open sheet could not be left before the gate. */
+export const LEAVE_SHEET_FAILED_TEXT = "Das geöffnete Blatt konnte nicht verlassen werden. Bitte erneut prüfen.";
 
 /** `„<name>“` with a leading space, or nothing without a name. */
 const quoted = (name: string | undefined) => (name === undefined ? "" : ` „${name}“`);
@@ -53,9 +55,9 @@ const NOT_A_FILE: ReadonlySet<GateFailure["reason"]> = new Set<GateFailure["reas
   "backupFailed",
 ]);
 
-/** Headline of the failure list. Only file problems count as "Dateien". */
+/** Headline of the failure list. Only file problems count as "Dateien" (an entry without a path is none). */
 export function failedHeadline({ stage, total, migrated, zipName, failures }: GateFailed): string {
-  const n = failures.filter((f) => !NOT_A_FILE.has(f.reason)).length;
+  const n = failures.filter((f) => f.relativePath !== null && !NOT_A_FILE.has(f.reason)).length;
   const parts: string[] = [];
   if (stage === "write") {
     parts.push(`${migrated} von ${total} Dateien übernommen.`);

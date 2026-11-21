@@ -144,8 +144,23 @@ async function stubFolderDialog(launched: LaunchedApp, folder: string): Promise<
 const waitForCheck = (launched: LaunchedApp) =>
   launched.page.getByTestId("migration-progress").filter({ hasText: CHECK_TEXT }).filter({ hasText: "von 300" }).waitFor({ timeout: 120_000 });
 
-const waitForGate = (launched: LaunchedApp, state: "passed" | "failed") =>
-  launched.page.waitForFunction((s) => document.documentElement.dataset.migrationGate === s, state, { timeout: 120_000 });
+const waitForGate = (launched: LaunchedApp, state: "passed" | "failed", timeout = 120_000) =>
+  launched.page.waitForFunction((s) => document.documentElement.dataset.migrationGate === s, state, { timeout });
+
+/** Like a click on a sheet in the list: pushes the sheet viewer route for `pdf`. */
+const pushSheet = (launched: LaunchedApp, pdf: string) =>
+  launched.page.evaluate((p) => {
+    const vueApp = (document.querySelector("#app") as unknown as {
+      __vue_app__: { config: { globalProperties: { $router: { push(to: unknown): Promise<unknown> } } } };
+    }).__vue_app__;
+    return vueApp.config.globalProperties.$router.push({ name: "SheetViewer", params: { path: p } });
+  }, pdf);
+
+/** Opens `pdf` in the sheet viewer and waits until its first page is there. */
+async function openSheetIn(launched: LaunchedApp, pdf: string): Promise<void> {
+  await pushSheet(launched, pdf);
+  await launched.page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached", timeout: 60_000 });
+}
 
 test("two legacy files pass the gate; the second start shows nothing", { timeout: 5 * 60_000 }, async () => {
   const folder = newFolder();
@@ -233,17 +248,92 @@ test("no sheet opens while the list is shown", { timeout: 5 * 60_000 }, async ()
   expect((await settleBulkMigration(launched.page)).status).toBe("failed");
   const routeBefore = await routeName(launched);
   // Like a click on a sheet in the list, a set list or the search.
-  await launched.page.evaluate((p) => {
-    const vueApp = (document.querySelector("#app") as unknown as {
-      __vue_app__: { config: { globalProperties: { $router: { push(to: unknown): Promise<unknown> } } } };
-    }).__vue_app__;
-    return vueApp.config.globalProperties.$router.push({ name: "SheetViewer", params: { path: p } });
-  }, a);
+  await pushSheet(launched, a);
   await launched.page.waitForTimeout(1000);
   expect(await routeName(launched)).toBe(routeBefore);
   expect(routeBefore).not.toBe("SheetViewer");
   expect(await launched.page.locator("#sheetViewerWrapper").count()).toBe(0);
   await expect(launched.page.getByTestId("migration-failed").isVisible()).resolves.toBe(true);
+});
+
+test("a reload while a sheet is open runs the gate again and the sheet can be opened", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const profile = newProfile();
+  const a = addPdf(folder, "a.pdf");
+
+  const launched = await start(folder, profile);
+  expect((await settleBulkMigration(launched.page)).status).toBe("passed");
+  await openSheetIn(launched, a);
+  expect(await routeName(launched)).toBe("SheetViewer");
+
+  // The hash still points at the sheet, and the new page has not passed the gate yet.
+  await launched.page.reload();
+  await waitForGate(launched, "passed");
+  expect(await routeName(launched)).toBe("SheetSelection");
+  await openSheetIn(launched, a);
+  expect(await routeName(launched)).toBe("SheetViewer");
+});
+
+test("a reload while the failure list is shown shows the list again", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const profile = newProfile();
+  addPdf(folder, "a.pdf");
+  addPdf(folder, "b.pdf", DAMAGED_DATA);
+  const before = snapshot(folder);
+
+  const launched = await start(folder, profile);
+  const first = await settleBulkMigration(launched.page);
+  expect(first.status).toBe("failed");
+  expect(first.failures).toEqual([{ path: "b.pdf", text: DAMAGED_TEXT }]);
+
+  await launched.page.reload();
+  const again = await settleBulkMigration(launched.page);
+  expect(again.status).toBe("failed");
+  expect(again.headline).toBe(first.headline);
+  expect(again.failures).toEqual(first.failures);
+  for (const id of ["migration-recheck", "migration-choose-folder", "migration-close"]) {
+    expect(await launched.page.getByTestId(id).isVisible(), id).toBe(true);
+  }
+  expect(snapshot(folder)).toEqual(before);
+});
+
+test("a folder chosen while a run is in flight gets its own gate", { timeout: 10 * 60_000 }, async () => {
+  const first = newFolder();
+  const second = newFolder();
+  const profile = newProfile();
+  for (let i = 1; i <= 300; i++) addPdf(first, `p${String(i).padStart(3, "0")}.pdf`);
+  const c = addPdf(second, "c.pdf");
+  const d = addPdf(second, "d.pdf");
+
+  const launched = await start(first, profile);
+  const { page } = launched;
+  await waitForCheck(launched);
+  await stubFolderDialog(launched, second);
+  // Choosing a folder in the folder setup while the first folder's check runs. The gate's window covers
+  // the view, so the click on the setup's card is dispatched to it directly.
+  await page.evaluate(() => {
+    const vueApp = (document.querySelector("#app") as unknown as {
+      __vue_app__: { config: { globalProperties: { $router: { push(to: unknown): Promise<unknown> } } } };
+    }).__vue_app__;
+    return vueApp.config.globalProperties.$router.push({ name: "FolderSetup" });
+  });
+  await page.locator(".container > .v-card").filter({ hasText: "Select a root folder" }).dispatchEvent("click");
+  await page.waitForFunction((f) => localStorage.getItem("sheetMusicFolder") === f, second, { timeout: 30_000 });
+
+  // The first folder's run ends on its own; then the second folder's gate runs and reaches its own result.
+  await page.waitForFunction(() => document.documentElement.dataset.migrationGate !== "pending", undefined, {
+    timeout: 8 * 60_000,
+  });
+  const outcome = await settleBulkMigration(page);
+  console.log(`folder chosen during a run: ${JSON.stringify(outcome)}`);
+  expect(outcome.status).toBe("passed");
+  expect(outcome.migrated).toBe(2);
+  expect(outcome.lines[0]).toBe("2 Dateien übernommen.");
+  expect(legacyFilesIn(second)).toEqual([]);
+  expect(await embeddedPages(c)).toEqual([1]);
+  expect(await embeddedPages(d)).toEqual([1]);
+  expect(zipsIn(second)).toHaveLength(1);
+  expect(migratedFolders(profile).sort()).toEqual([path.resolve(first), path.resolve(second)].sort());
 });
 
 test("Erneut prüfen after fixing the file passes the gate", { timeout: 5 * 60_000 }, async () => {

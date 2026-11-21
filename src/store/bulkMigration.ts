@@ -67,6 +67,21 @@ const fileDeps = (root: string, candidate: MigrationCandidate): ProcessFileDeps 
  */
 export type MigrationPhase = GatePhase | { phase: "cancelled" };
 
+const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** The failure list for a problem that is no file's (a run that threw, a sheet that could not be left). */
+const unexpectedFailure = (message: string): MigrationPhase => ({
+  phase: "failed",
+  result: {
+    status: "failed",
+    stage: "check",
+    total: 0,
+    migrated: 0,
+    zipName: null,
+    failures: [{ relativePath: null, reason: "other", message }],
+  },
+});
+
 export const useBulkMigration = defineStore("bulkMigration", () => {
   const markupSaves = useMarkupSaves();
   const phase = shallowRef<MigrationPhase>({ phase: "idle" });
@@ -74,6 +89,8 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
   const cancelling = shallowRef(false);
   /** Folders (as `keyOf`) whose gate passed in this session. */
   const passed = shallowRef<ReadonlySet<string>>(new Set());
+  /** A run is in flight (reactive, for App.vue's start of the gate). */
+  const running = shallowRef(false);
   /** Root of the current (or last) run. */
   let runRoot = "";
   /** The folder dialog is open (it is not modal): no second run may start for the old folder meanwhile. */
@@ -112,7 +129,12 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
     },
   });
 
-  /** Runs the gate for `root`; a second call while one runs joins it. */
+  /**
+   * Runs the gate for `root`; a second call while one runs joins it. If the sheet folder changed meanwhile,
+   * the run's result is not shown (a passed folder still counts as passed): App.vue then starts the gate
+   * for the current folder. A run that throws ends in the failure list (for the current folder), never
+   * without a window.
+   */
   async function run(root: string): Promise<void> {
     if (!gate.isRunning()) {
       cancelling.value = false;
@@ -121,10 +143,14 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
       if (phase.value.phase === "failed" || phase.value.phase === "cancelled") phase.value = { phase: "scanning" };
     }
     const target = runRoot;
+    const folderChanged = () => keyOf(target) !== keyOf(useStore().sheetMusicFolder);
+    running.value = true;
     try {
       const result = await gate.run(target);
-      if (result.status === "passed") {
-        passed.value = new Set([...passed.value, keyOf(target)]);
+      if (result.status === "passed") passed.value = new Set([...passed.value, keyOf(target)]);
+      if (result.status !== "cancelled" && folderChanged()) {
+        phase.value = { phase: "idle" };
+      } else if (result.status === "passed") {
         // The idle a cancel raced past (see onPhase).
         if (result.summary === null) phase.value = { phase: "idle" };
       } else if (result.status === "cancelled") {
@@ -132,8 +158,18 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
       }
     } catch (e) {
       console.warn("The markup migration failed", e);
-      phase.value = { phase: "idle" };
+      phase.value = folderChanged() ? { phase: "idle" } : unexpectedFailure(errorMessage(e));
+    } finally {
+      running.value = gate.isRunning();
     }
+  }
+
+  /** The gate for `root` could not start (App.vue: the open sheet could not be left): the failure list. */
+  function fail(root: string, message: string): void {
+    if (gate.isRunning()) return;
+    runRoot = root;
+    cancelling.value = false;
+    phase.value = unexpectedFailure(message);
   }
 
   /** "Erneut prüfen": the same folder again, the window stays up. */
@@ -187,5 +223,19 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
   /** The gate passed for `folder` in this session (reactive). */
   const isPassed = (folder: string) => folder !== "" && passed.value.has(keyOf(folder));
 
-  return { phase, cancelling, run, recheck, chooseOtherFolder, cancel, cancelAndWait, dismiss, close, isRunning, isPassed };
+  return {
+    phase,
+    cancelling,
+    running,
+    run,
+    fail,
+    recheck,
+    chooseOtherFolder,
+    cancel,
+    cancelAndWait,
+    dismiss,
+    close,
+    isRunning,
+    isPassed,
+  };
 });

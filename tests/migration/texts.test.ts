@@ -170,6 +170,11 @@ describe("failedHeadline", () => {
     );
   });
 
+  test("an entry without a path (a run that threw, a sheet that could not be left) is no file", () => {
+    const unexpected = { relativePath: null, reason: "other" as const, message: "boom" };
+    expect(failedHeadline(failed({ total: 0, failures: [unexpected] }))).toBe("Es wurde nichts verändert.");
+  });
+
   test("check stage with folder and file failures: both sentences, only files counted", () => {
     expect(failedHeadline(failed({ failures: [f("linkUnreadable", { relativePath: "Link" }), failure] }))).toBe(
       "Der Notenordner konnte nicht vollständig geprüft werden. 1 von 214 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
