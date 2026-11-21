@@ -5,15 +5,16 @@ import { expect, test } from "vitest";
 import { OCG_NAME } from "../../src/models/markupConstants";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import { baselineImagePath } from "./baseline";
-import { copyCorpus, legacyDataPath, listCorpus, repoRoot } from "./corpus";
+import { copyCorpusFiles, legacyDataPath, listCorpus, repoRoot } from "./corpus";
 import { currentApp, openSheet } from "./electronDriver";
 import { decodePng, diffRatio, encodePng, type Img, markupMask, maskMetrics } from "./imageCompare";
 import { renderPdfPage } from "./pdfRender";
 
 /**
  * Smoke test of the new app on a copy of one corpus PDF: migration of the legacy `.data` file into
- * the PDF, markup shown exactly once (pdf.js hides our stamp via its optional content group), save on
- * leaving edit mode, reload, the stamp in "another viewer", and no network requests.
+ * the PDF by the migration gate on start, markup shown exactly once (pdf.js hides our stamp via its
+ * optional content group), save on leaving edit mode, reload, the stamp in "another viewer", and no
+ * network requests.
  */
 const PDF = "Pilatus - Alt-Sax 1.pdf";
 const BASELINE_REF = process.env.VISUAL_BASELINE_REF ?? "8301b5d";
@@ -36,11 +37,10 @@ const hasBaseline = entry !== undefined && fs.existsSync(baselineImagePath(basel
 
 if (!entry || !hasBaseline) test.skip(`${PDF} with .data and its old-app baseline (${BASELINE_REF}) are required`);
 else {
-  // Skipped: the viewer no longer migrates on open; Task 10 starts this with the migration gate.
-  test.skip(`markup inside the PDF: ${PDF}`, async () => {
+  test(`markup inside the PDF: ${PDF}`, async () => {
     fs.rmSync(outDir, { recursive: true, force: true });
     fs.mkdirSync(outDir, { recursive: true });
-    const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
+    const folder = copyCorpusFiles(path.join(repoRoot, "test-results", "visual", "work"), [PDF]);
     try {
       const pdfFile = path.join(folder, PDF);
       const dataFile = legacyDataPath(pdfFile);
@@ -49,12 +49,14 @@ else {
 
       const app = await currentApp();
 
-      // 1. Open: migration writes into the PDF and removes the legacy file; markup shown exactly once.
-      const first = await openSheet(app, folder, PDF);
+      // 1. Start: the migration gate writes into the PDF and removes the legacy file; then the sheet opens
+      // and shows the markup exactly once.
+      const first = await openSheet(app, folder, PDF, { bulkMigration: true });
       const views = new Map<number, Img>();
       let migratedSize: number;
       try {
-        await waitUntil("migration (.data removed)", () => !fs.existsSync(dataFile));
+        expect(first.bulkMigration()?.migrated, "files migrated by the gate").toBe(1);
+        expect(fs.existsSync(dataFile), "legacy .data after the gate").toBe(false);
         migratedSize = fs.statSync(pdfFile).size;
         console.log(`${PDF}: ${originalSize} -> ${migratedSize} bytes after migration`);
         expect(migratedSize).toBeGreaterThan(originalSize);
@@ -143,8 +145,8 @@ else {
 }
 
 if (entry) {
-  // The cases "unparseable legacy file" and "partly unconvertible legacy file" are gone with the migration on open (Task 10).
-
+  /** chmod-based read-only files do not stop root. */
+  const isRoot = process.getuid?.() === 0;
   const SAVE_FAILED = "konnten nicht gespeichert werden";
   const SAVED_LATER = "wurden jetzt gespeichert";
 
@@ -164,15 +166,14 @@ if (entry) {
     }
   }
 
-  // Skipped: it waits for the migration on open, which is gone; Task 10 starts it with the migration gate.
-  test.skip(`a failed save keeps the markup when leaving the sheet and closing, then saves it: ${PDF}`, async () => {
-    const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
+  test.skipIf(isRoot)(`a failed save keeps the markup when leaving the sheet and closing, then saves it: ${PDF}`, async () => {
+    const folder = copyCorpusFiles(path.join(repoRoot, "test-results", "visual", "work"), [PDF]);
     const pdfFile = path.join(folder, PDF);
     try {
-      const session = await openSheet(await currentApp(), folder, PDF);
+      // The migration gate writes into the PDF on start, before the sheet opens.
+      const session = await openSheet(await currentApp(), folder, PDF, { bulkMigration: true });
       try {
-        // The migration writes into the PDF: from now on it has embedded data, so there is no sidecar fallback.
-        await waitUntil("migration (.data removed)", () => !fs.existsSync(legacyDataPath(pdfFile)));
+        expect(fs.existsSync(legacyDataPath(pdfFile)), "legacy .data after the gate").toBe(false);
         fs.chmodSync(pdfFile, 0o444); // like a PDF that another program holds open
         const locked = fs.readFileSync(pdfFile);
 
@@ -185,7 +186,7 @@ if (entry) {
         await session.leaveSheet();
         expect(await session.snackbarText()).toContain(SAVE_FAILED);
         expect(fs.readFileSync(pdfFile).equals(locked)).toBe(true);
-        expect(fs.existsSync(legacyDataPath(pdfFile)), "no sidecar for a PDF with embedded data").toBe(false);
+        expect(fs.existsSync(legacyDataPath(pdfFile)), "no .data written for a failed save").toBe(false);
 
         // Closing the window: saving fails again, so the user is asked; "Abbrechen" keeps the window open.
         await session.stubMessageBox(2);

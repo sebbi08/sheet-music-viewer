@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { copyCorpus, legacyDataPath, listCorpus, repoRoot } from "./corpus";
+import { copyCorpusFiles, legacyDataPath, listCorpus, repoRoot } from "./corpus";
 import { currentApp, openSheet } from "./electronDriver";
 
 /**
@@ -18,16 +18,15 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 if (corpus.length === 0) test.skip("Noten/ corpus with .data files is missing");
 else {
   test("a hung save on closing: main's dialog after the timeout, at once on the next close, then the window closes", async () => {
-    // The app migrates (writes) on open: never open sheets in Noten/ itself.
-    const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
+    // The migration gate writes into the PDF on start: never open sheets in Noten/ itself.
+    const folder = copyCorpusFiles(path.join(repoRoot, "test-results", "visual", "work"), [corpus[0].pdfPath]);
     const pdfFile = path.join(folder, corpus[0].pdfPath);
     try {
       const session = await openSheet(await currentApp(), folder, corpus[0].pdfPath, {
         env: { SMV_EXIT_GUARD_TIMEOUT_MS: String(TIMEOUT_MS) },
+        bulkMigration: true,
       });
       try {
-        const deadline = Date.now() + 60_000;
-        while (fs.existsSync(legacyDataPath(pdfFile)) && Date.now() < deadline) await sleep(200);
         expect(fs.existsSync(legacyDataPath(pdfFile)), "migration finished").toBe(false);
         // Entering and leaving edit mode without a change saves nothing, but gives the page the user
         // activation Chromium requires before beforeunload may block an unload.

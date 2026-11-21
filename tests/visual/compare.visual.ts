@@ -3,8 +3,16 @@ import path from "node:path";
 import { afterAll, expect, test } from "vitest";
 import { OCG_NAME } from "../../src/models/markupConstants";
 import { baselineCssSize, baselineImagePath, type CaptureLayer, ensureBaseline } from "./baseline";
-import { copyCorpus, legacyDataPath, listCorpus, repoRoot } from "./corpus";
-import { type AppUnderTest, type Capture, currentApp, openSheet, type SheetSession, WINDOW } from "./electronDriver";
+import { copyCorpusFiles, legacyDataPath, listCorpus, repoRoot } from "./corpus";
+import {
+  type AppUnderTest,
+  type Capture,
+  currentApp,
+  openSheet,
+  type OpenSheetOptions,
+  type SheetSession,
+  WINDOW,
+} from "./electronDriver";
 import {
   decodePng,
   diffRatio,
@@ -21,7 +29,8 @@ import { renderPdfPageAsCaptured } from "./pdfRender";
 
 /**
  * Spec section 8: the new app against the old app (reference = the old app's edit mode), per corpus
- * PDF, on a copy of the corpus (the new app migrates on open):
+ * PDF, on a copy with only that PDF and its `.data` file; the migration gate (spec 2026-11-20) migrates it
+ * when the app starts, then the sheet is opened:
  *   A  V1.with ↔ R.with                         view right after the migration
  *   B  V2.with ↔ R.with                         view after saving every marked page (an invisible change
  *                                               forces the save) and reopening
@@ -221,9 +230,10 @@ async function withSession(
   folder: string,
   pdfPath: string,
   requests: string[],
+  options: OpenSheetOptions,
   body: (session: SheetSession) => Promise<void>,
 ): Promise<void> {
-  const session = await openSheet(app, folder, pdfPath);
+  const session = await openSheet(app, folder, pdfPath, options);
   const canaries: string[] = [];
   try {
     canaries.push(await session.probeNetworkLog());
@@ -258,8 +268,7 @@ function formatCheck(c: Check): string {
 if (corpus.length === 0) test.skip("Noten/ corpus with .data files is missing");
 
 for (const { pdfPath, markedPages } of corpus) {
-  // Skipped: the viewer no longer migrates on open; Task 10 runs this through the migration gate.
-  test.skip(`new app against the old app: ${pdfPath}`, async () => {
+  test(`new app against the old app: ${pdfPath}`, async () => {
     const started = Date.now();
     const dir = await ensureBaseline(BASELINE_REF, [pdfPath]);
     const baselineDone = Date.now();
@@ -271,8 +280,8 @@ for (const { pdfPath, markedPages } of corpus) {
       return { with: read("with"), without: read("without"), cssSize: baselineCssSize(dir, pdfPath, page, "edit") };
     };
 
-    // The new app writes into the PDF on open: only ever on a copy, never in Noten/.
-    const folder = copyCorpus(workDir);
+    // The new app writes into the PDF when it starts: only ever on a copy, never in Noten/.
+    const folder = copyCorpusFiles(workDir, [pdfPath]);
     try {
       const pdfFile = path.join(folder, pdfPath);
       const dataFile = legacyDataPath(pdfFile);
@@ -284,9 +293,14 @@ for (const { pdfPath, markedPages } of corpus) {
       const v2 = new Map<number, Capture>();
       const smallMarkup = new Map<number, number>();
 
-      // Session 1: migration on open (V1), save every marked page, resize.
-      await withSession(app, folder, pdfPath, requests, async (session) => {
-        await waitUntil("migration (.data removed)", () => !fs.existsSync(dataFile));
+      // Session 1: the gate migrates on start, then the sheet opens (V1); save every marked page, resize.
+      await withSession(app, folder, pdfPath, requests, { bulkMigration: true }, async (session) => {
+        // The viewer never migrates: what holds now, held before the sheet was opened.
+        const gate = session.bulkMigration();
+        console.log(`${pdfPath}: migration gate ${JSON.stringify(gate)}`);
+        expect(gate?.status, "migration gate").toBe("passed");
+        expect(gate?.migrated, "files migrated by the gate").toBe(1);
+        expect(fs.existsSync(dataFile), "legacy .data after the gate").toBe(false);
         expect(fs.statSync(pdfFile).size, "PDF size after the migration").toBeGreaterThan(originalBytes.length);
         for (const page of markedPages) {
           await session.gotoPage(page);
@@ -328,7 +342,7 @@ for (const { pdfPath, markedPages } of corpus) {
       });
 
       // Session 2: reopened, the markup comes from the PDF (V2).
-      await withSession(app, folder, pdfPath, requests, async (session) => {
+      await withSession(app, folder, pdfPath, requests, {}, async (session) => {
         expect(fs.existsSync(dataFile), "legacy .data after reopening").toBe(false);
         for (const page of markedPages) {
           await session.gotoPage(page);

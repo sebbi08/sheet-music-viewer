@@ -576,9 +576,16 @@ export async function openSheet(
       throw new Error(`the migration gate failed: ${migration.headline} ${JSON.stringify(migration.failures)}`);
     }
     if (!migration) {
-      await page.waitForFunction(() => document.documentElement.dataset.migrationGate === "passed", undefined, {
-        timeout: WAIT_TIMEOUT_MS,
-      });
+      // The app sets the state while it mounts (launchApp waited for that); an app without the attribute
+      // has no gate (the old app of the baseline, spec section 8).
+      await page.waitForFunction(
+        () => {
+          const state = document.documentElement.dataset.migrationGate;
+          return state === undefined || state === "passed";
+        },
+        undefined,
+        { timeout: WAIT_TIMEOUT_MS },
+      );
     }
     const showSheet = async () => {
       // Same route and path format as SheetSelection.selectItem.

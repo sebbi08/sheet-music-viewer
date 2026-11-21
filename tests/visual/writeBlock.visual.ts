@@ -3,15 +3,18 @@ import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import { getSidecarPath } from "../../src/pdfMarkup/legacySidecar";
+import { saveMarkupToFile } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
-import { makeEncryptedPdf, makePdf } from "../pdfMarkup/fixtures";
+import { makeEncryptedPdf, makePdf, makePng } from "../pdfMarkup/fixtures";
 import { repoRoot } from "./corpus";
 import { type AppUnderTest, currentApp, openSheet, type SheetSession } from "./electronDriver";
+import { markupMask } from "./imageCompare";
 
 /**
  * The check on open (spec 2026-11-20) end to end, headless, on synthetic folders below
  * test-results/visual/work/ (no corpus needed): a PDF that cannot take markup shows why on every open,
- * stays readable and keeps editing off; the viewer neither shows nor touches a `.data` file (old or v1 format).
+ * stays readable and keeps editing off, and markup already in it stays visible; the viewer neither shows nor
+ * touches a `.data` file (old or v1 format).
  * The driver's default `SMV_DISABLE_BULK_MIGRATION=1` lets every folder count as migrated.
  */
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
@@ -126,6 +129,39 @@ test.skipIf(!canMakeReadOnly)(
     expect(await session.writeBlockText(), "dialog once the PDF is writable").toBeNull();
     expect(await session.pageRendered(1), "page 1 rendered").toBe(true);
     expect(await session.editButtonEnabled(), "edit button once the PDF is writable").toBe(true);
+    expect(session.networkRequests()).toEqual([]);
+  },
+);
+
+test.skipIf(!canMakeReadOnly)(
+  "a read-only PDF with markup inside: dialog, pencil off, the markup is still shown",
+  { timeout: 5 * 60_000 },
+  async () => {
+    const folder = newFolder();
+    const pdf = path.join(folder, "a.pdf");
+    fs.writeFileSync(pdf, pdfBytes);
+    // The same rectangle in PDF points, saved the way the app saves it.
+    const saved = await saveMarkupToFile({
+      path: pdf,
+      pages: [
+        {
+          page: 1,
+          payload: { version: 1, width: 595, height: 842, fabric: { version: "7", objects: [{ ...rect, type: "Rect" }] } },
+          pngBase64: Buffer.from(makePng(50, 40)).toString("base64"),
+        },
+      ],
+    });
+    expect(saved).toEqual({ status: "pdf" });
+    fs.chmodSync(pdf, 0o444);
+
+    const session = await open(folder, "a.pdf");
+    expect(await session.writeBlockText()).toBe(READ_ONLY_DIALOG);
+    await session.confirmWriteBlock();
+    expect(await session.pageRendered(1), "page 1 rendered").toBe(true);
+    expect(await session.editButtonEnabled(), "edit button").toBe(false);
+    expect(await session.markupLayerCount(), "markup layers").toBe(1);
+    const view = await session.captureView(1);
+    expect(markupMask(view.with, view.without).reduce((sum, v) => sum + v, 0), "markup pixels on page 1").toBeGreaterThan(0);
     expect(session.networkRequests()).toEqual([]);
   },
 );

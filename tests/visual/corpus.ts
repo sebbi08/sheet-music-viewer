@@ -49,3 +49,20 @@ export function copyCorpus(target: string): string {
   fs.cpSync(corpusDir, dir, { recursive: true, dereference: true });
   return dir;
 }
+
+/**
+ * Copies only `pdfPaths` (relative to the corpus folder) and their legacy `.data` files into a fresh
+ * folder below `target` and returns it.
+ */
+export function copyCorpusFiles(target: string, pdfPaths: string[]): string {
+  fs.mkdirSync(target, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(target, "corpus-"));
+  for (const pdfPath of pdfPaths) {
+    const source = path.join(corpusDir, pdfPath);
+    const copy = path.join(dir, pdfPath);
+    fs.mkdirSync(path.dirname(copy), { recursive: true });
+    fs.copyFileSync(source, copy);
+    if (fs.existsSync(legacyDataPath(source))) fs.copyFileSync(legacyDataPath(source), legacyDataPath(copy));
+  }
+  return dir;
+}
