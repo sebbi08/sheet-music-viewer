@@ -132,9 +132,11 @@
 import _ from "lodash";
 import { marked } from "marked";
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch, watchEffect } from "vue";
+import { START_LOCATION } from "vue-router";
 import MigrationDialog from "./components/MigrationDialog.vue";
 import { RouteNames } from "./Enums";
+import { LEAVE_SHEET_FAILED_TEXT } from "./migration/texts";
 import type { UpdateData } from "./models/types";
 import router from "./router";
 import useStore from "./store";
@@ -157,34 +159,73 @@ const markupSaves = useMarkupSaves();
 markupSaves.installCloseGuard();
 const bulkMigration = useBulkMigration();
 
-// Migration and sheet view never touch the same PDF: no sheet opens while a migration runs.
-router.beforeEach((to) => {
-  if (to.name === RouteNames.SheetViewer && bulkMigration.isRunning()) return false;
+// The migration gate (spec 2026-11-20): no sheet opens before the gate passed for the current folder.
+router.beforeEach((to, from) => {
+  if (to.name !== RouteNames.SheetViewer || bulkMigration.isPassed(store.sheetMusicFolder)) return;
+  // The initial navigation (e.g. a reload while a sheet was open) is never aborted, or the router would
+  // never be ready: it goes to the sheet list instead. Every later one is refused and stays where it is.
+  if (from === START_LOCATION) return { name: RouteNames.SheetSelection, params: { path: window.path.sep } };
+  return false;
 });
 
-/** Moves all legacy `.data` markup of `folder` into the PDFs (spec 2026-11-16); joins a running one. */
-async function startBulkMigration(folder: string) {
-  if (!folder || bulkMigration.isRunning()) return;
+// For the e2e tests: "pending" until the gate passed for the current folder, "failed" while the failure list
+// or the cancelled state shows.
+const migrationGateState = computed(() => {
+  if (bulkMigration.isPassed(store.sheetMusicFolder)) return "passed";
+  const { phase } = bulkMigration.phase;
+  return phase === "failed" || phase === "cancelled" ? "failed" : "pending";
+});
+watchEffect(() => {
+  document.documentElement.dataset.migrationGate = migrationGateState.value;
+});
+
+/**
+ * The folder the gate has to run for now, "" for none (final review F1): a sheet folder is set and has not
+ * passed, no run is in flight, and the dialog shows neither the failure list, nor the cancelled state, nor
+ * the summary (there the user decides how to go on). Derived from state rather than from events, so every
+ * way into "not passed and nothing running" starts the gate: the start, a folder change, a reload, a run
+ * for another folder that ended.
+ */
+const gateFolder = computed(() => {
+  const folder = store.sheetMusicFolder;
+  if (!folder || bulkMigration.isPassed(folder) || bulkMigration.running) return "";
+  const { phase } = bulkMigration.phase;
+  return phase === "failed" || phase === "cancelled" || phase === "done" ? "" : folder;
+});
+
+/** Leaving the sheet before the gate runs; `starting` keeps a second start out meanwhile. */
+let starting = false;
+
+/**
+ * Runs the migration gate for `folder` (spec 2026-11-20), after leaving an open sheet. A sheet that cannot
+ * be left ends in the failure list, never in a state without a window.
+ */
+async function startMigrationGate(folder: string) {
+  if (starting || bulkMigration.isRunning()) return;
+  starting = true;
   try {
-    await router.isReady();
     if (router.currentRoute.value.name === RouteNames.SheetViewer) {
       await router.push({ name: RouteNames.SheetSelection, params: { path: window.path.sep } });
       if (router.currentRoute.value.name === RouteNames.SheetViewer) {
-        console.warn("Could not leave the sheet; the markup migration waits for the next start");
+        console.warn("Could not leave the sheet before the markup migration");
+        bulkMigration.fail(folder, LEAVE_SHEET_FAILED_TEXT);
         return;
       }
     }
-    await bulkMigration.run(folder);
   } catch (e) {
-    console.warn("Could not start the markup migration", e);
+    console.warn("Could not leave the sheet before the markup migration", e);
+    bulkMigration.fail(folder, e instanceof Error ? e.message : String(e));
+    return;
+  } finally {
+    starting = false;
   }
+  await bulkMigration.run(folder);
 }
 
 onMounted(() => {
-  if (store.sheetMusicFolder) void startBulkMigration(store.sheetMusicFolder);
-});
-watch(() => store.sheetMusicFolder, (folder) => {
-  if (folder) void startBulkMigration(folder);
+  watch(gateFolder, (folder) => {
+    if (folder) void startMigrationGate(folder);
+  }, { immediate: true });
 });
 
 

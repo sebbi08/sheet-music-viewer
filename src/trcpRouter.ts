@@ -4,7 +4,7 @@ import { on } from "events";
 import path from "path";
 import superjson from "superjson";
 import { z } from "zod";
-import { askUnsavedMarkup, restartForUpdate, resumeExit } from "./exitGuard";
+import { askUnsavedMarkup, closeAppWindow, restartForUpdate, resumeExit } from "./exitGuard";
 import {
     BACKUP_PROGRESS_EVENT,
     backupProgress,
@@ -12,17 +12,24 @@ import {
     runMigrationBackup,
     type BackupProgress,
 } from "./migration/backupProgress";
-import { findMigrationCandidates } from "./migration/candidates";
+import { scanMigrationCandidates } from "./migration/candidates";
 import {
     absoluteFolderSchema,
+    migrateMarkupSidecarInputSchema,
     migrationBackupInputSchema,
-    recordMigrationSkipInputSchema,
+    readMigrationSourceInputSchema,
 } from "./migration/ipcInput";
-import { ReadOnlyFolders } from "./migration/readOnlyFolders";
-import { SkipList } from "./migration/skipList";
+import { MigratedFolders } from "./migration/migratedFolders";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { setListsWrapperSchema, type UpdateData } from "./models/types";
-import { discardEmptyLegacySidecar, loadMarkupFromFile, saveMarkupToFile } from "./pdfMarkup/markupFile";
+import { readSidecarContent } from "./pdfMarkup/legacySidecar";
+import {
+    checkMarkupWritable,
+    discardEmptyLegacySidecar,
+    loadMarkupFromFile,
+    migrateSidecarToFile,
+    saveMarkupToFile,
+} from "./pdfMarkup/markupFile";
 import {
     checkForUpdates,
     getAppVersion,
@@ -40,14 +47,10 @@ const { router: createRouter, procedure: publicProcedure } = initTRPC.create({
   transformer: superjson,
 });
 
-/** Files that failed the bulk migration permanently; local, never in the sheet folder. */
-let skipList: Promise<SkipList> | null = null;
-const loadSkipList = () =>
-  (skipList ??= SkipList.load(path.join(app.getPath("userData"), "bulk-migration-skips.json")));
-/** Read-only sheet folders already reported once; local, too. */
-let readOnlyFolders: Promise<ReadOnlyFolders> | null = null;
-const loadReadOnlyFolders = () =>
-  (readOnlyFolders ??= ReadOnlyFolders.load(path.join(app.getPath("userData"), "bulk-migration-read-only.json")));
+/** Sheet folders whose legacy markup is migrated; local (userData), never in the sheet folder. Loaded once. */
+let migratedFolders: Promise<MigratedFolders> | null = null;
+const loadMigratedFolders = () =>
+  (migratedFolders ??= MigratedFolders.load(path.join(app.getPath("userData"), "markup-migrated-folders.json")));
 
 export const trcpRouter = createRouter({
   getVersion: publicProcedure.query(getAppVersion),
@@ -113,17 +116,31 @@ export const trcpRouter = createRouter({
     .input(saveMarkupInputSchema)
     .mutation(({ input }) => saveMarkupToFile(input)),
 
-  /** Bulk migration of legacy `.data` files (src/store/bulkMigration.ts). */
-  findMigrationCandidates: publicProcedure.input(absoluteFolderSchema).query(async ({ input }) => {
-    // Test switch: e2e tests of the open path keep their `.data` files.
-    if (process.env.SMV_DISABLE_BULK_MIGRATION === "1") return [];
-    return findMigrationCandidates(input, await loadSkipList());
+  /** The migration gate for legacy `.data` files (src/store/bulkMigration.ts, src/migration/gate.ts). */
+  isMarkupFolderMigrated: publicProcedure.input(absoluteFolderSchema).query(async ({ input }) => {
+    // Test switch, only in tests (IS_TEST): the folder counts as migrated (nothing is stored), so the gate
+    // is skipped and legacy `.data` files are ignored.
+    if (process.env.IS_TEST === "1" && process.env.SMV_DISABLE_BULK_MIGRATION === "1") return true;
+    return (await loadMigratedFolders()).has(input);
   }),
 
-  /** Before the backup: a read-only sheet folder is reported once, then silently skipped. */
-  checkMigrationFolder: publicProcedure
-    .input(absoluteFolderSchema)
-    .mutation(async ({ input }) => (await loadReadOnlyFolders()).check(input)),
+  markMarkupFolderMigrated: publicProcedure.input(absoluteFolderSchema).mutation(async ({ input }) => {
+    await (await loadMigratedFolders()).add(input);
+  }),
+
+  scanMigrationCandidates: publicProcedure.input(absoluteFolderSchema).query(({ input }) => scanMigrationCandidates(input)),
+
+  /** Pass 1 reads through this: the sidecar and why the PDF cannot take markup. Writes nothing but the probe. */
+  readMigrationSource: publicProcedure.input(readMigrationSourceInputSchema).query(async ({ input }) => ({
+    sidecar: await readSidecarContent(input.candidate.pdfPath),
+    writeBlock: await checkMarkupWritable(input.candidate.pdfPath),
+  })),
+
+  migrateMarkupSidecar: publicProcedure
+    .input(migrateMarkupSidecarInputSchema)
+    .mutation(({ input }) =>
+      migrateSidecarToFile({ path: input.candidate.pdfPath, pages: input.pages, dryRun: input.dryRun }),
+    ),
 
   createMigrationBackup: publicProcedure
     .input(migrationBackupInputSchema)
@@ -137,17 +154,16 @@ export const trcpRouter = createRouter({
     }
   }),
 
-  recordMigrationSkip: publicProcedure
-    .input(recordMigrationSkipInputSchema)
-    .mutation(async ({ input }) => (await loadSkipList()).record(input.candidate, input.reason)),
-
+  /** Pass 2 for an empty sidecar; the candidate is checked against the folder like in the calls above. */
   discardEmptyLegacySidecar: publicProcedure
-    .input(pdfPathSchema)
-    .mutation(({ input }) => discardEmptyLegacySidecar(input)),
+    .input(readMigrationSourceInputSchema)
+    .mutation(({ input }) => discardEmptyLegacySidecar(input.candidate.pdfPath)),
 
   /** Closing with unsaved markup (see src/exitGuard.ts). */
   askUnsavedMarkup: publicProcedure
     .input(z.object({ files: z.array(z.string()), forExit: z.boolean() }))
     .mutation(({ input }) => askUnsavedMarkup(input.files, input.forExit)),
   resumeExit: publicProcedure.mutation(() => resumeExit()),
+  /** The normal close path (with the close guard), e.g. "Schließen" in the migration gate's failure list. */
+  closeApp: publicProcedure.mutation(() => closeAppWindow()),
 });

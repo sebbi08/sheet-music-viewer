@@ -10,7 +10,10 @@ const useStore = defineStore("app", {
     sheetMusicFolder: sheetMusicFolder,
     searchTerm: "",
     editMode: false,
-    /** The open sheet's markup could not be loaded: editing would overwrite it (set by SheetViewer). */
+    /**
+     * The open sheet's markup could not be loaded (editing would overwrite it) or cannot be saved into its
+     * PDF. Set by the mounted SheetViewer only.
+     */
     markupEditDisabled: false,
     setListsWrapper: {} as SetListsWrapper,
     setListEditMode: false,
@@ -22,6 +25,14 @@ const useStore = defineStore("app", {
   }),
   getters: {},
   actions: {
+    /** A sheet folder was chosen: remember it and load its set lists. Empty (selection cancelled): nothing. */
+    setSheetMusicFolder(folder: string) {
+      if (!folder) return;
+      this.sheetMusicFolder = folder;
+      this.loadSetLists();
+      this.saveSetLists();
+      localStorage.setItem("sheetMusicFolder", folder);
+    },
     toggleEditMode: function () {
       this.editMode = !this.editMode;
     },

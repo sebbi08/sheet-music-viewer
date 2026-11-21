@@ -15,8 +15,15 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 
 - Compares the new app against the old app (commit `8301b5d`, override with
   `VISUAL_BASELINE_REF`) on every `Noten/*.pdf` that has a legacy `.data` file (spec section 8).
-  Needs the local `Noten/` corpus with `.data` files; without it the tests are skipped.
-- Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on open).
+  Needs the local `Noten/` corpus with `.data` files; without it the corpus tests are skipped. The
+  tests on synthetic folders below `test-results/visual/work/` run without it: `migrationGate.visual.ts`
+  (the gate's flow), `writeBlock.visual.ts` (the check on open), `singleInstance.visual.ts` and the
+  read-only folder case of `bulkMigration.visual.ts`; see "Markup storage" for what each file checks.
+- Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
+- The comparison reaches the migration through the **migration gate**: per PDF a copy with only that PDF
+  and its `.data` (`copyCorpusFiles`), the app starts with `bulkMigration: true` (the gate migrates the
+  file), then the sheet is opened. The viewer itself never migrates. Without `bulkMigration: true` the
+  driver sets `SMV_DISABLE_BULK_MIGRATION=1`, so the folder counts as migrated and the gate does nothing.
 - Builds both apps (`electron-forge package`; the old one in a git worktree below
   `test-results/visual/worktrees/`). The old app's reference images are cached in
   `test-results/visual/baseline/<ref>/` and recaptured when the PDF, its `.data` or the commit
@@ -55,38 +62,50 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   Written atomically (temp file, read-back verification, rename; retried ~3 s while Windows reports
   the file as locked).
 - Our stamps belong to an **OCG** ("Sheet Music Viewer – Markierungen"); the app hides it in pdf.js and
-  draws the markup with fabric instead, other viewers show and print the stamp.
-- **Sidecar fallback** (`.<name>.data`, v1 format) only for PDFs **without** embedded data that are
-  encrypted, unparseable, read-only or stay locked; with embedded data a failed write is an error
-  (never two competing states). Legacy `.data` files are migrated into the PDF on open and deleted
-  after the read-back succeeded. While a PDF without embedded data has a v1 sidecar, only the
-  migrating save (all sidecar pages + `deleteLegacySidecar`) writes the PDF; the save queue carries
-  the sidecar pages with every save after a `sidecar` result, so nothing is hidden behind a partial PDF.
+  draws the markup with fabric instead only when it could read the markup data (for an encrypted or
+  unreadable PDF the stamps stay visible); other viewers show and print the stamp.
+- Markup is stored **only in the PDF** (spec: `docs/superpowers/specs/2026-11-20-strict-markup-migration-design.md`).
+  A PDF that cannot be written (encrypted, unparseable, read-only, a structure the writer cannot update,
+  still locked after the retries) is a save **error** with a reason; the PDF stays byte-identical and no
+  `.data` file is ever written. `loadMarkup` never reads a `.data` file.
+- **Check on open:** every open determines whether markup can be saved into the PDF
+  (`LoadMarkupResult.writeBlock`, `checkMarkupWritable`: encrypted, unparseable, read-only incl. a folder
+  probe file, or a trial build in memory that fails) and, if not, shows a dialog with the reason on
+  **every** open (`src/components/WriteBlockDialog.vue`); the sheet stays readable, the pencil is off.
 - Unsaved changes live in the renderer's `markupSaves` store (`src/markup/saveQueue.ts`), survive
   leaving the sheet, are retried every 30 s, and closing the window asks before discarding them
   (renderer: `src/markup/closeGuard.ts`; main: `src/exitGuardMachine.ts` + `src/exitGuard.ts`). Main
   shows the dialog itself if the renderer has not reported within 10 s, on a second close while the
   save runs, or when the renderer hangs; a crashed renderer never blocks closing.
-- **Bulk migration** (spec: `docs/superpowers/specs/2026-11-16-bulk-markup-migration-design.md`): on
-  every start and after a folder change, all PDFs below the sheet folder that still have a legacy
-  `.data` file are migrated behind a blocking dialog (`src/components/MigrationDialog.vue`, store
-  `src/store/bulkMigration.ts`, logic in `src/migration/`, no Electron imports). The renderer converts
-  each file with the same code as the migration on open; main finds the candidates, writes the backup
-  and saves. Before anything is migrated, main writes **`Markierungen-Backup YYYY-MM-DD HH-MM.zip`**
-  (local time; ` (2)` … on a collision) into the sheet folder with every candidate PDF and `.data`,
-  and verifies it (size + CRC-32 per entry); a failed backup migrates nothing. Permanent failures
-  (`corruptData`, `alreadyEmbedded`, `notWritable`) go to `bulk-migration-skips.json` in the Electron
-  profile (userData) and are not reported again until the PDF or its `.data` changes; all other
-  failures are retried on the next start. A read-only sheet folder is reported once ("Der Notenordner
-  ist schreibgeschützt …", remembered in `bulk-migration-read-only.json` in userData) and then skipped
-  silently until it is writable again. A single-instance lock (per userData, `src/main.ts`) keeps a
-  second start from running a second migration; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the candidate search
-  return nothing (tests only: the visual driver sets it unless `bulkMigration: true`, so the visual
-  tests keep checking the migration on open).
-- Visual tests (`npm run test:visual`, see above) compare migrated markup against the old app;
-  `tests/visual/bulkMigration.visual.ts` checks that the bulk migration writes the same payloads and
-  stamp pixels as the migration on open (plus backup zip, skip list, a read-only PDF and a read-only
-  folder); `tests/visual/singleInstance.visual.ts` checks the single-instance lock.
+- **Migration gate** for legacy `.data` files: on start and after a folder change, a sheet folder that is
+  not yet marked as migrated runs the gate behind a blocking dialog before any sheet can be opened
+  (`src/components/MigrationDialog.vue`, store `src/store/bulkMigration.ts`, flow `src/migration/gate.ts`,
+  logic in `src/migration/`, no Electron imports). Main scans like the sheet list (recursive, links to
+  folders and PDFs followed, each real path once; an unreadable folder or link target is a failure); a
+  candidate is a PDF with a `.data` file next to it. **Pass 1** converts and checks every candidate without
+  writing anything (`migrateSidecarToFile` with `dryRun`). Only if all pass, main writes
+  **`Markierungen-Backup YYYY-MM-DD HH-MM.zip`** (local time; ` (2)` … on a collision) into the sheet
+  folder with every candidate PDF and `.data` and verifies it (size + CRC-32 per entry); an incomplete
+  backup migrates nothing. **Pass 2** writes each PDF (read-back), then deletes its `.data` (a `.data`
+  without markup, or one the PDF already holds, is only deleted). Any failure shows the full list
+  (relative path, cause, what to do) with "Erneut prüfen", "Anderen Notenordner wählen" and "Schließen";
+  "Abbrechen" during a run closes the app. A cancelled run that leaves the app open (its close was
+  cancelled) shows "Die Übernahme wurde abgebrochen. …" with the same three buttons. A run without any
+  failure marks the folder in **`markup-migrated-folders.json`** in the Electron profile (userData);
+  `.data` files in a marked folder are ignored from then on. A single-instance lock (per userData,
+  `src/main.ts`) keeps a second start from running a second gate; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the app
+  treat every folder as migrated, so the gate is skipped and `.data` files are ignored; it is honoured
+  only together with `IS_TEST=1` (tests only: the visual driver sets both, the first unless
+  `bulkMigration: true`).
+- Visual tests (`npm run test:visual`, see above): `compare.visual.ts` compares the markup the gate
+  migrated against the old app (checks A–Er, per PDF); `bulkMigration.visual.ts` runs the whole corpus
+  through the gate (no `.data` left, one backup zip with the original bytes, embedded pages, folder
+  marked, no dialog on the second start) and prepared failures among the corpus (all listed, nothing
+  changed, passes once fixed), plus a read-only folder; `migrationGate.visual.ts` checks the gate's
+  flow on synthetic folders (failure list, "Erneut prüfen", folder change, also during a run, reload,
+  "Abbrechen", no corpus needed); `writeBlock.visual.ts` checks the check on open (dialog on every open, pencil off, markup
+  already in the PDF stays visible, a `.data` next to a PDF is ignored); `singleInstance.visual.ts`
+  checks the single-instance lock.
 
 ## Auto-Update
 

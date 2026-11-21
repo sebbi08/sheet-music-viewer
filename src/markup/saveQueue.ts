@@ -1,19 +1,24 @@
 /**
  * Unsaved markup changes, kept outside the SheetViewer component (spec section 1, final review F1): they
  * survive leaving the sheet, take precedence over the file when the sheet is opened again, and are retried
- * every 30 s while saving fails and with every new save. Framework-free (no Vue, no DOM): the renderer
- * wraps it in a Pinia store (`src/store/markupSaves.ts`), the logic is unit-tested in Node.
+ * every 30 s while saving fails and with every new save. A save sends the pending pages of one sheet into
+ * its PDF, the only place markup is stored: a PDF that cannot be written is a failure like any other.
+ * Framework-free (no Vue, no DOM): the renderer wraps it in a Pinia store (`src/store/markupSaves.ts`), the
+ * logic is unit-tested in Node.
  */
-import type { MarkupPayload, Rect, SaveMarkupInput, SaveMarkupResult } from "../models/markup";
+import type { MarkupPayload, Rect, SaveFailureReason, SaveMarkupInput, SaveMarkupResult } from "../models/markup";
 
 /** What a page shows after the save; `null` = no markup (our stamp is removed). */
 export type PageState = { rect: Rect | null; payload: MarkupPayload } | null;
 
 export type SaveEvent =
-  /** `firstFailure`: the sheet was saved fine (or never tried) before this failure. */
-  | { type: "failed"; path: string; message: string; firstFailure: boolean }
-  /** `afterFailure`: earlier attempts for this sheet had failed. */
-  | { type: "saved"; path: string; status: "pdf" | "sidecar"; afterFailure: boolean };
+  /**
+   * `reason` and `message` of the failed save (no reason: the save itself threw, e.g. the IPC failed).
+   * `firstFailure`: the sheet was saved fine (or never tried) before this failure.
+   */
+  | { type: "failed"; path: string; reason?: SaveFailureReason; message?: string; firstFailure: boolean }
+  /** `afterFailure`: earlier attempts for this sheet had failed. Markup is saved into the PDF only. */
+  | { type: "saved"; path: string; status: "pdf"; afterFailure: boolean };
 
 export interface SaveQueueOptions {
   save(input: SaveMarkupInput): Promise<SaveMarkupResult>;
@@ -31,16 +36,6 @@ interface SheetState {
   path: string;
   /** Unsaved changes per 1-based page. */
   pages: Map<number, PageState>;
-  /** The next successful save may replace/delete the legacy or v1 sidecar. */
-  deleteLegacySidecar: boolean;
-  /**
-   * Set once a save of this sheet went to the v1 sidecar (final review B1): the pages it holds now, as
-   * far as this queue wrote them. Every later save carries them along with `deleteLegacySidecar`, so the
-   * first save that reaches the PDF moves all of them there in one write and the sidecar is removed;
-   * a PDF save of only the changed pages would hide the sidecar ("embedded wins"). `null` = not known
-   * to be in a sidecar.
-   */
-  sidecarPages: Map<number, NonNullable<PageState>> | null;
   /** Attempts run one after another; never rejects. */
   chain: Promise<void>;
   /** Attempts queued or running. */
@@ -62,15 +57,7 @@ export class MarkupSaveQueue {
     const key = this.key(path);
     let sheet = this.sheets.get(key);
     if (!sheet) {
-      sheet = {
-        path,
-        pages: new Map(),
-        deleteLegacySidecar: false,
-        sidecarPages: null,
-        chain: Promise.resolve(),
-        busy: 0,
-        failing: false,
-      };
+      sheet = { path, pages: new Map(), chain: Promise.resolve(), busy: 0, failing: false };
       this.sheets.set(key, sheet);
     }
     return sheet;
@@ -89,11 +76,6 @@ export class MarkupSaveQueue {
     for (const other of this.sheets.values()) {
       if (other !== sheet && other.failing && other.pages.size > 0) void this.enqueue(other);
     }
-  }
-
-  /** The next successful save of `path` may replace or delete its sidecar (after migrating it). */
-  allowLegacyDelete(path: string): void {
-    this.sheet(path).deleteLegacySidecar = true;
   }
 
   /** Unsaved page states of `path` (a copy). */
@@ -159,13 +141,7 @@ export class MarkupSaveQueue {
 
   private async attempt(sheet: SheetState): Promise<void> {
     if (sheet.pages.size === 0) return;
-    const sidecarPages = sheet.sidecarPages;
-    // Pending changes win over the pages carried from the sidecar.
-    const sent = [...new Map<number, PageState>([...(sidecarPages ?? []), ...sheet.pages]).entries()].sort(
-      ([a], [b]) => a - b,
-    );
-    const legacyDeleteAllowed = sheet.deleteLegacySidecar;
-    const deleteLegacySidecar = legacyDeleteAllowed || sidecarPages !== null;
+    const sent = [...sheet.pages.entries()].sort(([a], [b]) => a - b);
 
     let result: SaveMarkupResult;
     try {
@@ -177,7 +153,7 @@ export class MarkupSaveQueue {
             : { page, payload: null, pngBase64: null },
         );
       }
-      result = await this.options.save({ path: sheet.path, pages, deleteLegacySidecar });
+      result = await this.options.save({ path: sheet.path, pages });
     } catch (e) {
       result = { status: "error", message: e instanceof Error ? e.message : String(e) };
     }
@@ -186,23 +162,11 @@ export class MarkupSaveQueue {
       // The pages stay pending: retried by the timer, with the next save and when the sheet is reopened.
       const firstFailure = !sheet.failing;
       sheet.failing = true;
-      this.emit({ type: "failed", path: sheet.path, message: result.message ?? "unknown error", firstFailure });
+      this.emit({ type: "failed", path: sheet.path, reason: result.reason, message: result.message, firstFailure });
     } else {
       for (const [page, state] of sent) {
         // A page changed again while saving stays pending.
         if (sheet.pages.has(page) && sheet.pages.get(page) === state) sheet.pages.delete(page);
-      }
-      if (legacyDeleteAllowed) sheet.deleteLegacySidecar = false;
-      if (result.status === "pdf") {
-        sheet.sidecarPages = null;
-      } else {
-        // Merged like the sidecar file itself: a page saved as `null` is removed from it.
-        const inSidecar = new Map(sidecarPages ?? []);
-        for (const [page, state] of sent) {
-          if (state) inSidecar.set(page, state);
-          else inSidecar.delete(page);
-        }
-        sheet.sidecarPages = inSidecar;
       }
       const afterFailure = sheet.failing;
       sheet.failing = false;

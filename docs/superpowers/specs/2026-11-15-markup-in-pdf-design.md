@@ -1,6 +1,6 @@
 # Markierungen direkt in der PDF speichern
 
-Stand: 2026-11-15 · Status: Entwurf
+Stand: 2026-11-15 · Status: Entwurf · Teilweise ersetzt durch `2026-11-20-strict-markup-migration-design.md`
 
 ## Warum
 

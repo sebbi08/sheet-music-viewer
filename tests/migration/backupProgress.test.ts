@@ -12,7 +12,7 @@ import {
 } from "../../src/migration/backupProgress";
 import type { MigrationCandidate } from "../../src/migration/types";
 
-const ok: BackupResult = { status: "ok", zipPath: null, included: [], excluded: [] };
+const ok: BackupResult = { status: "ok", zipPath: null, included: [] };
 
 /** Collects the emitted progress until `stop()`. */
 function listen() {

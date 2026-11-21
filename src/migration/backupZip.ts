@@ -8,13 +8,14 @@ import yazl from "yazl";
 import { retryWhileLocked } from "../pdfMarkup/markupFile";
 import type { MigrationCandidate } from "./types";
 
+/**
+ * `ok` holds every candidate whose sidecar still exists (`zipPath` null only without such candidates); a
+ * candidate whose sidecar is gone (ENOENT) is no candidate any more and is left out (not in `included`).
+ * Any other candidate that cannot be read makes the whole backup an `error` that names its relative path:
+ * nothing may be migrated unsaved.
+ */
 export type BackupResult =
-  | {
-      status: "ok";
-      zipPath: string | null;
-      included: MigrationCandidate[];
-      excluded: { candidate: MigrationCandidate; message: string }[];
-    }
+  | { status: "ok"; zipPath: string | null; included: MigrationCandidate[] }
   | { status: "error"; message: string }
   | { status: "cancelled" };
 
@@ -31,6 +32,12 @@ export interface BackupOptions {
 }
 
 class Cancelled extends Error {}
+
+/** One or more candidates could not be read: `relativePath (message)`, joined. */
+function unreadableError(unreadable: { candidate: MigrationCandidate; message: string }[]): Error {
+  const list = unreadable.map(({ candidate, message }) => `${candidate.relativePath} (${message})`).join("; ");
+  return new Error(`Nicht lesbar: ${list}`);
+}
 
 const TEMP_PATTERN = /^\.Markierungen-Backup-.*\.zip\.tmp$/;
 
@@ -230,16 +237,24 @@ export async function createBackupZip(
 
     // Phase weights: checksum pass, write, verify (each counts the included bytes once).
     const sized: { candidate: MigrationCandidate; pdfStat: fs.Stats; sidecarStat: fs.Stats }[] = [];
-    const excluded: { candidate: MigrationCandidate; message: string }[] = [];
+    const unreadable: { candidate: MigrationCandidate; message: string }[] = [];
     for (const candidate of candidates) {
+      let sidecarStat: fs.Stats;
+      try {
+        sidecarStat = await fs.promises.stat(candidate.sidecarPath);
+      } catch (e) {
+        // Gone since the check (e.g. another machine's deletion synced in): like pass 2, no candidate any more.
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") unreadable.push({ candidate, message: messageOf(e) });
+        continue;
+      }
       try {
         const pdfStat = await fs.promises.stat(candidate.pdfPath);
-        const sidecarStat = await fs.promises.stat(candidate.sidecarPath);
         sized.push({ candidate, pdfStat, sidecarStat });
       } catch (e) {
-        excluded.push({ candidate, message: messageOf(e) });
+        unreadable.push({ candidate, message: messageOf(e) });
       }
     }
+    if (unreadable.length > 0) throw unreadableError(unreadable);
     const totalBytes = sized.reduce((sum, s) => sum + s.pdfStat.size + s.sidecarStat.size, 0) * 3;
     let doneBytes = 0;
     const advance = (bytes: number) => {
@@ -262,8 +277,7 @@ export async function createBackupZip(
         sidecar = await checksumFile(candidate.sidecarPath, advance, throwIfCancelled);
       } catch (e) {
         if (e instanceof Cancelled) throw e;
-        excluded.push({ candidate, message: messageOf(e) });
-        advance(3 * (pdfStat.size + sidecarStat.size));
+        unreadable.push({ candidate, message: messageOf(e) });
         continue;
       }
       included.push(candidate);
@@ -288,7 +302,8 @@ export async function createBackupZip(
         { name: sidecarEntry, ...sidecar },
       );
     }
-    if (included.length === 0) return { status: "ok", zipPath: null, included, excluded };
+    if (unreadable.length > 0) throw unreadableError(unreadable);
+    if (included.length === 0) return { status: "ok", zipPath: null, included };
 
     throwIfCancelled();
     await writeZip(tempPath, planned, advance, throwIfCancelled);
@@ -299,7 +314,7 @@ export async function createBackupZip(
     const zipPath = freeZipPath(root, options.now);
     // Like atomicReplace: a sync client or virus scanner may hold the new file for a moment.
     await retryWhileLocked(() => fs.promises.rename(tempPath, zipPath));
-    return { status: "ok", zipPath, included, excluded };
+    return { status: "ok", zipPath, included };
   } catch (e) {
     await fs.promises.rm(tempPath, { force: true }).catch((rmErr) => {
       console.error(`Could not remove temporary backup file ${tempPath}:`, rmErr);

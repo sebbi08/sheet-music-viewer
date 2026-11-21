@@ -9,7 +9,8 @@ const corpus = listCorpus();
 if (corpus.length === 0) test.skip("Noten/ corpus with .data files is missing");
 else {
   test("the app starts without any network request and renders with the bundled Roboto", async () => {
-    // The new app migrates (writes) on open: never open sheets in Noten/ itself.
+    // The new app writes into the sheet folder (the migration gate, the folder probe on open): never open
+    // sheets in Noten/ itself.
     const folder = copyCorpus(path.join(repoRoot, "test-results", "visual", "work"));
     try {
       const app = await currentApp();

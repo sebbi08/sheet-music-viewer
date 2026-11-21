@@ -131,6 +131,11 @@ export function resumeExit(): void {
   guard.resume();
 }
 
+/** Closes the app window the normal way, so the close guard runs (the migration gate's "Schließen"). */
+export function closeAppWindow(): void {
+  appWindow()?.close();
+}
+
 /** Restart into the downloaded update (the renderer saved or discarded its markup first). */
 export function restartForUpdate(): void {
   guard.exitRequested("update");

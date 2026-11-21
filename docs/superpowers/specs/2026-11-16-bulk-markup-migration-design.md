@@ -1,6 +1,7 @@
 # Alle `.data`-Markierungen beim Start in die PDFs übernehmen
 
-Stand: 2026-11-16 · Status: Entwurf · Baut auf: `2026-11-15-markup-in-pdf-design.md`
+Stand: 2026-11-16 · Status: Entwurf · Baut auf: `2026-11-15-markup-in-pdf-design.md` ·
+Teilweise ersetzt durch `2026-11-20-strict-markup-migration-design.md`
 
 ## Warum
 

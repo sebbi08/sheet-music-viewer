@@ -25,12 +25,24 @@ export interface LoadedMarkupPage {
   payload: MarkupPayload;
 }
 
+/**
+ * Why markup cannot be saved into a PDF: `encrypted`, `unparseable` (pdf-lib cannot read it, or the file
+ * cannot be read), `readOnly` (the file or its folder does not take writes), `structure` (building and
+ * reading back an update in memory fails, e.g. a broken `startxref`; `message` says why).
+ */
+export type WriteBlockReason = "encrypted" | "unparseable" | "readOnly" | "structure";
+export interface WriteBlock {
+  reason: WriteBlockReason;
+  message?: string;
+}
+
+/** Markup of a PDF, read from the PDF only (a `.data` file next to it is never read). */
 export interface LoadMarkupResult {
-  source: "pdf" | "sidecar" | "none";
+  /** `pdf`: the PDF has our embedded data; `none`: it has none, or its data cannot be read (`writeBlock`). */
+  source: "pdf" | "none";
   pages: LoadedMarkupPage[];
-  legacyOverlayData: string | null;
-  /** Why the PDF's own markup cannot be read (`null`: the PDF is parseable and not encrypted). */
-  pdfIssue: "encrypted" | "unparseable" | null;
+  /** Why markup cannot be saved into this PDF (`null`: it can), determined before any repair. */
+  writeBlock: WriteBlock | null;
 }
 
 /**
@@ -52,18 +64,33 @@ export const saveMarkupInputSchema = z.object({
       pngBase64: z.string().nullable(),
     }),
   ),
-  deleteLegacySidecar: z.boolean(),
 });
 export type SaveMarkupInput = z.infer<typeof saveMarkupInputSchema>;
 
-export type SaveFailureReason = "locked" | "readOnly" | "encrypted" | "unparseable" | "other";
+export type SaveFailureReason = "locked" | "readOnly" | "encrypted" | "unparseable" | "structure" | "other";
 
+/** Markup is saved into the PDF only: `pdf` = saved; `error` = not saved, the PDF is unchanged. */
 export interface SaveMarkupResult {
-  status: "pdf" | "sidecar" | "error";
+  status: "pdf" | "error";
   message?: string;
-  /** Set for `sidecar` (why the PDF was not written) and `error`. */
+  /** Set for `error`. */
   reason?: SaveFailureReason;
 }
+
+/** `conflict`: the PDF holds other markup; `sidecarNotDeleted`: the PDF holds the markup, the sidecar stayed. */
+export type MigrateFailureReason = SaveFailureReason | "conflict" | "sidecarNotDeleted";
+
+/** One legacy sidecar converted to page changes, to move into its PDF (`dryRun`: check only, write nothing). */
+export interface MigrateSidecarInput {
+  path: string;
+  pages: SaveMarkupInput["pages"];
+  dryRun: boolean;
+}
+
+export type MigrateSidecarResult =
+  | { status: "migrated" } // dryRun: would be written. Otherwise: written, read back, sidecar deleted
+  | { status: "alreadyMigrated" } // the PDF already holds exactly these pages. Otherwise also: sidecar deleted
+  | { status: "error"; reason: MigrateFailureReason; message?: string };
 
 export const sidecarV1Schema = z.object({
   version: z.literal(1),

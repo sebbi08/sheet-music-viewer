@@ -5,18 +5,40 @@ export interface MigrationCandidate {
   relativePath: string;
 }
 
-export type FailureReason =
-  | "corruptData"
-  | "alreadyEmbedded"
-  | "notWritable"
+/** A folder or link the scan could not read. `relativePath` uses `/`; the root itself is `"."`. */
+export interface ScanError {
+  relativePath: string;
+  kind: "folder" | "link";
+  message: string;
+}
+
+export interface ScanResult {
+  candidates: MigrationCandidate[];
+  errors: ScanError[];
+}
+
+/** Why one file (or the scan, or the backup) keeps the migration gate shut. */
+export type GateFailureReason =
+  | "dataDamaged"
+  | "renderFailed"
+  | "dataUnreadable"
+  | "conflict"
+  | "encrypted"
+  | "readOnly"
+  | "unparseable"
+  | "structure"
   | "locked"
-  | "notBackedUp"
   | "pendingChanges"
+  | "folderUnreadable"
+  | "linkUnreadable"
+  | "sidecarNotDeleted"
+  | "backupFailed"
   | "other";
 
-/** Failures that will not go away by retrying; they are remembered until the files change. */
-export const PERMANENT_REASONS: ReadonlySet<FailureReason> = new Set<FailureReason>([
-  "corruptData",
-  "alreadyEmbedded",
-  "notWritable",
-]);
+/** `relativePath` null: not about one file (backup). `sidecarName`: basename of the `.data` file, for the text. */
+export interface GateFailure {
+  relativePath: string | null;
+  reason: GateFailureReason;
+  message?: string;
+  sidecarName?: string;
+}
