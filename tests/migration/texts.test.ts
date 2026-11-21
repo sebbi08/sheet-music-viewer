@@ -72,9 +72,9 @@ describe("failureText", () => {
       "Die PDF oder ihr Ordner ist schreibgeschützt. Bitte den Schreibschutz entfernen.",
     );
     expect(failureText(f("unparseable", { message: "Invalid PDF structure" }))).toBe(
-      "Die PDF kann nicht gelesen werden: Invalid PDF structure.",
+      "Die PDF kann nicht gelesen werden: Invalid PDF structure. Bitte mit einem anderen Programm neu speichern.",
     );
-    expect(failureText(f("unparseable"))).toBe("Die PDF kann nicht gelesen werden.");
+    expect(failureText(f("unparseable"))).toBe("Die PDF kann nicht gelesen werden. Bitte mit einem anderen Programm neu speichern.");
     expect(failureText(f("structure", { message: "startxref fehlt" }))).toBe(
       "In diese PDF kann die App nicht schreiben: startxref fehlt. Bitte mit einem anderen Programm neu speichern.",
     );
@@ -128,7 +128,9 @@ describe("failureText", () => {
     expect(failureText(f("backupFailed", { message: "Gesperrt." }))).toBe(
       "Die Sicherung konnte nicht erstellt werden: Gesperrt. Es wurde nichts übernommen.",
     );
-    expect(failureText(f("unparseable", { message: "Gesperrt." }))).toBe("Die PDF kann nicht gelesen werden: Gesperrt.");
+    expect(failureText(f("unparseable", { message: "Gesperrt." }))).toBe(
+      "Die PDF kann nicht gelesen werden: Gesperrt. Bitte mit einem anderen Programm neu speichern.",
+    );
   });
 });
 

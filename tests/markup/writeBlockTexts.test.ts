@@ -20,9 +20,11 @@ describe("writeBlockTexts", () => {
 
   test("unparseable with and without a message", () => {
     expect(writeBlockText({ reason: "unparseable", message: "Invalid PDF structure" })).toBe(
-      "Die PDF kann nicht gelesen werden: Invalid PDF structure.",
+      "Die PDF kann nicht gelesen werden: Invalid PDF structure. Bitte mit einem anderen Programm neu speichern.",
     );
-    expect(writeBlockText({ reason: "unparseable" })).toBe("Die PDF kann nicht gelesen werden.");
+    expect(writeBlockText({ reason: "unparseable" })).toBe(
+      "Die PDF kann nicht gelesen werden. Bitte mit einem anderen Programm neu speichern.",
+    );
   });
 
   test("structure", () => {
@@ -32,7 +34,9 @@ describe("writeBlockTexts", () => {
   });
 
   test("a message that already ends in a period gets no second one", () => {
-    expect(writeBlockText({ reason: "unparseable", message: "Kaputt." })).toBe("Die PDF kann nicht gelesen werden: Kaputt.");
+    expect(writeBlockText({ reason: "unparseable", message: "Kaputt." })).toBe(
+      "Die PDF kann nicht gelesen werden: Kaputt. Bitte mit einem anderen Programm neu speichern.",
+    );
     expect(writeBlockText({ reason: "structure", message: "Kaputt." })).toBe(
       "In diese PDF kann die App nicht schreiben: Kaputt. Bitte mit einem anderen Programm neu speichern.",
     );

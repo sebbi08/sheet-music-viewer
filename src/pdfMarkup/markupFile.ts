@@ -26,9 +26,10 @@ import {
 import { buildMarkedPdf, type PageChange } from "./buildMarkedPdf";
 import { isFolderWritable } from "./folderProbe";
 import { getSidecarPath, legacySidecarHasMarkup, readSidecarContent } from "./legacySidecar";
+import { isLockedError, retryWhileLocked, setLockRetryDelays } from "./lockRetry";
 import { readMarkup, type ReadMarkupResult } from "./readMarkup";
 
-export { getSidecarPath, legacySidecarHasMarkup };
+export { getSidecarPath, legacySidecarHasMarkup, retryWhileLocked, setLockRetryDelays };
 
 // ---------------------------------------------------------------------------------------------------------
 // Per-path serialization
@@ -57,57 +58,26 @@ function serialized<T>(file: string, task: () => Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------------------------------------
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const errorCode = (e: unknown) => (e instanceof Error && "code" in e ? e.code : undefined);
 
-/**
- * Windows reports a file that another program (Acrobat, a virus scanner, a sync client) holds open as
- * EBUSY, EPERM or EACCES; usually only for a moment.
- */
-const isLockedError = (e: unknown) => ["EBUSY", "EPERM", "EACCES"].includes(String(errorCode(e)));
+type Inspection =
+  | { kind: "unparseable"; message: string }
+  | { kind: "encrypted" }
+  | { kind: "parsed"; markup: ReadMarkupResult };
 
-/** Waits between the attempts of a locked file operation: about 3 s in total. */
-let lockRetryDelaysMs: readonly number[] = [50, 100, 200, 400, 750, 1500];
-
-/** For tests: sets the waits between attempts (an empty list = no retry) and returns the previous ones. */
-export function setLockRetryDelays(delaysMs: readonly number[]): readonly number[] {
-  const previous = lockRetryDelaysMs;
-  lockRetryDelaysMs = delaysMs;
-  return previous;
-}
-
-/** Runs `operation`, repeating it while it fails because the file is locked (see `isLockedError`). */
-export async function retryWhileLocked<T>(operation: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await operation();
-    } catch (e) {
-      const delay = lockRetryDelaysMs[attempt];
-      if (delay === undefined || !isLockedError(e)) throw e;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-}
-
-type Inspection = { encrypted: true } | { encrypted: false; markup: ReadMarkupResult };
-
-/** Parses the PDF; `null` if pdf-lib cannot read it. */
-async function inspectPdf(bytes: Uint8Array): Promise<Inspection | null> {
+/** Parses the PDF; `unparseable` with pdf-lib's message if it cannot read it. */
+async function inspectPdf(bytes: Uint8Array): Promise<Inspection> {
   try {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false, ignoreEncryption: true });
-    if (doc.isEncrypted) return { encrypted: true };
-    return { encrypted: false, markup: readMarkup(doc) };
-  } catch {
-    return null;
+    if (doc.isEncrypted) return { kind: "encrypted" };
+    return { kind: "parsed", markup: readMarkup(doc) };
+  } catch (e) {
+    return { kind: "unparseable", message: errorMessage(e) };
   }
 }
 
 /** Embedded data = our stamps or our catalog metadata. */
-const hasEmbeddedData = (
-  inspection: Inspection | null,
-): inspection is Extract<Inspection, { encrypted: false }> =>
-  inspection !== null &&
-  !inspection.encrypted &&
-  (inspection.markup.pages.length > 0 || inspection.markup.meta !== null);
+const hasEmbeddedData = (inspection: Inspection): inspection is Extract<Inspection, { kind: "parsed" }> =>
+  inspection.kind === "parsed" && (inspection.markup.pages.length > 0 || inspection.markup.meta !== null);
 
 /**
  * The file and its folder are writable. The folder is needed for the temp file and the rename, and is
@@ -193,8 +163,7 @@ class VerificationError extends Error {}
 /** Fails unless the PDF `written` contains our markup on exactly the pages in `expected`, each with its payload. */
 async function verifyPages(written: Uint8Array, expected: ExpectedPages): Promise<void> {
   const inspection = await inspectPdf(written);
-  if (!inspection || inspection.encrypted)
-    throw new VerificationError("verification failed: the written PDF is unreadable");
+  if (inspection.kind !== "parsed") throw new VerificationError("verification failed: the written PDF is unreadable");
   const mismatch = pagesMismatch(inspection.markup.pages, expected);
   if (mismatch !== null) throw new VerificationError(`verification failed: ${mismatch}`);
 }
@@ -224,25 +193,25 @@ async function trialBuild(bytes: Uint8Array, markup: ReadMarkupResult): Promise<
 type CheapCheck = { block: WriteBlock } | { block: null; markup: ReadMarkupResult };
 
 /** The write block checks of `writeBlockOf` without the trial build: unparseable, encrypted, read-only. */
-async function cheapWriteBlockOf(realPath: string, inspection: Inspection | null): Promise<CheapCheck> {
-  if (!inspection) return { block: { reason: "unparseable" } };
-  if (inspection.encrypted) return { block: { reason: "encrypted" } };
+async function cheapWriteBlockOf(realPath: string, inspection: Inspection): Promise<CheapCheck> {
+  if (inspection.kind === "unparseable") return { block: { reason: "unparseable", message: inspection.message } };
+  if (inspection.kind === "encrypted") return { block: { reason: "encrypted" } };
   if (!(await isWritable(realPath))) return { block: { reason: "readOnly" } };
   return { block: null, markup: inspection.markup };
 }
 
-/** A save or migration failed on a write block: the error result with its reason. */
+/** A save or migration failed on a write block: the error result with its reason (and message, if any). */
 const blockedError = (block: WriteBlock) => ({
   status: "error" as const,
   reason: block.reason,
-  message: block.message ?? `The markup cannot be saved into the PDF (${block.reason}).`,
+  ...(block.message !== undefined ? { message: block.message } : {}),
 });
 
 /** Why markup cannot be saved into the PDF `bytes` read from `realPath`; `null` = it can. Never throws. */
 async function writeBlockOf(
   realPath: string,
   bytes: Uint8Array,
-  inspection: Inspection | null,
+  inspection: Inspection,
 ): Promise<WriteBlock | null> {
   const cheap = await cheapWriteBlockOf(realPath, inspection);
   if (cheap.block) return cheap.block;
@@ -281,7 +250,7 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   const inspection = await inspectPdf(bytes);
   const writeBlock = await writeBlockOf(realPath, bytes, inspection);
 
-  if (writeBlock === null && inspection && !inspection.encrypted && inspection.markup.orphans.length > 0) {
+  if (writeBlock === null && inspection.kind === "parsed" && inspection.markup.orphans.length > 0) {
     const expected = expectedFromMarkup(inspection.markup);
     try {
       const repaired = await buildMarkedPdf(bytes, []);
@@ -438,12 +407,13 @@ async function deleteMigratedSidecar(pdfPath: string, done: MigrateSidecarResult
 
 /**
  * Deletes the sidecar of `pdfPath` if it holds no markup (`readSidecarContent` says `empty`: also a v1
- * file without pages). Never reads or writes the PDF. Sidecars with markup and unreadable files are kept.
+ * file without pages; retried while locked). Never reads or writes the PDF. Sidecars with markup and
+ * unreadable files are kept.
  */
 export function discardEmptyLegacySidecar(pdfPath: string): Promise<{ deleted: boolean }> {
   return serialized(pdfPath, async () => {
     if ((await readSidecarContent(pdfPath)).kind !== "empty") return { deleted: false };
-    await fs.promises.rm(getSidecarPath(pdfPath), { force: true });
+    await retryWhileLocked(() => fs.promises.rm(getSidecarPath(pdfPath), { force: true }));
     return { deleted: true };
   });
 }

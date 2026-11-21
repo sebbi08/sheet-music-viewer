@@ -48,4 +48,15 @@ describe("isFolderWritable", () => {
       open.mockRestore();
     }
   });
+
+  it("a probe that is locked for a moment is removed on a later attempt: writable, no file left", async () => {
+    const rm = vi.spyOn(fs.promises, "rm").mockRejectedValueOnce(denied("EBUSY"));
+    try {
+      expect(await isFolderWritable(root)).toBe(true);
+      expect(rm).toHaveBeenCalledTimes(2);
+      expect(fs.readdirSync(root)).toEqual([]);
+    } finally {
+      rm.mockRestore();
+    }
+  });
 });

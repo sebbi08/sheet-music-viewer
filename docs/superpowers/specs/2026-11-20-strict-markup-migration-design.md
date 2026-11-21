@@ -179,7 +179,7 @@ Ergebnis je Datei:
 | PDF hat andere Markierungen | eingebettete Daten weichen von der Begleitdatei ab | „Die PDF enthält bereits Markierungen. Bitte die Datei ‚.X.data‘ löschen; die Markierungen in der PDF bleiben.“ |
 | verschlüsselt | PDF ist verschlüsselt | „Die PDF ist verschlüsselt. Bitte den Kennwortschutz entfernen.“ |
 | schreibgeschützt | Datei oder Ordner nicht beschreibbar | „Die PDF oder ihr Ordner ist schreibgeschützt.“ |
-| PDF nicht lesbar | weder pdf-lib noch pdf.js können sie öffnen | „Die PDF kann nicht gelesen werden: ‹Meldung›.“ |
+| PDF nicht lesbar | weder pdf-lib noch pdf.js können sie öffnen | „Die PDF kann nicht gelesen werden: ‹Meldung›. Bitte mit einem anderen Programm neu speichern.“ |
 | Aufbau nicht beschreibbar | der Probelauf scheitert beim Bauen oder Prüfen | „In diese PDF kann die App nicht schreiben: ‹Meldung›. Bitte mit einem anderen Programm neu speichern.“ |
 | gesperrt | Datei in einem anderen Programm geöffnet | „Die Datei ist in einem anderen Programm geöffnet.“ |
 | ungespeicherte Änderungen | siehe 2 | „Für diese Datei gibt es ungespeicherte Änderungen.“ |

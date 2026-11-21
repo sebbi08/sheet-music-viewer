@@ -134,8 +134,8 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     fs.chmodSync(pdf, 0o444);
     const before = fs.readFileSync(pdf);
     const result = await saveMarkupToFile({ path: pdf, pages: [page1()] });
-    expect(result).toMatchObject({ status: "error", reason: "readOnly" });
-    expect(result.message).toBeTruthy();
+    // The reason says it all; no English default text that could reach the user.
+    expect(result).toEqual({ status: "error", reason: "readOnly" });
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect(fs.readdirSync(dir)).toEqual(["r.pdf"]);
   });
@@ -353,7 +353,10 @@ describe("failure reasons", () => {
     const before = fs.readFileSync(pdf);
     for (const pages of [[page1()], [{ page: 1, payload: null, pngBase64: null }]]) {
       const result = await saveMarkupToFile({ path: pdf, pages });
-      expect(result).toEqual({ status: "error", reason, message: expect.any(String) });
+      // Only the parser's message, never an English default text (it would reach the user).
+      expect(result).toEqual(
+        reason === "unparseable" ? { status: "error", reason, message: expect.stringMatching(/\S/) } : { status: "error", reason },
+      );
     }
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect(fs.readdirSync(dir)).toEqual(["a.pdf"]);
@@ -402,10 +405,12 @@ describe("write block", () => {
     expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "encrypted" });
   });
 
-  test("bytes that are no PDF", async () => {
+  test("bytes that are no PDF: unparseable with the parser's message", async () => {
     const pdf = await writeFixture(dir, "g.pdf", new Uint8Array(Buffer.from("this is not a pdf at all")));
-    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "unparseable" });
-    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "unparseable" });
+    const block = { reason: "unparseable", message: expect.stringMatching(/\S/) };
+    expect(await checkMarkupWritable(pdf)).toEqual(block);
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual(block);
+    expect(await saveMarkupToFile({ path: pdf, pages: [page1()] })).toEqual({ status: "error", ...block });
     // A file that cannot be read at all.
     expect(await checkMarkupWritable(path.join(dir, "missing.pdf"))).toEqual({
       reason: "unparseable",
@@ -733,6 +738,22 @@ describe("discardEmptyLegacySidecar", () => {
   test("missing sidecar", async () => {
     const pdf = await writeFixture(dir, "c.pdf", await makePdf({ xref: "table" }));
     expect(await discardEmptyLegacySidecar(pdf)).toEqual({ deleted: false });
+  });
+
+  test("a sidecar that is locked for a moment is deleted on a later attempt", async () => {
+    const previousDelays = setLockRetryDelays([1, 1]);
+    const pdf = await writeFixture(dir, "e.pdf", await makePdf({ xref: "table" }));
+    fs.writeFileSync(getSidecarPath(pdf), '[{"page":1,"data":{"objects":[]}}]');
+    const rm = vi
+      .spyOn(fs.promises, "rm")
+      .mockRejectedValueOnce(Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" }));
+    try {
+      expect(await discardEmptyLegacySidecar(pdf)).toEqual({ deleted: true });
+      expect(rm).toHaveBeenCalledTimes(2);
+      expect(fs.existsSync(getSidecarPath(pdf))).toBe(false);
+    } finally {
+      setLockRetryDelays(previousDelays);
+    }
   });
 
   test("discardEmptyLegacySidecar also deletes a v1 file without pages", async () => {

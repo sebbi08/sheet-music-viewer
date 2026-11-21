@@ -22,7 +22,7 @@ export function writeBlockText(block: WriteBlock): string {
     case "readOnly":
       return "Die PDF oder ihr Ordner ist schreibgeschützt. Bitte den Schreibschutz entfernen.";
     case "unparseable":
-      return withDetail("Die PDF kann nicht gelesen werden", block.message);
+      return `${withDetail("Die PDF kann nicht gelesen werden", block.message)} Bitte mit einem anderen Programm neu speichern.`;
     case "structure":
       return `${withDetail("In diese PDF kann die App nicht schreiben", block.message)} Bitte mit einem anderen Programm neu speichern.`;
   }
