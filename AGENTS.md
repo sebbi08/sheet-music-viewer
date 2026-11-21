@@ -15,8 +15,15 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 
 - Compares the new app against the old app (commit `8301b5d`, override with
   `VISUAL_BASELINE_REF`) on every `Noten/*.pdf` that has a legacy `.data` file (spec section 8).
-  Needs the local `Noten/` corpus with `.data` files; without it the tests are skipped.
-- Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on open).
+  Needs the local `Noten/` corpus with `.data` files; without it the corpus tests are skipped. The
+  tests on synthetic folders below `test-results/visual/work/` run without it: `migrationGate.visual.ts`
+  (the gate's flow), `writeBlock.visual.ts` (the check on open), `singleInstance.visual.ts` and the
+  read-only folder case of `bulkMigration.visual.ts`; see "Markup storage" for what each file checks.
+- Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
+- The comparison reaches the migration through the **migration gate**: per PDF a copy with only that PDF
+  and its `.data` (`copyCorpusFiles`), the app starts with `bulkMigration: true` (the gate migrates the
+  file), then the sheet is opened. The viewer itself never migrates. Without `bulkMigration: true` the
+  driver sets `SMV_DISABLE_BULK_MIGRATION=1`, so the folder counts as migrated and the gate does nothing.
 - Builds both apps (`electron-forge package`; the old one in a git worktree below
   `test-results/visual/worktrees/`). The old app's reference images are cached in
   `test-results/visual/baseline/<ref>/` and recaptured when the PDF, its `.data` or the commit
@@ -87,10 +94,15 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   running a second gate; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the app
   treat every folder as migrated, so the gate is skipped (tests only: the visual driver sets it unless
   `bulkMigration: true`).
-- Visual tests (`npm run test:visual`, see above) compare migrated markup against the old app;
-  `tests/visual/bulkMigration.visual.ts` checks that the bulk migration writes the same payloads and
-  stamp pixels as the migration on open (plus backup zip, skip list, a read-only PDF and a read-only
-  folder); `tests/visual/singleInstance.visual.ts` checks the single-instance lock.
+- Visual tests (`npm run test:visual`, see above): `compare.visual.ts` compares the markup the gate
+  migrated against the old app (checks A–Er, per PDF); `bulkMigration.visual.ts` runs the whole corpus
+  through the gate (no `.data` left, one backup zip with the original bytes, embedded pages, folder
+  marked, no dialog on the second start) and prepared failures among the corpus (all listed, nothing
+  changed, passes once fixed), plus a read-only folder; `migrationGate.visual.ts` checks the gate's
+  flow on synthetic folders (failure list, "Erneut prüfen", folder change, "Abbrechen", no corpus
+  needed); `writeBlock.visual.ts` checks the check on open (dialog on every open, pencil off, markup
+  already in the PDF stays visible, a `.data` next to a PDF is ignored); `singleInstance.visual.ts`
+  checks the single-instance lock.
 
 ## Auto-Update
 
