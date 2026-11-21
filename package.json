@@ -105,7 +105,7 @@
     "vue-router": "5.4.0",
     "vue-tsc": "3.3.14",
     "vuedraggable": "4.1.0",
-    "vuetify": "4.3.3",
+    "vuetify": "4.3.4",
     "zod": "^4.4.3"
   },
   "release": {
