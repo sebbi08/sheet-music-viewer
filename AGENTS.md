@@ -92,7 +92,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   **`markup-migrated-folders.json`** in the Electron profile (userData); `.data` files in a marked folder
   are ignored from then on. A single-instance lock (per userData, `src/main.ts`) keeps a second start from
   running a second gate; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the app
-  treat every folder as migrated, so the gate is skipped (tests only: the visual driver sets it unless
+  treat every folder as migrated, so the gate is skipped and `.data` files are ignored; it is honoured
+  only together with `IS_TEST=1` (tests only: the visual driver sets both, the first unless
   `bulkMigration: true`).
 - Visual tests (`npm run test:visual`, see above): `compare.visual.ts` compares the markup the gate
   migrated against the old app (checks A–Er, per PDF); `bulkMigration.visual.ts` runs the whole corpus

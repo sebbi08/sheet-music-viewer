@@ -89,7 +89,7 @@ describe("MigrationGate", () => {
     expect(phases.at(-1)).toEqual({ phase: "idle" });
   });
 
-  test("a failing scan: failed with folderUnreadable for '.', not marked", async () => {
+  test("a failing scan: failed with folderUnreadable for the sheet folder's path, not marked", async () => {
     const { gate, deps, phases } = setup([], {
       scan: async () => {
         throw new Error("EACCES: permission denied");
@@ -102,7 +102,7 @@ describe("MigrationGate", () => {
       total: 0,
       migrated: 0,
       zipName: null,
-      failures: [{ relativePath: ".", reason: "folderUnreadable", message: "EACCES: permission denied" }],
+      failures: [{ relativePath: "/s", reason: "folderUnreadable", message: "EACCES: permission denied" }],
     });
     expect(deps.markMigrated).not.toHaveBeenCalled();
     expect(deps.createBackup).not.toHaveBeenCalled();
@@ -130,6 +130,14 @@ describe("MigrationGate", () => {
     expect(deps.processFile).toHaveBeenCalledWith(B, "check");
     expect(deps.createBackup).not.toHaveBeenCalled();
     expect(deps.markMigrated).not.toHaveBeenCalled();
+  });
+
+  test("a scan error for the root '.' names the sheet folder by its path", async () => {
+    const { gate } = setup([], {
+      scan: async () => ({ candidates: [], errors: [{ relativePath: ".", kind: "folder", message: "EIO" }] }),
+    });
+    const result = await gate.run("/s");
+    expect((result as GateFailed).failures).toEqual([{ relativePath: "/s", reason: "folderUnreadable", message: "EIO" }]);
   });
 
   test("pass 1 checks every file even after failures and lists all of them", async () => {

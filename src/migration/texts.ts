@@ -1,4 +1,4 @@
-import { withDetail, writeBlockText } from "../markup/writeBlockTexts";
+import { presentMessage, withDetail, writeBlockText } from "../markup/writeBlockTexts";
 import type { GateFailed } from "./gate";
 import type { GateFailure } from "./types";
 
@@ -42,7 +42,7 @@ export function failureText({ reason, message, sidecarName }: GateFailure): stri
     case "backupFailed":
       return `${withDetail("Die Sicherung konnte nicht erstellt werden", message)} Es wurde nichts übernommen.`;
     case "other":
-      return message ?? "Unbekannter Fehler.";
+      return presentMessage(message) ?? "Unbekannter Fehler.";
   }
 }
 

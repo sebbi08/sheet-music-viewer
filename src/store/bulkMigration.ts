@@ -52,7 +52,8 @@ const fileDeps = (root: string, candidate: MigrationCandidate): ProcessFileDeps 
   // Waits for the music font (loadMarkupFonts) before drawing.
   renderPng: renderMarkupPng,
   migrate: ({ pages, dryRun }) => client.migrateMarkupSidecar.mutate({ root, candidate, pages, dryRun }),
-  discardEmptySidecar: (path) => client.discardEmptyLegacySidecar.mutate(path),
+  // `processFile` passes this candidate's PDF; main checks the candidate against the folder.
+  discardEmptySidecar: () => client.discardEmptyLegacySidecar.mutate({ root, candidate }),
 });
 
 /**

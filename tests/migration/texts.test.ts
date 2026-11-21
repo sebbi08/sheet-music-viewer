@@ -115,6 +115,10 @@ describe("failureText", () => {
   test("other: the message verbatim, without one a generic text", () => {
     expect(failureText(f("other", { message: "Festplatte voll" }))).toBe("Festplatte voll");
     expect(failureText(f("other"))).toBe("Unbekannter Fehler.");
+    // An empty or blank message counts as none.
+    expect(failureText(f("other", { message: "" }))).toBe("Unbekannter Fehler.");
+    expect(failureText(f("other", { message: "  " }))).toBe("Unbekannter Fehler.");
+    expect(failureText(f("folderUnreadable", { message: "" }))).toBe("Der Ordner kann nicht gelesen werden.");
   });
 
   test("a message that already ends in a period gets no second one", () => {

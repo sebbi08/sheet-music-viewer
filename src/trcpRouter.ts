@@ -118,8 +118,9 @@ export const trcpRouter = createRouter({
 
   /** The migration gate for legacy `.data` files (src/store/bulkMigration.ts, src/migration/gate.ts). */
   isMarkupFolderMigrated: publicProcedure.input(absoluteFolderSchema).query(async ({ input }) => {
-    // Test switch: the folder counts as migrated (nothing is stored), so the gate is skipped.
-    if (process.env.SMV_DISABLE_BULK_MIGRATION === "1") return true;
+    // Test switch, only in tests (IS_TEST): the folder counts as migrated (nothing is stored), so the gate
+    // is skipped and legacy `.data` files are ignored.
+    if (process.env.IS_TEST === "1" && process.env.SMV_DISABLE_BULK_MIGRATION === "1") return true;
     return (await loadMigratedFolders()).has(input);
   }),
 
@@ -153,9 +154,10 @@ export const trcpRouter = createRouter({
     }
   }),
 
+  /** Pass 2 for an empty sidecar; the candidate is checked against the folder like in the calls above. */
   discardEmptyLegacySidecar: publicProcedure
-    .input(pdfPathSchema)
-    .mutation(({ input }) => discardEmptyLegacySidecar(input)),
+    .input(readMigrationSourceInputSchema)
+    .mutation(({ input }) => discardEmptyLegacySidecar(input.candidate.pdfPath)),
 
   /** Closing with unsaved markup (see src/exitGuard.ts). */
   askUnsavedMarkup: publicProcedure

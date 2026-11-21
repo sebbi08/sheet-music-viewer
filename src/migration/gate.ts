@@ -63,8 +63,13 @@ const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e)
 /** String-only basename: this runs in the renderer. */
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 
-function scanFailure({ relativePath, kind, message }: ScanError): GateFailure {
-  return { relativePath, reason: kind === "folder" ? "folderUnreadable" : "linkUnreadable", message };
+/** The scan names the sheet folder itself `.`; the list names it by its path. */
+function scanFailure(root: string, { relativePath, kind, message }: ScanError): GateFailure {
+  return {
+    relativePath: relativePath === "." ? root : relativePath,
+    reason: kind === "folder" ? "folderUnreadable" : "linkUnreadable",
+    message,
+  };
 }
 
 function fileFailure(c: MigrationCandidate, reason: GateFailureReason, message?: string): GateFailure {
@@ -172,11 +177,11 @@ export class MigrationGate {
       scan = await this.untilCancelled(deps.scan(root));
     } catch (e) {
       // A failed scan never counts as "nothing found".
-      failures.push({ relativePath: ".", reason: "folderUnreadable", message: errorMessage(e) });
+      failures.push({ relativePath: root, reason: "folderUnreadable", message: errorMessage(e) });
       return failedResult("check", 0, 0, null);
     }
     if (scan === CANCELLED) return { status: "cancelled" };
-    failures.push(...scan.errors.map(scanFailure));
+    failures.push(...scan.errors.map((error) => scanFailure(root, error)));
 
     // Pass 1: every file, also after failures; nothing is written.
     const { candidates } = scan;

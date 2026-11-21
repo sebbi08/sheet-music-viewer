@@ -9,9 +9,15 @@ export function endSentence(message: string): string {
   return message.endsWith(".") ? message : `${message}.`;
 }
 
-/** `<lead>: <message>.`, or `<lead>.` without a message. */
+/** `message`, or undefined if it is missing, empty or only whitespace. */
+export function presentMessage(message: string | undefined): string | undefined {
+  return message === undefined || message.trim() === "" ? undefined : message;
+}
+
+/** `<lead>: <message>.`, or `<lead>.` without a message (an empty or blank one counts as none). */
 export function withDetail(lead: string, message: string | undefined): string {
-  return message === undefined ? `${lead}.` : `${lead}: ${endSentence(message)}`;
+  const detail = presentMessage(message);
+  return detail === undefined ? `${lead}.` : `${lead}: ${endSentence(detail)}`;
 }
 
 /** Why markup cannot be saved into a PDF, and what to do about it. */

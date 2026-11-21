@@ -42,6 +42,15 @@ describe("writeBlockTexts", () => {
     );
   });
 
+  test("an empty or blank message counts as none", () => {
+    expect(writeBlockText({ reason: "unparseable", message: "" })).toBe(
+      "Die PDF kann nicht gelesen werden. Bitte mit einem anderen Programm neu speichern.",
+    );
+    expect(writeBlockText({ reason: "structure", message: " \n" })).toBe(
+      "In diese PDF kann die App nicht schreiben. Bitte mit einem anderen Programm neu speichern.",
+    );
+  });
+
   test("constants", () => {
     expect(WRITE_BLOCK_TITLE).toBe("Keine Markierungen möglich");
     expect(WRITE_BLOCK_READABLE).toBe("Die Noten lassen sich trotzdem anzeigen.");
@@ -82,6 +91,9 @@ describe("writeBlockTexts", () => {
         `Markierungen in „a.pdf“ konnten nicht gespeichert werden: Kein Platz. ${RETRY}`,
       );
       expect(saveFailedText("a.pdf", { reason: "other" })).toBe(`Markierungen in „a.pdf“ konnten nicht gespeichert werden. ${RETRY}`);
+      expect(saveFailedText("a.pdf", { reason: "other", message: "" })).toBe(
+        `Markierungen in „a.pdf“ konnten nicht gespeichert werden. ${RETRY}`,
+      );
     });
   });
 });
