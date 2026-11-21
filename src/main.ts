@@ -16,7 +16,7 @@ const isDevelopment = !app.isPackaged;
 if (startup) {
   app.quit();
 } else if (!app.requestSingleInstanceLock()) {
-  // One instance per profile (userData): a second one would run a second bulk migration on the same
+  // One instance per profile (userData): a second one would run a second migration gate on the same
   // files. The running instance comes to the front instead (see "second-instance" below).
   app.quit();
 } else {

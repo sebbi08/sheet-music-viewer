@@ -62,7 +62,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   Written atomically (temp file, read-back verification, rename; retried ~3 s while Windows reports
   the file as locked).
 - Our stamps belong to an **OCG** ("Sheet Music Viewer – Markierungen"); the app hides it in pdf.js and
-  draws the markup with fabric instead, other viewers show and print the stamp.
+  draws the markup with fabric instead only when it could read the markup data (for an encrypted or
+  unreadable PDF the stamps stay visible); other viewers show and print the stamp.
 - Markup is stored **only in the PDF** (spec: `docs/superpowers/specs/2026-11-20-strict-markup-migration-design.md`).
   A PDF that cannot be written (encrypted, unparseable, read-only, a structure the writer cannot update,
   still locked after the retries) is a save **error** with a reason; the PDF stays byte-identical and no
@@ -88,10 +89,11 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   backup migrates nothing. **Pass 2** writes each PDF (read-back), then deletes its `.data` (a `.data`
   without markup, or one the PDF already holds, is only deleted). Any failure shows the full list
   (relative path, cause, what to do) with "Erneut prüfen", "Anderen Notenordner wählen" and "Schließen";
-  "Abbrechen" during a run closes the app. A run without any failure marks the folder in
-  **`markup-migrated-folders.json`** in the Electron profile (userData); `.data` files in a marked folder
-  are ignored from then on. A single-instance lock (per userData, `src/main.ts`) keeps a second start from
-  running a second gate; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the app
+  "Abbrechen" during a run closes the app. A cancelled run that leaves the app open (its close was
+  cancelled) shows "Die Übernahme wurde abgebrochen. …" with the same three buttons. A run without any
+  failure marks the folder in **`markup-migrated-folders.json`** in the Electron profile (userData);
+  `.data` files in a marked folder are ignored from then on. A single-instance lock (per userData,
+  `src/main.ts`) keeps a second start from running a second gate; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the app
   treat every folder as migrated, so the gate is skipped and `.data` files are ignored; it is honoured
   only together with `IS_TEST=1` (tests only: the visual driver sets both, the first unless
   `bulkMigration: true`).
@@ -100,8 +102,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   through the gate (no `.data` left, one backup zip with the original bytes, embedded pages, folder
   marked, no dialog on the second start) and prepared failures among the corpus (all listed, nothing
   changed, passes once fixed), plus a read-only folder; `migrationGate.visual.ts` checks the gate's
-  flow on synthetic folders (failure list, "Erneut prüfen", folder change, "Abbrechen", no corpus
-  needed); `writeBlock.visual.ts` checks the check on open (dialog on every open, pencil off, markup
+  flow on synthetic folders (failure list, "Erneut prüfen", folder change, also during a run, reload,
+  "Abbrechen", no corpus needed); `writeBlock.visual.ts` checks the check on open (dialog on every open, pencil off, markup
   already in the PDF stays visible, a `.data` next to a PDF is ignored); `singleInstance.visual.ts`
   checks the single-instance lock.
 

@@ -244,6 +244,9 @@ Sperrendes Fenster, kein Weg in die App:
   den gewählten Ordner läuft die Schranke. Wird die Auswahl abgebrochen, bleibt die Liste stehen.
 - **Erneut prüfen** *(Entscheidung Claude)* startet die Schranke für denselben Ordner neu, ohne dass die
   App neu gestartet werden muss. So bleibt die Liste sichtbar, während der Nutzer die Dateien behebt.
+- Bleibt die App nach einem abgebrochenen Durchlauf offen (das Schließen wurde abgebrochen), zeigt das
+  Fenster statt der Liste „Die Übernahme wurde abgebrochen. Die Markierungen sind noch nicht vollständig
+  übernommen.“ mit denselben drei Knöpfen.
 
 ### 7. Prüfung beim Öffnen eines Blatts
 
