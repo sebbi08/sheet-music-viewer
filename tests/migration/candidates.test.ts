@@ -165,6 +165,46 @@ describe("scanMigrationCandidates", () => {
     expect(await rels()).toEqual([]);
   });
 
+  it("a failing realpath alone is no error: the candidates are still found by their resolved path", async () => {
+    put("a.pdf");
+    put(".a.data");
+    put("sub/b.pdf");
+    put("sub/.b.data");
+    const realpath = vi
+      .spyOn(fs.promises, "realpath")
+      .mockRejectedValue(Object.assign(new Error("EISDIR: illegal operation on a directory, realpath"), { code: "EISDIR" }));
+    try {
+      const result = await scan();
+      expect(result.candidates.map((c) => c.relativePath)).toEqual(["a.pdf", "sub/b.pdf"]);
+      expect(result.errors).toEqual([]);
+      expect(realpath).toHaveBeenCalled();
+    } finally {
+      realpath.mockRestore();
+    }
+  });
+
+  it("a pdf reached directly and through a link, each with its own sidecar, is a candidate on both ways", async () => {
+    put("a.pdf");
+    put(".a.data");
+    fs.mkdirSync(path.join(root, "sub"));
+    fs.symlinkSync(path.join("..", "a.pdf"), path.join(root, "sub", "link.pdf"));
+    put("sub/.link.data");
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["a.pdf", "sub/link.pdf"]);
+    expect(result.candidates[1].sidecarPath).toBe(path.join(root, "sub", ".link.data"));
+    expect(result.errors).toEqual([]);
+  });
+
+  it("a pdf reached twice whose sidecars are the same real file is a candidate once", async () => {
+    put("a.pdf");
+    put(".a.data");
+    fs.symlinkSync("a.pdf", path.join(root, "b.pdf"));
+    fs.symlinkSync(".a.data", path.join(root, ".b.data"));
+    const result = await scan();
+    expect(result.candidates.map((c) => c.relativePath)).toEqual(["a.pdf"]);
+    expect(result.errors).toEqual([]);
+  });
+
   it("a root that cannot be listed is an error with relativePath '.'", async () => {
     const result = await scanMigrationCandidates(path.join(base, "missing"));
     expect(result.candidates).toEqual([]);
