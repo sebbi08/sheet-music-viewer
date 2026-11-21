@@ -132,10 +132,11 @@ describe("createBackupZip", () => {
     expect(leftovers()).toEqual([]);
   });
 
-  it("a file that vanished fails the whole backup and every unreadable path is named", async () => {
+  it("a pdf that vanished fails the whole backup and every unreadable path is named", async () => {
     put("a.pdf", "A");
     put(".a.data", "d");
     put(".gone.data", "d");
+    put(".lost.data", "d");
     const r = await createBackupZip(
       root,
       [cand("gone.pdf", ".gone.data"), cand("a.pdf", ".a.data"), cand("lost.pdf", ".lost.data")],
@@ -146,6 +147,38 @@ describe("createBackupZip", () => {
     expect(r.message).toContain("gone.pdf");
     expect(r.message).toContain("lost.pdf");
     expect(r.message).toMatch(/ENOENT/);
+    expect(leftovers()).toEqual([]);
+  });
+
+  it("a candidate whose sidecar vanished before the backup is left out; the others are backed up", async () => {
+    put("a.pdf", "A");
+    put(".a.data", "a-data");
+    put("b.pdf", "B");
+    put(".b.data", "b-data");
+    put("sub/c.pdf", "C");
+    put("sub/.c.data", "c-data");
+    const candidates = [cand("a.pdf", ".a.data"), cand("b.pdf", ".b.data"), cand("sub/c.pdf", ".c.data")];
+    fs.rmSync(path.join(root, ".b.data")); // e.g. another machine's deletion synced in after pass 1
+    const r = await createBackupZip(root, candidates, { now: NOW });
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok" || !r.zipPath) throw new Error("no zip");
+    expect(r.included.map((c) => c.relativePath)).toEqual(["a.pdf", "sub/c.pdf"]);
+    const entries = await readZip(r.zipPath);
+    expect(Object.fromEntries(entries.map((e) => [e.name, e.data.toString()]))).toEqual({
+      "a.pdf": "A",
+      ".a.data": "a-data",
+      "sub/c.pdf": "C",
+      "sub/.c.data": "c-data",
+    });
+    const expected = entries.map((e) => ({ name: e.name, size: e.data.length, crc: crc32(e.data) }));
+    await expect(verifyBackupZip(r.zipPath, expected)).resolves.toBeUndefined();
+    expect(leftovers()).toEqual(["Markierungen-Backup 2026-11-16 10-15.zip"]);
+  });
+
+  it("only sidecars that vanished: ok without a zip", async () => {
+    put("a.pdf", "A");
+    const r = await createBackupZip(root, [cand("a.pdf", ".a.data")], { now: NOW });
+    expect(r).toEqual({ status: "ok", zipPath: null, included: [] });
     expect(leftovers()).toEqual([]);
   });
 

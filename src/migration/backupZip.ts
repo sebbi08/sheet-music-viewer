@@ -9,8 +9,10 @@ import { retryWhileLocked } from "../pdfMarkup/markupFile";
 import type { MigrationCandidate } from "./types";
 
 /**
- * `ok` holds every candidate (`zipPath` null only without candidates). A candidate that cannot be read
- * makes the whole backup an `error` that names its relative path: nothing may be migrated unsaved.
+ * `ok` holds every candidate whose sidecar still exists (`zipPath` null only without such candidates); a
+ * candidate whose sidecar is gone (ENOENT) is no candidate any more and is left out (not in `included`).
+ * Any other candidate that cannot be read makes the whole backup an `error` that names its relative path:
+ * nothing may be migrated unsaved.
  */
 export type BackupResult =
   | { status: "ok"; zipPath: string | null; included: MigrationCandidate[] }
@@ -237,9 +239,16 @@ export async function createBackupZip(
     const sized: { candidate: MigrationCandidate; pdfStat: fs.Stats; sidecarStat: fs.Stats }[] = [];
     const unreadable: { candidate: MigrationCandidate; message: string }[] = [];
     for (const candidate of candidates) {
+      let sidecarStat: fs.Stats;
+      try {
+        sidecarStat = await fs.promises.stat(candidate.sidecarPath);
+      } catch (e) {
+        // Gone since the check (e.g. another machine's deletion synced in): like pass 2, no candidate any more.
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") unreadable.push({ candidate, message: messageOf(e) });
+        continue;
+      }
       try {
         const pdfStat = await fs.promises.stat(candidate.pdfPath);
-        const sidecarStat = await fs.promises.stat(candidate.sidecarPath);
         sized.push({ candidate, pdfStat, sidecarStat });
       } catch (e) {
         unreadable.push({ candidate, message: messageOf(e) });
