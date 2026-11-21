@@ -11,7 +11,7 @@ import { type AppUnderTest, currentApp, openSheet, type SheetSession } from "./e
 /**
  * The check on open (spec 2026-11-20) end to end, headless, on synthetic folders below
  * test-results/visual/work/ (no corpus needed): a PDF that cannot take markup shows why on every open,
- * stays readable and keeps editing off; the viewer neither shows nor touches a legacy `.data` file.
+ * stays readable and keeps editing off; the viewer neither shows nor touches a `.data` file (old or v1 format).
  * The driver's default `SMV_DISABLE_BULK_MIGRATION=1` lets every folder count as migrated.
  */
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
@@ -28,6 +28,11 @@ const canMakeReadOnly = process.getuid?.() !== 0 && process.platform !== "win32"
 /** A legacy `.data` file (old app) with one rectangle on page 1. */
 const rect = { type: "rect", left: 100, top: 200, width: 50, height: 40, angle: 0, scaleX: 1, scaleY: 1, fill: "red" };
 const LEGACY_DATA = JSON.stringify([{ page: 1, data: { version: "7", objects: [rect] }, drawWidth: 300, drawHeight: 400 }]);
+/** The same rectangle in a v1 `.data` file (the sidecar fallback of earlier test builds, `sidecarV1Schema`). */
+const V1_DATA = JSON.stringify({
+  version: 1,
+  pages: [{ page: 1, payload: { version: 1, width: 595, height: 842, fabric: { version: "7", objects: [rect] } } }],
+});
 
 let app: AppUnderTest;
 let pdfBytes: Uint8Array;
@@ -137,29 +142,38 @@ test("an encrypted PDF: dialog with the encrypted text, the page is rendered", {
   expect(session.networkRequests()).toEqual([]);
 });
 
-test("a .data next to a PDF is neither shown nor touched; an edit goes into the PDF", { timeout: 5 * 60_000 }, async () => {
-  const folder = newFolder();
-  const pdf = path.join(folder, "a.pdf");
-  fs.writeFileSync(pdf, pdfBytes);
-  const dataFile = getSidecarPath(pdf);
-  fs.writeFileSync(dataFile, LEGACY_DATA);
-  const legacyBytes = fs.readFileSync(dataFile);
+test.each([
+  ["old", LEGACY_DATA],
+  ["v1", V1_DATA],
+])(
+  "a .data in the %s format next to a PDF is neither shown nor touched; an edit goes into the PDF",
+  { timeout: 5 * 60_000 },
+  async (_format, data) => {
+    const folder = newFolder();
+    const pdf = path.join(folder, "a.pdf");
+    fs.writeFileSync(pdf, pdfBytes);
+    const dataFile = getSidecarPath(pdf);
+    fs.writeFileSync(dataFile, data);
+    const legacyBytes = fs.readFileSync(dataFile);
 
-  const session = await open(folder, "a.pdf");
-  expect(await session.writeBlockText(), "dialog").toBeNull();
-  expect(await session.markupLayerCount(), "markup layers").toBe(0);
-  expect(await session.editButtonEnabled(), "edit button").toBe(true);
+    const session = await open(folder, "a.pdf");
+    expect(await session.writeBlockText(), "dialog").toBeNull();
+    expect(await session.markupLayerCount(), "markup layers").toBe(0);
+    expect(await session.editButtonEnabled(), "edit button").toBe(true);
 
-  await session.toggleEdit();
-  await session.addText("into the PDF");
-  await session.toggleEdit();
-  await waitUntil("save into the PDF", async () => (await embeddedMarkup(pdf)).length > 0);
+    await session.toggleEdit();
+    await session.addText("into the PDF");
+    await session.toggleEdit();
+    await waitUntil("save into the PDF", async () => (await embeddedMarkup(pdf)).length > 0);
 
-  const pages = await embeddedMarkup(pdf);
-  expect(pages.map((p) => p.page)).toEqual([1]);
-  // Only the new text: the rectangle of the `.data` file was never taken over.
-  const objects = pages[0].payload.fabric.objects as { type?: string; text?: string }[];
-  expect(objects.map((o) => o.text)).toEqual(["into the PDF"]);
-  expect(fs.readFileSync(dataFile).equals(legacyBytes), ".data bytes unchanged").toBe(true);
-  expect(session.networkRequests()).toEqual([]);
-});
+    const pages = await embeddedMarkup(pdf);
+    expect(pages.map((p) => p.page)).toEqual([1]);
+    // Only the new text: the rectangle of the `.data` file was never taken over.
+    const objects = pages[0].payload.fabric.objects as { type?: string; text?: string }[];
+    expect(objects.map((o) => o.text)).toEqual(["into the PDF"]);
+    expect(fs.readFileSync(dataFile).equals(legacyBytes), ".data bytes unchanged").toBe(true);
+    const markupFiles = fs.readdirSync(folder).filter((f) => f.endsWith(".data") || f.includes("smv-tmp"));
+    expect(markupFiles, ".data and temp files in the folder").toEqual([".a.data"]);
+    expect(session.networkRequests()).toEqual([]);
+  },
+);

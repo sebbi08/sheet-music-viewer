@@ -28,8 +28,15 @@ describe("pdfPathSchema (tRPC inputs of loadMarkup/saveMarkup)", () => {
   });
 
   test("saveMarkup input rejects a relative path", () => {
-    expect(saveMarkupInputSchema.safeParse({ path: "a.pdf", pages: [], deleteLegacySidecar: false }).success).toBe(false);
-    expect(saveMarkupInputSchema.safeParse({ path: "/a.pdf", pages: [], deleteLegacySidecar: false }).success).toBe(true);
+    expect(saveMarkupInputSchema.safeParse({ path: "a.pdf", pages: [] }).success).toBe(false);
+    expect(saveMarkupInputSchema.safeParse({ path: "/a.pdf", pages: [] }).success).toBe(true);
+  });
+
+  test("saveMarkup input is only the path and the pages (no switch for a sidecar)", () => {
+    expect(saveMarkupInputSchema.parse({ path: "/a.pdf", pages: [], deleteLegacySidecar: true })).toEqual({
+      path: "/a.pdf",
+      pages: [],
+    });
   });
 });
 

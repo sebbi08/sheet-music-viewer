@@ -63,7 +63,7 @@ describe("MarkupSaveQueue", () => {
     expect(queue.hasPending(A)).toBe(true);
     await queue.flush();
     expect(backend.calls).toEqual([
-      { path: A, pages: [{ page: 2, payload: payload(2), pngBase64: "png-2" }], deleteLegacySidecar: false },
+      { path: A, pages: [{ page: 2, payload: payload(2), pngBase64: "png-2" }] },
     ]);
     expect(queue.hasPending()).toBe(false);
     expect(events).toEqual([{ type: "saved", path: A, status: "pdf", afterFailure: false }]);
@@ -183,18 +183,6 @@ describe("MarkupSaveQueue", () => {
     expect(backend.calls).toHaveLength(2);
   });
 
-  test("the legacy sidecar may be deleted with the next save only, and only until it succeeded", async () => {
-    backend.answerWith({ status: "error", message: "locked" });
-    queue.allowLegacyDelete(A);
-    queue.setPage(A, 1, entry(1));
-    await queue.flush();
-    backend.answerWith({ status: "pdf" });
-    await queue.flush();
-    queue.setPage(A, 2, entry(2));
-    await queue.flush();
-    expect(backend.calls.map((c) => c.deleteLegacySidecar)).toEqual([true, true, false]);
-  });
-
   test("setPages sends several pages in one save", async () => {
     queue.setPages(A, [
       [3, entry(3)],
@@ -203,115 +191,6 @@ describe("MarkupSaveQueue", () => {
     await queue.flush();
     expect(backend.calls).toHaveLength(1);
     expect(backend.calls[0].pages.map((p) => p.page)).toEqual([1, 3]);
-  });
-
-  test("sidecar status is reported", async () => {
-    backend.answerWith({ status: "sidecar" });
-    queue.setPage(A, 1, entry(1));
-    await queue.flush();
-    expect(events).toEqual([{ type: "saved", path: A, status: "sidecar", afterFailure: false }]);
-  });
-
-  describe("after a save went to the sidecar (B1)", () => {
-    const sentPages = (call: SaveMarkupInput) => call.pages.map((p) => [p.page, p.pngBase64]);
-
-    test("the next save carries every page in the sidecar, with deleteLegacySidecar, until a PDF save", async () => {
-      backend.answerWith({ status: "sidecar" });
-      queue.setPage(A, 1, entry(1));
-      await queue.flush();
-      backend.answerWith({ status: "pdf" });
-      queue.setPage(A, 2, entry(2));
-      await queue.flush();
-      queue.setPage(A, 3, entry(3));
-      await queue.flush();
-      expect(backend.calls.map((c) => [sentPages(c), c.deleteLegacySidecar])).toEqual([
-        [[[1, "png-1"]], false],
-        [
-          [
-            [1, "png-1"],
-            [2, "png-2"],
-          ],
-          true,
-        ],
-        [[[3, "png-3"]], false],
-      ]);
-      expect(queue.hasPending()).toBe(false);
-    });
-
-    test("pages are merged as in the sidecar file: a removed page is no longer carried", async () => {
-      backend.answerWith({ status: "sidecar" });
-      queue.setPages(A, [
-        [1, entry(1)],
-        [2, entry(2)],
-      ]);
-      await queue.flush();
-      queue.setPage(A, 1, null);
-      queue.setPage(A, 2, entry(20));
-      await queue.flush();
-      backend.answerWith({ status: "pdf" });
-      queue.setPage(A, 3, entry(3));
-      await queue.flush();
-      expect(backend.calls.map((c) => [sentPages(c), c.deleteLegacySidecar])).toEqual([
-        [
-          [
-            [1, "png-1"],
-            [2, "png-2"],
-          ],
-          false,
-        ],
-        [
-          [
-            [1, null],
-            [2, "png-20"],
-          ],
-          true,
-        ],
-        [
-          [
-            [2, "png-20"],
-            [3, "png-3"],
-          ],
-          true,
-        ],
-      ]);
-    });
-
-    test("a failed or again-sidecar save keeps carrying the sidecar pages; pending changes win", async () => {
-      backend.answerWith({ status: "sidecar" });
-      queue.setPage(A, 1, entry(1));
-      await queue.flush();
-      backend.answerWith({ status: "error", message: "EIO" });
-      queue.setPage(A, 1, entry(10));
-      await queue.flush();
-      backend.answerWith({ status: "sidecar" });
-      await queue.flush();
-      backend.answerWith({ status: "pdf" });
-      queue.setPage(A, 2, entry(2));
-      await queue.flush();
-      expect(backend.calls.map((c) => [sentPages(c), c.deleteLegacySidecar])).toEqual([
-        [[[1, "png-1"]], false],
-        [[[1, "png-10"]], true],
-        [[[1, "png-10"]], true],
-        [
-          [
-            [1, "png-10"],
-            [2, "png-2"],
-          ],
-          true,
-        ],
-      ]);
-    });
-
-    test("discarding pending changes keeps the sidecar pages (they are saved)", async () => {
-      backend.answerWith({ status: "sidecar" });
-      queue.setPage(A, 1, entry(1));
-      await queue.flush();
-      queue.discard();
-      backend.answerWith({ status: "pdf" });
-      queue.setPage(A, 2, entry(2));
-      await queue.flush();
-      expect(backend.calls.at(-1)?.pages.map((p) => p.page)).toEqual([1, 2]);
-    });
   });
 
   test("discard drops pending changes (all or one sheet)", async () => {

@@ -36,12 +36,11 @@ export interface WriteBlock {
   message?: string;
 }
 
+/** Markup of a PDF, read from the PDF only (a `.data` file next to it is never read). */
 export interface LoadMarkupResult {
-  source: "pdf" | "sidecar" | "none";
+  /** `pdf`: the PDF has our embedded data; `none`: it has none, or its data cannot be read (`writeBlock`). */
+  source: "pdf" | "none";
   pages: LoadedMarkupPage[];
-  legacyOverlayData: string | null;
-  /** Why the PDF's own markup cannot be read (`null`: the PDF is parseable and not encrypted). */
-  pdfIssue: "encrypted" | "unparseable" | null;
   /** Why markup cannot be saved into this PDF (`null`: it can), determined before any repair. */
   writeBlock: WriteBlock | null;
 }
@@ -65,16 +64,16 @@ export const saveMarkupInputSchema = z.object({
       pngBase64: z.string().nullable(),
     }),
   ),
-  deleteLegacySidecar: z.boolean(),
 });
 export type SaveMarkupInput = z.infer<typeof saveMarkupInputSchema>;
 
 export type SaveFailureReason = "locked" | "readOnly" | "encrypted" | "unparseable" | "structure" | "other";
 
+/** Markup is saved into the PDF only: `pdf` = saved; `error` = not saved, the PDF is unchanged. */
 export interface SaveMarkupResult {
-  status: "pdf" | "sidecar" | "error";
+  status: "pdf" | "error";
   message?: string;
-  /** Set for `sidecar` (why the PDF was not written) and `error`. */
+  /** Set for `error`. */
   reason?: SaveFailureReason;
 }
 
