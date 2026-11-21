@@ -6,14 +6,17 @@
  * Framework-free (no Vue, no DOM): the renderer wraps it in a Pinia store (`src/store/markupSaves.ts`), the
  * logic is unit-tested in Node.
  */
-import type { MarkupPayload, Rect, SaveMarkupInput, SaveMarkupResult } from "../models/markup";
+import type { MarkupPayload, Rect, SaveFailureReason, SaveMarkupInput, SaveMarkupResult } from "../models/markup";
 
 /** What a page shows after the save; `null` = no markup (our stamp is removed). */
 export type PageState = { rect: Rect | null; payload: MarkupPayload } | null;
 
 export type SaveEvent =
-  /** `firstFailure`: the sheet was saved fine (or never tried) before this failure. */
-  | { type: "failed"; path: string; message: string; firstFailure: boolean }
+  /**
+   * `reason` and `message` of the failed save (no reason: the save itself threw, e.g. the IPC failed).
+   * `firstFailure`: the sheet was saved fine (or never tried) before this failure.
+   */
+  | { type: "failed"; path: string; reason?: SaveFailureReason; message?: string; firstFailure: boolean }
   /** `afterFailure`: earlier attempts for this sheet had failed. Markup is saved into the PDF only. */
   | { type: "saved"; path: string; status: "pdf"; afterFailure: boolean };
 
@@ -159,7 +162,7 @@ export class MarkupSaveQueue {
       // The pages stay pending: retried by the timer, with the next save and when the sheet is reopened.
       const firstFailure = !sheet.failing;
       sheet.failing = true;
-      this.emit({ type: "failed", path: sheet.path, message: result.message ?? "unknown error", firstFailure });
+      this.emit({ type: "failed", path: sheet.path, reason: result.reason, message: result.message, firstFailure });
     } else {
       for (const [page, state] of sent) {
         // A page changed again while saving stays pending.

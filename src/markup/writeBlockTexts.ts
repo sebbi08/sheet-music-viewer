@@ -1,4 +1,4 @@
-import type { WriteBlock } from "../models/markup";
+import type { SaveFailureReason, WriteBlock } from "../models/markup";
 
 export const WRITE_BLOCK_TITLE = "Keine Markierungen möglich";
 export const WRITE_BLOCK_READABLE = "Die Noten lassen sich trotzdem anzeigen.";
@@ -25,5 +25,24 @@ export function writeBlockText(block: WriteBlock): string {
       return withDetail("Die PDF kann nicht gelesen werden", block.message);
     case "structure":
       return `${withDetail("In diese PDF kann die App nicht schreiben", block.message)} Bitte mit einem anderen Programm neu speichern.`;
+  }
+}
+
+const SAVE_RETRY = "Sie bleiben erhalten; es wird alle 30 Sekunden und beim nächsten Speichern erneut versucht.";
+
+/** The notice for a failed save of the markup in `fileName`, by the save's reason (none: the save threw). */
+export function saveFailedText(fileName: string, { reason, message }: { reason?: SaveFailureReason; message?: string }): string {
+  const lead = `Markierungen in „${fileName}“ konnten nicht gespeichert werden`;
+  switch (reason) {
+    case undefined:
+    case "locked":
+      return `${lead} (ist die PDF in einem anderen Programm geöffnet?). ${SAVE_RETRY}`;
+    case "encrypted":
+    case "unparseable":
+    case "readOnly":
+    case "structure":
+      return `${lead}: ${writeBlockText({ reason, message })} ${SAVE_RETRY}`;
+    case "other":
+      return `${withDetail(lead, message)} ${SAVE_RETRY}`;
   }
 }

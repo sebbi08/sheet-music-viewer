@@ -3,15 +3,13 @@ import { markRaw } from "vue";
 import { renderMarkupPng } from "../markup/renderPng";
 import { createCloseGuard } from "../markup/closeGuard";
 import { MarkupSaveQueue, type SaveEvent } from "../markup/saveQueue";
+import { saveFailedText } from "../markup/writeBlockTexts";
 import { client } from "../trcpClient";
 import { useBulkMigration } from "./bulkMigration";
 import { useNotices } from "./notices";
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
-const saveFailedText = (path: string) =>
-  `Markierungen in „${fileName(path)}“ konnten nicht gespeichert werden (ist die PDF in einem anderen Programm geöffnet?). ` +
-  "Sie bleiben erhalten; es wird alle 30 Sekunden und beim nächsten Speichern erneut versucht.";
 const savedLaterText = (path: string) => `Markierungen in „${fileName(path)}“ wurden jetzt gespeichert.`;
 
 /** Paths are case-insensitive on Windows (the preload exposes Node's path separator). */
@@ -27,8 +25,8 @@ export const useMarkupSaves = defineStore("markupSaves", () => {
 
   function onEvent(event: SaveEvent): void {
     if (event.type === "failed") {
-      console.warn(`Could not save markup of ${event.path}:`, event.message);
-      if (event.firstFailure) notices.show(saveFailedText(event.path));
+      console.warn(`Could not save markup of ${event.path} (${event.reason ?? "no reason"}):`, event.message);
+      if (event.firstFailure) notices.show(saveFailedText(fileName(event.path), event));
       return;
     }
     if (event.afterFailure) notices.show(savedLaterText(event.path));

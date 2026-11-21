@@ -91,6 +91,16 @@ describe("MarkupSaveQueue", () => {
     ]);
   });
 
+  test("the failed event carries the save's reason and message", async () => {
+    backend.answerWith({ status: "error", reason: "readOnly", message: "EACCES: permission denied" });
+    queue.setPage(A, 1, entry(1));
+    await queue.flush();
+    expect(events).toEqual([
+      { type: "failed", path: A, reason: "readOnly", message: "EACCES: permission denied", firstFailure: true },
+    ]);
+    expect(events[0]).toHaveProperty("reason", "readOnly");
+  });
+
   test("a throwing save or PNG rendering counts as a failure, never rejects", async () => {
     backend.save.mockRejectedValueOnce(new Error("IPC gone"));
     queue.setPage(A, 1, entry(1));
