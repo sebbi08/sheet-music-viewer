@@ -1,8 +1,8 @@
 <template>
-  <!-- Blocks the app while the gate runs or has failed: no closing by Escape or a click next to it. -->
+  <!-- Blocks the app while the gate runs, has failed or was cancelled: no closing by Escape or a click next to it. -->
   <v-dialog :model-value="visible" persistent no-click-animation max-width="640" scrollable>
     <v-card data-testid="migration-dialog">
-      <v-card-title class="migration-title">{{ failed ? FAILED_TITLE : DIALOG_TITLE }}</v-card-title>
+      <v-card-title class="migration-title">{{ stopped ? FAILED_TITLE : DIALOG_TITLE }}</v-card-title>
 
       <v-card-text v-if="phase.phase === 'scanning'" data-testid="migration-progress">
         <p class="mb-2">{{ SCAN_TEXT }}</p>
@@ -39,12 +39,16 @@
         </ul>
       </v-card-text>
 
+      <v-card-text v-else-if="phase.phase === 'cancelled'" data-testid="migration-cancelled">
+        <p>{{ CANCELLED_TEXT }}</p>
+      </v-card-text>
+
       <v-card-actions class="actions">
         <v-spacer></v-spacer>
         <v-btn v-if="summary" data-testid="migration-ok" color="primary" @click="bulkMigration.dismiss()">
           {{ OK_BUTTON }}
         </v-btn>
-        <template v-else-if="failed">
+        <template v-else-if="stopped">
           <v-btn data-testid="migration-recheck" color="primary" @click="bulkMigration.recheck()">
             {{ RECHECK_BUTTON }}
           </v-btn>
@@ -70,6 +74,7 @@ import {
   BACKUP_PHASE_TEXT,
   backupLine,
   CANCEL_BUTTON,
+  CANCELLED_TEXT,
   CHECK_TEXT,
   CHOOSE_FOLDER_BUTTON,
   CLOSE_BUTTON,
@@ -95,6 +100,8 @@ const files = computed(() => (phase.value.phase === "checking" || phase.value.ph
 const backup = computed(() => (phase.value.phase === "backup" ? phase.value : null));
 const summary = computed(() => (phase.value.phase === "done" ? phase.value.summary : null));
 const failed = computed(() => (phase.value.phase === "failed" ? phase.value.result : null));
+/** Failure list or cancelled run: the gate is shut and the user chooses how to go on. */
+const stopped = computed(() => failed.value !== null || phase.value.phase === "cancelled");
 
 const visible = ref(false);
 let showTimer: ReturnType<typeof setTimeout> | undefined;

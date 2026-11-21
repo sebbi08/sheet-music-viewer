@@ -49,7 +49,7 @@ afterEach(async () => {
     }
   }
   if (errors.length > 0) throw errors[0];
-});
+}, 3 * 60_000); // closing an app the close guard holds up may take the driver's full close timeout
 
 const isBelow = (dir: string, file: string) => {
   const rel = path.relative(dir, file);
@@ -301,6 +301,71 @@ test("Abbrechen during the check closes the app and changes nothing", { timeout:
   await launched.page.getByTestId("migration-progress").filter({ hasText: "von 300" }).waitFor({ timeout: 120_000 });
   await launched.page.getByTestId("migration-cancel").click();
   expect(await launched.waitForExit(30_000), "app ended by Abbrechen").toBe(true);
+  expect(snapshot(folder)).toEqual(before);
+  expect(zipsIn(folder)).toEqual([]);
+  expect(migratedFolders(profile)).toEqual([]);
+});
+
+test("Abbrechen whose close is cancelled keeps a window with the three choices", { timeout: 10 * 60_000 }, async () => {
+  const folder = newFolder();
+  const profile = newProfile();
+  for (let i = 1; i <= 300; i++) addPdf(folder, `p${String(i).padStart(3, "0")}.pdf`);
+  const before = snapshot(folder);
+
+  const launched = await start(folder, profile);
+  const { page, electronApp } = launched;
+  await page.getByTestId("migration-progress").filter({ hasText: "von 300" }).waitFor({ timeout: 120_000 });
+  // The close that "Abbrechen" starts is kept from happening the real way: the markup queue reports
+  // unsaved changes it cannot save, so the close guard asks main, and main's dialog answers "Abbrechen".
+  // Only the queue's whole-queue view is faked: the gate's per-file check is not affected.
+  await page.evaluate(() => {
+    const vueApp = (document.querySelector("#app") as unknown as {
+      __vue_app__: { config: { globalProperties: { $pinia: { _s: Map<string, { queue: object }> } } } };
+    }).__vue_app__;
+    const queue = vueApp.config.globalProperties.$pinia._s.get("markupSaves")?.queue as
+      | { flush: () => Promise<boolean>; hasPending: (path?: string) => boolean }
+      | undefined;
+    if (!queue) throw new Error("markupSaves store not found");
+    const original = { flush: queue.flush.bind(queue), hasPending: queue.hasPending.bind(queue) };
+    (window as unknown as { __smvRestoreQueue: () => void }).__smvRestoreQueue = () => Object.assign(queue, original);
+    queue.hasPending = (path?: string) => (path === undefined ? true : original.hasPending(path));
+    queue.flush = async () => false;
+  });
+  // Runs before the app is closed (cleanups run in reverse), so a failed assertion cannot leave it held up.
+  const restoreQueue = () => page.evaluate(() => (window as unknown as { __smvRestoreQueue: () => void }).__smvRestoreQueue());
+  cleanups.push(() => restoreQueue().catch(() => undefined));
+  await electronApp.evaluate(({ dialog }) => {
+    const g = globalThis as { __smvMessageBoxes?: string[] };
+    g.__smvMessageBoxes = [];
+    const stub = async (...args: unknown[]) => {
+      g.__smvMessageBoxes?.push((args[args.length - 1] as { message?: string }).message ?? "");
+      return { response: 2, checkboxChecked: false }; // "Abbrechen": stay
+    };
+    Object.defineProperty(dialog, "showMessageBox", { value: stub, configurable: true, writable: true });
+  });
+
+  await page.getByTestId("migration-cancel").click();
+  const cancelled = page.getByTestId("migration-cancelled");
+  await cancelled.waitFor({ state: "visible", timeout: 60_000 });
+  expect(await electronApp.evaluate(() => (globalThis as { __smvMessageBoxes?: string[] }).__smvMessageBoxes ?? [])).toEqual([
+    "Markierungen konnten nicht gespeichert werden.",
+  ]);
+  expect(await launched.waitForExit(1000), "the close was cancelled").toBe(false);
+  expect((await cancelled.textContent())?.trim()).toBe(
+    "Die Übernahme wurde abgebrochen. Die Markierungen sind noch nicht vollständig übernommen.",
+  );
+  expect((await page.locator(".migration-title").textContent())?.trim()).toBe("Markierungen konnten nicht übernommen werden");
+  for (const id of ["migration-recheck", "migration-choose-folder", "migration-close"]) {
+    expect(await page.getByTestId(id).isVisible(), id).toBe(true);
+  }
+  expect(await page.getByTestId("migration-failure").count()).toBe(0);
+  expect(await page.evaluate(() => document.documentElement.dataset.migrationGate)).toBe("failed");
+  expect(snapshot(folder)).toEqual(before);
+
+  // Nothing unsaved any more: "Schließen" ends the app.
+  await restoreQueue();
+  await page.getByTestId("migration-close").click();
+  expect(await launched.waitForExit(30_000), "app ended by Schließen").toBe(true);
   expect(snapshot(folder)).toEqual(before);
   expect(zipsIn(folder)).toEqual([]);
   expect(migratedFolders(profile)).toEqual([]);

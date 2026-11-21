@@ -60,9 +60,15 @@ const fileDeps = (root: string, candidate: MigrationCandidate): ProcessFileDeps 
  * tRPC; `MigrationDialog.vue` shows `phase`. Started by App.vue, which opens no sheet before `isPassed`;
  * cancelled by the close guard and the update restart.
  */
+/**
+ * The gate's phases plus `cancelled`: a run ended by "Abbrechen", the close guard or the update restart.
+ * Shown until a new run starts, so the app is never gated without a window when the close does not happen.
+ */
+export type MigrationPhase = GatePhase | { phase: "cancelled" };
+
 export const useBulkMigration = defineStore("bulkMigration", () => {
   const markupSaves = useMarkupSaves();
-  const phase = shallowRef<GatePhase>({ phase: "idle" });
+  const phase = shallowRef<MigrationPhase>({ phase: "idle" });
   /** "Abbrechen" was clicked (during the write pass the current file is finished first). */
   const cancelling = shallowRef(false);
   /** Folders (as `keyOf`) whose gate passed in this session. */
@@ -99,6 +105,8 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
       await client.markMarkupFolderMigrated.mutate(root);
     },
     onPhase: (p) => {
+      // A cancelled run ends in `idle`; `run` shows `cancelled` instead, without closing the window in between.
+      if (p.phase === "idle" && cancelling.value) return;
       phase.value = p;
     },
   });
@@ -108,11 +116,19 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
     if (!gate.isRunning()) {
       cancelling.value = false;
       runRoot = root;
+      // Leaves the failure list or the cancelled state; a window already up stays up.
+      if (phase.value.phase === "failed" || phase.value.phase === "cancelled") phase.value = { phase: "scanning" };
     }
     const target = runRoot;
     try {
       const result = await gate.run(target);
-      if (result.status === "passed") passed.value = new Set([...passed.value, keyOf(target)]);
+      if (result.status === "passed") {
+        passed.value = new Set([...passed.value, keyOf(target)]);
+        // The idle a cancel raced past (see onPhase).
+        if (result.summary === null) phase.value = { phase: "idle" };
+      } else if (result.status === "cancelled") {
+        phase.value = { phase: "cancelled" };
+      }
     } catch (e) {
       console.warn("The markup migration failed", e);
       phase.value = { phase: "idle" };
@@ -122,7 +138,6 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
   /** "Erneut prüfen": the same folder again, the window stays up. */
   async function recheck(): Promise<void> {
     if (gate.isRunning() || choosingFolder || !runRoot) return;
-    phase.value = { phase: "scanning" };
     await run(runRoot);
   }
 

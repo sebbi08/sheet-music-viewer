@@ -162,10 +162,12 @@ router.beforeEach((to) => {
   if (to.name === RouteNames.SheetViewer && !bulkMigration.isPassed(store.sheetMusicFolder)) return false;
 });
 
-// For the e2e tests: "pending" until the gate passed for the current folder, "failed" while the list shows.
+// For the e2e tests: "pending" until the gate passed for the current folder, "failed" while the failure list
+// or the cancelled state shows.
 const migrationGateState = computed(() => {
   if (bulkMigration.isPassed(store.sheetMusicFolder)) return "passed";
-  return bulkMigration.phase.phase === "failed" ? "failed" : "pending";
+  const { phase } = bulkMigration.phase;
+  return phase === "failed" || phase === "cancelled" ? "failed" : "pending";
 });
 watchEffect(() => {
   document.documentElement.dataset.migrationGate = migrationGateState.value;

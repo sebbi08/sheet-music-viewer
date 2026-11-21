@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { GateFailed } from "../../src/migration/gate";
 import {
   backupLine,
+  CANCELLED_TEXT,
   CHECK_TEXT,
   CHOOSE_FOLDER_BUTTON,
   CLOSE_BUTTON,
@@ -219,5 +220,6 @@ describe("gate constants", () => {
     expect(RECHECK_BUTTON).toBe("Erneut prüfen");
     expect(CHOOSE_FOLDER_BUTTON).toBe("Anderen Notenordner wählen");
     expect(CLOSE_BUTTON).toBe("Schließen");
+    expect(CANCELLED_TEXT).toBe("Die Übernahme wurde abgebrochen. Die Markierungen sind noch nicht vollständig übernommen.");
   });
 });

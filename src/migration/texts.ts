@@ -8,6 +8,7 @@ export const CHECK_TEXT = "Dateien werden geprüft …";
 export const RECHECK_BUTTON = "Erneut prüfen";
 export const CHOOSE_FOLDER_BUTTON = "Anderen Notenordner wählen";
 export const CLOSE_BUTTON = "Schließen";
+export const CANCELLED_TEXT = "Die Übernahme wurde abgebrochen. Die Markierungen sind noch nicht vollständig übernommen.";
 
 /** `„<name>“` with a leading space, or nothing without a name. */
 const quoted = (name: string | undefined) => (name === undefined ? "" : ` „${name}“`);
