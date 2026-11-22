@@ -7,3 +7,7 @@ export const setListsUnreadableText = (file: string, message: string) =>
 /** Saving the set lists failed; a message that already ends with a period gets no second one. */
 export const setListsSaveFailedText = (message: string) =>
   `Die Setlisten konnten nicht gespeichert werden: ${message}${message.endsWith(".") ? "" : "."}`;
+
+/** A save found other set lists on disk than the ones it was based on; they were loaded again. */
+export const setListsChangedText =
+  "Die Setlisten wurden inzwischen an einem anderen PC geändert und neu geladen. Bitte die letzte Änderung wiederholen.";

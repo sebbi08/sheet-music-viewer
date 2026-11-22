@@ -108,6 +108,26 @@ describe("loadFolderConfig", () => {
     expect(readFile.mock.calls.filter(([target]) => String(target) === path.join(dir, file)).length).toBeGreaterThan(1);
   });
 
+  test.each([
+    ["does not exist", () => path.join(dir, "weg")],
+    [
+      "is a file",
+      () => {
+        fs.writeFileSync(path.join(dir, "datei"), "x");
+        return path.join(dir, "datei");
+      },
+    ],
+  ])("a sheet folder that %s -> unreadable, nothing created", async (_name, makeFolder) => {
+    const folder = makeFolder();
+    const before = fs.readdirSync(dir);
+    const unreachable = { kind: "unreadable", file: CONFIG_FILE, message: "Der Notenordner ist nicht erreichbar." };
+    expect(await loadFolderConfig(folder)).toEqual(unreachable);
+    const error = await updateFolderConfig(folder, { markupMigrated: mark }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FolderConfigUnreadableError);
+    expect(error).toMatchObject({ file: CONFIG_FILE, message: unreachable.message });
+    expect(fs.readdirSync(dir)).toEqual(before);
+  });
+
   test("a missing file is not retried", async () => {
     setLockRetryDelays([1, 1]);
     const readFile = vi.spyOn(fs.promises, "readFile");

@@ -195,3 +195,39 @@ test("a broken .config.json shows the notice and is not overwritten", async () =
   await settle();
   expect(snapshot(folder)).toEqual(before);
 });
+
+const snackbarText = (launched: LaunchedApp) =>
+  launched.page.evaluate(() => (document.querySelector(".v-snackbar .v-snackbar__content")?.textContent ?? "").trim());
+
+test("a change to set lists another PC changed meanwhile is not saved; they are loaded again", async () => {
+  const folder = makeFolder("changed");
+  fs.writeFileSync(path.join(folder, CONFIG), JSON.stringify({ version: 1, setLists: setListsWith(1, "Liste A") }));
+
+  const launched = await start(folder);
+  await navigate(launched, "SetListList");
+  await expectSetLists(launched, ["Liste A"]);
+
+  // Another PC adds a set list; the sync client writes the file while the app is open.
+  const fromOtherPc: SetListsWrapper = {
+    version: 2,
+    setLists: [...setListsWith(1, "Liste A").setLists, { id: 2, name: "Von PC 2", sheets: [] }],
+  };
+  fs.writeFileSync(path.join(folder, CONFIG), JSON.stringify({ version: 1, setLists: fromOtherPc }));
+  const before = snapshot(folder);
+
+  await addSetList(launched, "Meine");
+  await expect
+    .poll(() => snackbarText(launched), { timeout: 30_000 })
+    .toBe("Die Setlisten wurden inzwischen an einem anderen PC geändert und neu geladen. Bitte die letzte Änderung wiederholen.");
+  await expectSetLists(launched, ["Liste A", "Von PC 2"]);
+  await settle();
+  expect(snapshot(folder)).toEqual(before);
+
+  // Repeated on the reloaded set lists, the change is saved.
+  await addSetList(launched, "Meine");
+  await expect
+    .poll(() => (readJson(path.join(folder, CONFIG)) as { setLists: SetListsWrapper }).setLists.setLists.map((l) => l.name), {
+      timeout: 15_000,
+    })
+    .toEqual(["Liste A", "Von PC 2", "Meine"]);
+});

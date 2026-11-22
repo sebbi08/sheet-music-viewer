@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import type { SetListsWrapper, SheetFile } from "../models/types";
 import { client } from "../trcpClient";
 import { useNotices } from "./notices";
-import { setListsSaveFailedText, setListsUnreadableText } from "./setListTexts";
+import { setListsChangedText, setListsSaveFailedText, setListsUnreadableText } from "./setListTexts";
 
 const noSetLists = (): SetListsWrapper => ({ version: 2, setLists: [] });
 
@@ -12,6 +12,12 @@ const noSetLists = (): SetListsWrapper => ({ version: 2, setLists: [] });
  */
 let setListsSnapshot: string | null = null;
 
+/**
+ * The set lists the file in `setListsFolder` held at the last load or save (JSON; `"null"`: none), sent as
+ * the base of a save, so a save never overwrites set lists another PC wrote in the meantime.
+ */
+let setListsBase = "null";
+
 /** Loads and saves of the set lists run one after another, so a load never overtakes an earlier save. */
 let setListsQueue: Promise<unknown> = Promise.resolve();
 function queuedSetListsTask(task: () => Promise<void>): Promise<void> {
@@ -19,6 +25,8 @@ function queuedSetListsTask(task: () => Promise<void>): Promise<void> {
   setListsQueue = next.catch(() => undefined);
   return next;
 }
+
+type SaveSetListsResult = Awaited<ReturnType<typeof client.saveSetLists.mutate>>;
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -61,6 +69,7 @@ const useStore = defineStore("app", {
       this.sheetMusicFolder = folder;
       localStorage.setItem("sheetMusicFolder", folder);
       setListsSnapshot = null;
+      setListsBase = "null";
       this.setListsFolder = "";
       this.setListsError = null;
       this.setListsWrapper = noSetLists();
@@ -88,34 +97,42 @@ const useStore = defineStore("app", {
      * longer the current one is dropped.
      */
     async loadSetLists() {
+      if (!this.sheetMusicFolder) return;
+      await queuedSetListsTask(() => this.loadSetListsNow());
+    },
+    /** The body of `loadSetLists`, for use inside a queued set list task. */
+    async loadSetListsNow() {
       const folder = this.sheetMusicFolder;
       if (!folder) return;
-      await queuedSetListsTask(async () => {
-        let result;
-        try {
-          result = await client.loadSetLists.query(folder);
-        } catch (error) {
-          console.error("Error loading set lists:", error);
-          return;
-        }
-        if (this.sheetMusicFolder !== folder) return;
-        if (result.kind === "ok") {
-          setListsSnapshot = JSON.stringify(result.setLists);
-          this.setListsFolder = folder;
-          this.setListsError = null;
-          this.setListsWrapper = result.setLists;
-        } else {
-          setListsSnapshot = null;
-          this.setListsFolder = "";
-          this.setListsError = setListsUnreadableText(result.file, result.message);
-          this.setListsWrapper = noSetLists();
-          useNotices().show(this.setListsError);
-        }
-      });
+      let result;
+      try {
+        result = await client.loadSetLists.query(folder);
+      } catch (error) {
+        console.error("Error loading set lists:", error);
+        return;
+      }
+      if (this.sheetMusicFolder !== folder) return;
+      if (result.kind === "ok") {
+        const setLists = result.setLists ?? noSetLists();
+        setListsSnapshot = JSON.stringify(setLists);
+        setListsBase = JSON.stringify(result.setLists);
+        this.setListsFolder = folder;
+        this.setListsError = null;
+        this.setListsWrapper = setLists;
+      } else {
+        setListsSnapshot = null;
+        setListsBase = "null";
+        this.setListsFolder = "";
+        this.setListsError = setListsUnreadableText(result.file, result.message);
+        this.setListsWrapper = noSetLists();
+        useNotices().show(this.setListsError);
+      }
     },
     /**
      * Saves the set lists into the folder they were loaded from, only if that is the current folder, the
-     * load succeeded and they differ from what was last loaded or saved. A failure shows a notice.
+     * load succeeded and they differ from what was last loaded or saved. A failure shows a notice. If the
+     * file holds other set lists than the last load or save (another PC changed them), nothing is written:
+     * the set lists are loaded again and a notice asks to repeat the last change.
      */
     async saveSetLists() {
       await queuedSetListsTask(async () => {
@@ -123,18 +140,30 @@ const useStore = defineStore("app", {
         if (!folder || this.setListsFolder !== folder || this.setListsError !== null) return;
         const text = JSON.stringify(this.setListsWrapper);
         if (text === setListsSnapshot) return;
-        let result: { ok: true } | { ok: false; message: string };
+        let result: SaveSetListsResult;
         try {
-          result = await client.saveSetLists.mutate({ basePath: folder, setListsWrapper: JSON.parse(text) });
+          result = await client.saveSetLists.mutate({
+            basePath: folder,
+            setListsWrapper: JSON.parse(text),
+            base: JSON.parse(setListsBase),
+          });
         } catch (error) {
           console.error("Error saving set lists:", error);
-          result = { ok: false, message: errorMessage(error) };
+          result = { ok: false, reason: "failed", message: errorMessage(error) };
         }
         if (!result.ok) {
-          useNotices().show(setListsSaveFailedText(result.message));
+          if (result.reason === "changed") {
+            useNotices().show(setListsChangedText);
+            await this.loadSetListsNow();
+          } else {
+            useNotices().show(setListsSaveFailedText(result.message));
+          }
           return;
         }
-        if (this.setListsFolder === folder) setListsSnapshot = text;
+        if (this.setListsFolder === folder) {
+          setListsSnapshot = text;
+          setListsBase = text;
+        }
       });
     },
     async searchForFiles(searchTerm: string) {

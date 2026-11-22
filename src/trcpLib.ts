@@ -4,7 +4,12 @@ import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
 import { resolveListedEntry } from "./sheetFiles";
-import { FolderConfigUnreadableError, loadFolderConfig, updateFolderConfig } from "./folderConfig";
+import {
+  FolderConfigChangedError,
+  FolderConfigUnreadableError,
+  loadFolderConfig,
+  updateFolderConfig,
+} from "./folderConfig";
 import {
     type SetListsWrapper,
     setListsWrapperSchema,
@@ -92,41 +97,53 @@ export async function loadFilesAndFolder(
   return filesAndFolders;
 }
 export type LoadSetListsResult =
-  | { kind: "ok"; setLists: SetListsWrapper }
+  /** `setLists` null: the file has none (missing file or field). */
+  | { kind: "ok"; setLists: SetListsWrapper | null }
   | { kind: "unreadable"; file: string; message: string };
 
 /**
- * The set lists of a sheet folder from its `.config.json` (spec 2026-11-22); a missing file or field gives
- * no set lists. An unreadable file is reported, never treated as empty. Never throws.
+ * The set lists of a sheet folder from its `.config.json` (spec 2026-11-22); `null` when the file has none.
+ * An unreadable file or an unreachable folder is reported, never treated as empty. Never throws.
  */
 export async function loadSetLists(folder: string): Promise<LoadSetListsResult> {
   const read = await loadFolderConfig(folder);
   if (read.kind === "unreadable") return read;
-  const setLists = read.kind === "ok" ? read.config.setLists : undefined;
-  return { kind: "ok", setLists: setLists ?? { version: 2, setLists: [] } };
+  return { kind: "ok", setLists: (read.kind === "ok" ? read.config.setLists : undefined) ?? null };
 }
 
 export const saveSetListsInputSchema = z.object({
   setListsWrapper: setListsWrapperSchema,
+  /** The set lists the renderer last loaded or saved for this folder (`null`: the file had none). */
+  base: setListsWrapperSchema.nullable(),
   basePath: z.string(),
 });
 
+export type SaveSetListsResult =
+  | { ok: true }
+  /** The set lists on disk are no longer `base` (another PC changed them); nothing was written. */
+  | { ok: false; reason: "changed" }
+  | { ok: false; reason: "failed"; message: string };
+
 /**
- * Stores the set lists in the folder's `.config.json`; every other field stays. An unreadable file is never
- * overwritten. Never throws: a failure comes back with its message.
+ * Stores the set lists in the folder's `.config.json`; every other field stays. Writes only while the set
+ * lists on disk are still `base`. An unreadable file is never overwritten. Never throws: a failure comes
+ * back with its reason.
  */
 export async function saveSetLists(input: {
   basePath: string;
   setListsWrapper: SetListsWrapper;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+  base: SetListsWrapper | null;
+}): Promise<SaveSetListsResult> {
   try {
-    await updateFolderConfig(input.basePath, { setLists: input.setListsWrapper });
+    await updateFolderConfig(input.basePath, { setLists: input.setListsWrapper }, { expectedSetLists: input.base });
     return { ok: true };
   } catch (e) {
+    if (e instanceof FolderConfigChangedError) return { ok: false, reason: "changed" };
     console.warn(`Could not save the set lists in ${input.basePath}:`, e);
     const message = e instanceof Error ? e.message : String(e);
     return {
       ok: false,
+      reason: "failed",
       message: e instanceof FolderConfigUnreadableError ? `„${e.file}“ kann nicht gelesen werden: ${message}` : message,
     };
   }

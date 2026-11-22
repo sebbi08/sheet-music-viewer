@@ -1,11 +1,13 @@
 /**
  * Settings stored in the sheet folder (main; spec 2026-11-22 "folder config"): `.config.json` holds the set
  * lists and the mark that the folder's markup is migrated, so every PC that syncs the folder sees the same.
- * A file that cannot be read, is not JSON or breaks the schema is `unreadable` and never overwritten; only a
- * missing file counts as empty. Writes change only the given parts on the state read fresh from disk, keep
- * every other field (also ones a newer version wrote), go through a temp file and a rename, and are skipped
- * when the content would not change. A legacy `.set-lists.json` is taken over into `.config.json` and
- * deleted only after the written file was read back. No Electron imports: this module is unit-tested in Node.
+ * A file that cannot be read, is not JSON or breaks the schema is `unreadable` and never overwritten, and so
+ * is a sheet folder that does not exist (drive asleep, unplugged); only a missing file counts as empty.
+ * Writes change only the given parts on the state read fresh from disk, keep every other field (also ones a
+ * newer version wrote), go through a temp file and a rename, and are skipped when the content would not
+ * change; a set-list save writes only while the set lists on disk are the ones it was based on. A legacy
+ * `.set-lists.json` is taken over into `.config.json` and deleted only after the written file was read back.
+ * No Electron imports: this module is unit-tested in Node.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -37,6 +39,9 @@ export type FolderConfigRead =
   /** `file`: basename of the file that could not be read (`.config.json` or `.set-lists.json`). */
   | { kind: "unreadable"; file: string; message: string };
 
+/** The message when the sheet folder itself does not exist or is not a folder. */
+export const FOLDER_UNREACHABLE_MESSAGE = "Der Notenordner ist nicht erreichbar.";
+
 /** A settings file that cannot be read; `file` is its basename, `message` the reason. */
 export class FolderConfigUnreadableError extends Error {
   readonly file: string;
@@ -47,7 +52,23 @@ export class FolderConfigUnreadableError extends Error {
   }
 }
 
+/** The set lists on disk are not the ones the caller based its change on (another PC changed them). */
+export class FolderConfigChangedError extends Error {
+  constructor() {
+    super(`The set lists in ${CONFIG_FILE} were changed in the meantime`);
+    this.name = "FolderConfigChangedError";
+  }
+}
+
 export type FolderConfigPatch = { setLists?: SetListsWrapper; markupMigrated?: { at: string } };
+
+export interface FolderConfigUpdateOptions {
+  /**
+   * Write only if the set lists on disk (`null`: missing file or field) equal these (canonical JSON);
+   * otherwise nothing is written and FolderConfigChangedError is thrown.
+   */
+  expectedSetLists?: SetListsWrapper | null;
+}
 
 // ---------------------------------------------------------------------------------------------------------
 // Per-folder serialization
@@ -176,6 +197,16 @@ type DiskState =
 const unreadable = (file: string, message: string) => ({ kind: "unreadable", file, message }) as const;
 
 async function readDisk(folder: string): Promise<DiskState> {
+  // A folder that is gone for a moment must not look like a folder without settings.
+  let folderStat: fs.Stats | null;
+  try {
+    folderStat = await fs.promises.stat(folder);
+  } catch (e) {
+    if (errorCode(e) !== "ENOENT" && errorCode(e) !== "ENOTDIR") return unreadable(CONFIG_FILE, errorMessage(e));
+    folderStat = null;
+  }
+  if (!folderStat?.isDirectory()) return unreadable(CONFIG_FILE, FOLDER_UNREACHABLE_MESSAGE);
+
   let text: string | null;
   try {
     text = await readTextIfExists(path.join(folder, CONFIG_FILE));
@@ -236,12 +267,21 @@ export function loadFolderConfig(folder: string): Promise<FolderConfigRead> {
 /**
  * Sets the given parts (others and unknown fields kept); reads fresh, writes atomically, skips unchanged
  * content. A folder with only `.set-lists.json` is taken over in the same write. Throws
- * FolderConfigUnreadableError for an unreadable file, and I/O errors as they are.
+ * FolderConfigUnreadableError for an unreadable file, FolderConfigChangedError when `expectedSetLists`
+ * does not match, and I/O errors as they are.
  */
-export function updateFolderConfig(folder: string, patch: FolderConfigPatch): Promise<void> {
+export function updateFolderConfig(
+  folder: string,
+  patch: FolderConfigPatch,
+  options: FolderConfigUpdateOptions = {},
+): Promise<void> {
   return serialized(folder, async () => {
     const state = await readDisk(folder);
     if (state.kind === "unreadable") throw new FolderConfigUnreadableError(state.file, state.message);
+    if (options.expectedSetLists !== undefined) {
+      const onDisk = state.kind === "missing" ? null : (state.raw.setLists ?? null);
+      if (canonicalJson(onDisk) !== canonicalJson(options.expectedSetLists)) throw new FolderConfigChangedError();
+    }
 
     const base: JsonObject = state.kind === "missing" ? { version: 1 } : state.raw;
     const merged: JsonObject = { ...base };
