@@ -27,6 +27,11 @@ eine frische Kopie hat keine, eine Kopie eines übernommenen Ordners behält sie
 - Zusammenführen gleichzeitiger Änderungen zweier PCs: Nextcloud legt wie heute eine Konfliktkopie an.
 - Weiterbetrieb der freigegebenen Version mit Setlisten: sie liest nur `.set-lists.json` und sieht nach
   der Übernahme keine Setlisten mehr. Das passt zur Schranke (alle müssen ohnehin aktualisieren).
+- Eine eigene Prüfung je PC *(Entscheidung Sebastian, 2026-11-22)*: Die Übernahme-Markierung gilt für alle
+  PCs, die den Ordner teilen. Hat ein PC den Ordner übernommen, prüft ein anderer PC ihn nicht noch einmal,
+  auch wenn er (z. B. offline mit der alten Version) inzwischen neue `.data`-Dateien angelegt hat; diese
+  werden ohne Hinweis ignoriert. Das hebt den Grund auf, aus dem `2026-11-20-strict-markup-migration-design.md`
+  die Markierung lokal hielt.
 
 ## Anti-Ziele (wäre ein Fehlschlag, auch wenn es „funktioniert“)
 
