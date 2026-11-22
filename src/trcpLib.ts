@@ -4,12 +4,10 @@ import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
 import { resolveListedEntry } from "./sheetFiles";
+import { migrateSetListsToV2 } from "./folderConfig";
 import {
-    type SetList,
-    type SetListSheet,
     type SetListsWrapper,
     setListsWrapperSchema,
-    type SetListV1,
     type SheetFile,
 } from "./models/types";
 
@@ -122,28 +120,4 @@ export async function saveSetLists(
     path.join(basePath, ".set-lists.json"),
     JSON.stringify(setListsWrapper, null, 2),
   );
-}
-function migrateSetListsToV2(setListsJson: string): string {
-  const unsaveParsedSetLists = JSON.parse(setListsJson);
-
-  if (Array.isArray(unsaveParsedSetLists)) {
-    const setListsV1 = unsaveParsedSetLists as SetListV1[];
-    const setListsV2: SetListsWrapper = {
-      version: 2,
-      setLists: setListsV1.map<SetList>((setList) => {
-        return {
-          ...setList,
-          sheets: setList.sheets.map<SetListSheet>((sheet) => {
-            return {
-              ...sheet,
-              path: sheet.path.split(sheet.path.charAt(0)).filter((v) => !!v),
-            };
-          }),
-        };
-      }),
-    };
-    return JSON.stringify(setListsV2);
-  } else {
-    return setListsJson;
-  }
 }
