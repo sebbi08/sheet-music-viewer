@@ -86,6 +86,34 @@ describe("loadFolderConfig", () => {
       message: expect.stringContaining("EACCES"),
     });
   });
+
+  test.each([
+    ["config", CONFIG_FILE, { version: 1, setLists: setListsA }],
+    ["legacy", LEGACY_SET_LISTS_FILE, setListsA],
+  ])("a locked %s file is read again", async (_name, file, content) => {
+    setLockRetryDelays([1, 1]);
+    fs.writeFileSync(path.join(dir, file), JSON.stringify(content));
+    const realReadFile = fs.promises.readFile.bind(fs.promises);
+    let failed = false;
+    const readFile = vi.spyOn(fs.promises, "readFile").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+      if (!failed && String(target) === path.join(dir, file)) {
+        failed = true;
+        return Promise.reject(errorWithCode("EBUSY"));
+      }
+      return (realReadFile as (...a: unknown[]) => Promise<unknown>)(target, ...rest);
+    }) as typeof fs.promises.readFile);
+
+    expect(await loadFolderConfig(dir)).toEqual({ kind: "ok", config: { version: 1, setLists: setListsA } });
+    expect(failed).toBe(true);
+    expect(readFile.mock.calls.filter(([target]) => String(target) === path.join(dir, file)).length).toBeGreaterThan(1);
+  });
+
+  test("a missing file is not retried", async () => {
+    setLockRetryDelays([1, 1]);
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    expect(await loadFolderConfig(dir)).toEqual({ kind: "missing" });
+    expect(readFile.mock.calls.map(([target]) => String(target))).toEqual([configPath(), legacyPath()]);
+  });
 });
 
 describe("updateFolderConfig", () => {

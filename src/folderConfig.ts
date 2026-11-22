@@ -92,10 +92,13 @@ function canonicalJson(value: unknown): string {
 /** One line per schema violation, joined, for a message shown to the user. */
 const schemaMessage = (error: z.ZodError) => z.prettifyError(error).replace(/\s*\n\s*/g, " ");
 
-/** Reads a text file; `null` when it does not exist, other errors are thrown. */
+/**
+ * Reads a text file; `null` at once when it does not exist. A locked file (sync client, virus scanner) is
+ * read again for about 3 s; other errors are thrown.
+ */
 async function readTextIfExists(file: string): Promise<string | null> {
   try {
-    return await fs.promises.readFile(file, "utf8");
+    return await retryWhileLocked(() => fs.promises.readFile(file, "utf8"));
   } catch (e) {
     if (errorCode(e) === "ENOENT") return null;
     throw e;
