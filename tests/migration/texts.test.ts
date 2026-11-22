@@ -100,6 +100,15 @@ describe("failureText", () => {
     );
   });
 
+  test("configUnreadable names the settings file", () => {
+    expect(failureText(f("configUnreadable", { relativePath: ".config.json", message: "Unexpected token } in JSON at position 3" }))).toBe(
+      "Die Einstellungsdatei „.config.json“ kann nicht gelesen werden: Unexpected token } in JSON at position 3. Bitte reparieren oder löschen; die Setlisten darin gehen beim Löschen verloren.",
+    );
+    expect(failureText(f("configUnreadable", { relativePath: ".set-lists.json", message: "EACCES" }))).toBe(
+      "Die Einstellungsdatei „.set-lists.json“ kann nicht gelesen werden: EACCES. Bitte reparieren oder löschen; die Setlisten darin gehen beim Löschen verloren.",
+    );
+  });
+
   test("sidecarNotDeleted", () => {
     expect(failureText(f("sidecarNotDeleted", { sidecarName: ".Africa.data", message: "EBUSY" }))).toBe(
       "Die PDF wurde übernommen, aber „.Africa.data“ konnte nicht gelöscht werden: EBUSY.",
@@ -167,6 +176,16 @@ describe("failedHeadline", () => {
     const scanOnly = [f("folderUnreadable", { relativePath: "Pop" }), f("linkUnreadable", { relativePath: "Link" })];
     expect(failedHeadline(failed({ total: 214, failures: scanOnly }))).toBe(
       "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.",
+    );
+  });
+
+  test("check stage with only an unreadable config: the folder was not fully checked, no file counted", () => {
+    const config = f("configUnreadable", { relativePath: ".config.json", message: "x" });
+    expect(failedHeadline(failed({ total: 3, failures: [config] }))).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.",
+    );
+    expect(failedHeadline(failed({ failures: [config, failure] }))).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. 1 von 214 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
     );
   });
 

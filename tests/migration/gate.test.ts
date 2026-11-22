@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { BackupResult } from "../../src/migration/backupZip";
 import { MigrationGate, type GateDeps, type GateFailed, type GatePhase } from "../../src/migration/gate";
 import type { FileOutcome } from "../../src/migration/processFile";
-import type { GateFailureReason, MigrationCandidate, ScanResult } from "../../src/migration/types";
+import type { GateFailureReason, MigratedState, MigrationCandidate, ScanResult } from "../../src/migration/types";
 
 const cand = (name: string): MigrationCandidate => ({
   pdfPath: `/s/${name}.pdf`,
@@ -27,7 +27,7 @@ function deferred<T>() {
 function setup(candidates: MigrationCandidate[], over: Partial<GateDeps> = {}) {
   const phases: GatePhase[] = [];
   const deps: GateDeps = {
-    isMigrated: vi.fn(async () => false),
+    isMigrated: vi.fn(async (): Promise<MigratedState> => "notMigrated"),
     flushPending: vi.fn(async () => {}),
     scan: vi.fn(async (): Promise<ScanResult> => ({ candidates, errors: [] })),
     hasPending: vi.fn(() => false),
@@ -53,8 +53,8 @@ function setup(candidates: MigrationCandidate[], over: Partial<GateDeps> = {}) {
 const writeCalls = (deps: GateDeps) => vi.mocked(deps.processFile).mock.calls.filter(([, mode]) => mode === "write");
 
 describe("MigrationGate", () => {
-  test("a migrated folder: passed without scan, no phase but idle", async () => {
-    const { gate, deps, phases } = setup([A], { isMigrated: async () => true });
+  test("migrated -> passed without a scan", async () => {
+    const { gate, deps, phases } = setup([A], { isMigrated: async () => "migrated" as const });
     expect(await gate.run("/s")).toEqual({ status: "passed", summary: null });
     expect(deps.isMigrated).toHaveBeenCalledWith("/s");
     expect(deps.scan).not.toHaveBeenCalled();
@@ -78,6 +78,50 @@ describe("MigrationGate", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  test("an unreadable config is listed and the run still checks every file, then fails without writing", async () => {
+    const { gate, deps, phases } = setup([A, B], {
+      isMigrated: async (): Promise<MigratedState> => ({
+        unreadable: { file: ".config.json", message: "Unexpected token" },
+      }),
+      processFile: async (c) => (c === B ? failed("locked") : ok),
+    });
+    const result = await gate.run("/s");
+    expect(result).toEqual({
+      status: "failed",
+      stage: "check",
+      total: 2,
+      migrated: 0,
+      zipName: null,
+      failures: [
+        { relativePath: ".config.json", reason: "configUnreadable", message: "Unexpected token" },
+        { relativePath: "b.pdf", reason: "locked" },
+      ],
+    });
+    expect(deps.flushPending).toHaveBeenCalled();
+    expect(deps.scan).toHaveBeenCalledWith("/s");
+    expect(deps.processFile).toHaveBeenCalledWith(A, "check");
+    expect(deps.processFile).toHaveBeenCalledWith(B, "check");
+    expect(writeCalls(deps)).toEqual([]);
+    expect(deps.createBackup).not.toHaveBeenCalled();
+    expect(deps.markMigrated).not.toHaveBeenCalled();
+    expect(phases.at(-1)).toEqual({ phase: "failed", result });
+  });
+
+  test("an unreadable config alone, without candidates, still fails the run", async () => {
+    const { gate, deps } = setup([], {
+      isMigrated: async (): Promise<MigratedState> => ({ unreadable: { file: ".set-lists.json", message: "EACCES" } }),
+    });
+    expect(await gate.run("/s")).toEqual({
+      status: "failed",
+      stage: "check",
+      total: 0,
+      migrated: 0,
+      zipName: null,
+      failures: [{ relativePath: ".set-lists.json", reason: "configUnreadable", message: "EACCES" }],
+    });
+    expect(deps.markMigrated).not.toHaveBeenCalled();
   });
 
   test("no candidates and a complete scan: marked, passed with summary null, no backup", async () => {
@@ -519,7 +563,7 @@ describe("MigrationGate", () => {
     ]);
   });
 
-  test("markMigrated failing does not turn a passed run into a failure", async () => {
+  test("marking fails: the run still passes", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const markMigrated = async () => {

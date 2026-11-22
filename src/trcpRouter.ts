@@ -1,10 +1,12 @@
 import { initTRPC } from "@trpc/server";
 import { app, autoUpdater } from "electron/main";
 import { on } from "events";
+import fs from "node:fs";
 import path from "path";
 import superjson from "superjson";
 import { z } from "zod";
 import { askUnsavedMarkup, closeAppWindow, restartForUpdate, resumeExit } from "./exitGuard";
+import { loadFolderConfig, updateFolderConfig } from "./folderConfig";
 import {
     BACKUP_PROGRESS_EVENT,
     backupProgress,
@@ -19,7 +21,7 @@ import {
     migrationBackupInputSchema,
     readMigrationSourceInputSchema,
 } from "./migration/ipcInput";
-import { MigratedFolders } from "./migration/migratedFolders";
+import type { MigratedState } from "./migration/types";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { type UpdateData } from "./models/types";
 import { readSidecarContent } from "./pdfMarkup/legacySidecar";
@@ -47,10 +49,14 @@ const { router: createRouter, procedure: publicProcedure } = initTRPC.create({
   transformer: superjson,
 });
 
-/** Sheet folders whose legacy markup is migrated; local (userData), never in the sheet folder. Loaded once. */
-let migratedFolders: Promise<MigratedFolders> | null = null;
-const loadMigratedFolders = () =>
-  (migratedFolders ??= MigratedFolders.load(path.join(app.getPath("userData"), "markup-migrated-folders.json")));
+/**
+ * The migration mark used to be kept per path in the profile; it now lives in the sheet folder's
+ * `.config.json`. The old file is deleted once, best effort, and its entries are not taken over: the
+ * path-based mark is what let a folder copied again at the same path count as migrated.
+ */
+void fs.promises
+  .rm(path.join(app.getPath("userData"), "markup-migrated-folders.json"), { force: true })
+  .catch((e) => console.warn("Could not delete markup-migrated-folders.json", e));
 
 export const trcpRouter = createRouter({
   getVersion: publicProcedure.query(getAppVersion),
@@ -118,16 +124,21 @@ export const trcpRouter = createRouter({
     .input(saveMarkupInputSchema)
     .mutation(({ input }) => saveMarkupToFile(input)),
 
-  /** The migration gate for legacy `.data` files (src/store/bulkMigration.ts, src/migration/gate.ts). */
-  isMarkupFolderMigrated: publicProcedure.input(absoluteFolderSchema).query(async ({ input }) => {
-    // Test switch, only in tests (IS_TEST): the folder counts as migrated (nothing is stored), so the gate
-    // is skipped and legacy `.data` files are ignored.
-    if (process.env.IS_TEST === "1" && process.env.SMV_DISABLE_BULK_MIGRATION === "1") return true;
-    return (await loadMigratedFolders()).has(input);
+  /**
+   * The migration gate for legacy `.data` files (src/store/bulkMigration.ts, src/migration/gate.ts).
+   * Migrated: the sheet folder's `.config.json` is readable and holds `markupMigrated`.
+   */
+  isMarkupFolderMigrated: publicProcedure.input(absoluteFolderSchema).query(async ({ input }): Promise<MigratedState> => {
+    // Test switch, only in tests (IS_TEST): the folder counts as migrated (nothing is read or written), so
+    // the gate is skipped and legacy `.data` files are ignored.
+    if (process.env.IS_TEST === "1" && process.env.SMV_DISABLE_BULK_MIGRATION === "1") return "migrated";
+    const read = await loadFolderConfig(input);
+    if (read.kind === "unreadable") return { unreadable: { file: read.file, message: read.message } };
+    return read.kind === "ok" && read.config.markupMigrated !== undefined ? "migrated" : "notMigrated";
   }),
 
   markMarkupFolderMigrated: publicProcedure.input(absoluteFolderSchema).mutation(async ({ input }) => {
-    await (await loadMigratedFolders()).add(input);
+    await updateFolderConfig(input, { markupMigrated: { at: new Date().toISOString() } });
   }),
 
   scanMigrationCandidates: publicProcedure.input(absoluteFolderSchema).query(({ input }) => scanMigrationCandidates(input)),

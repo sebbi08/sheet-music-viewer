@@ -16,7 +16,7 @@ export const LEAVE_SHEET_FAILED_TEXT = "Das geöffnete Blatt konnte nicht verlas
 const quoted = (name: string | undefined) => (name === undefined ? "" : ` „${name}“`);
 
 /** What went wrong with one entry of the failure list, and what to do about it. */
-export function failureText({ reason, message, sidecarName }: GateFailure): string {
+export function failureText({ relativePath, reason, message, sidecarName }: GateFailure): string {
   switch (reason) {
     case "dataDamaged":
       return `Die alte Markierungsdatei${quoted(sidecarName)} ist beschädigt. Bitte die Datei löschen und die Markierungen neu eintragen.`;
@@ -39,6 +39,8 @@ export function failureText({ reason, message, sidecarName }: GateFailure): stri
       return withDetail("Der Ordner kann nicht gelesen werden", message);
     case "linkUnreadable":
       return "Die Verknüpfung führt zu einem Ziel, das nicht gelesen werden kann. Bitte entfernen oder das Ziel erreichbar machen.";
+    case "configUnreadable":
+      return `${withDetail(`Die Einstellungsdatei${quoted(relativePath ?? undefined)} kann nicht gelesen werden`, message)} Bitte reparieren oder löschen; die Setlisten darin gehen beim Löschen verloren.`;
     case "sidecarNotDeleted":
       return withDetail(`Die PDF wurde übernommen, aber${quoted(sidecarName)} konnte nicht gelöscht werden`, message);
     case "backupFailed":
@@ -48,11 +50,19 @@ export function failureText({ reason, message, sidecarName }: GateFailure): stri
   }
 }
 
-/** Failures that are not about one file: the scan's folders and links, the backup. */
+/** Failures that are not about one file: the scan's folders and links, the settings file, the backup. */
 const NOT_A_FILE: ReadonlySet<GateFailure["reason"]> = new Set<GateFailure["reason"]>([
   "folderUnreadable",
   "linkUnreadable",
+  "configUnreadable",
   "backupFailed",
+]);
+
+/** Failures that mean the sheet folder could not be checked completely. */
+const FOLDER_INCOMPLETE: ReadonlySet<GateFailure["reason"]> = new Set<GateFailure["reason"]>([
+  "folderUnreadable",
+  "linkUnreadable",
+  "configUnreadable",
 ]);
 
 /** Headline of the failure list. Only file problems count as "Dateien" (an entry without a path is none). */
@@ -65,7 +75,7 @@ export function failedHeadline({ stage, total, migrated, zipName, failures }: Ga
     if (n > 0) parts.push(n === 1 ? "1 Datei hat ein Problem." : `${n} Dateien haben ein Problem.`);
     return parts.join(" ");
   }
-  if (failures.some((f) => f.reason === "folderUnreadable" || f.reason === "linkUnreadable")) {
+  if (failures.some((f) => FOLDER_INCOMPLETE.has(f.reason))) {
     parts.push("Der Notenordner konnte nicht vollständig geprüft werden.");
   }
   if (n > 0) parts.push(n === 1 ? `1 von ${total} Dateien hat ein Problem.` : `${n} von ${total} Dateien haben ein Problem.`);

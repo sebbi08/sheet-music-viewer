@@ -17,6 +17,12 @@ export interface ScanResult {
   errors: ScanError[];
 }
 
+/**
+ * Whether a sheet folder counts as migrated: its `.config.json` is readable and holds `markupMigrated`.
+ * `unreadable`: the settings file (`file`, its basename) cannot be read; the gate lists it as a failure.
+ */
+export type MigratedState = "migrated" | "notMigrated" | { unreadable: { file: string; message: string } };
+
 /** Why one file (or the scan, or the backup) keeps the migration gate shut. */
 export type GateFailureReason =
   | "dataDamaged"
@@ -31,6 +37,7 @@ export type GateFailureReason =
   | "pendingChanges"
   | "folderUnreadable"
   | "linkUnreadable"
+  | "configUnreadable"
   | "sidecarNotDeleted"
   | "backupFailed"
   | "other";

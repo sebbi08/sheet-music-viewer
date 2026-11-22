@@ -5,6 +5,7 @@ import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import yauzl from "yauzl";
 import { afterEach, beforeAll, expect, test } from "vitest";
+import { migrateSetListsToV2 } from "../../src/folderConfig";
 import { getSidecarPath } from "../../src/pdfMarkup/legacySidecar";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
 import { makeEncryptedPdf, makePdf } from "../pdfMarkup/fixtures";
@@ -14,7 +15,8 @@ import { type AppUnderTest, currentApp, launchApp, runBulkMigration, settleBulkM
 /**
  * The migration gate (spec 2026-11-20, section 10) end to end, headless, on a copy of the whole corpus:
  * every legacy `.data` file is moved into its PDF, the backup zip holds the original bytes, the folder is
- * remembered, and a second start shows nothing. Prepared failures among the corpus (a damaged `.data`, a
+ * marked in its `.config.json` (which also took over the corpus' `.set-lists.json`), and a second start shows
+ * nothing and writes nothing. Prepared failures among the corpus (a damaged `.data`, a
  * read-only PDF, an encrypted PDF) are all listed and change nothing; once fixed, the next start passes.
  * A read-only sheet folder (no corpus needed) lists every file as read-only.
  * Checks A–Er against the old app run per PDF through the same gate in compare.visual.ts.
@@ -22,7 +24,8 @@ import { type AppUnderTest, currentApp, launchApp, runBulkMigration, settleBulkM
 const corpus = listCorpus();
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
 const ZIP_PATTERN = /^Markierungen-Backup \d{4}-\d{2}-\d{2} \d{2}-\d{2}( \(\d+\))?\.zip$/;
-const MIGRATED_FOLDERS = "markup-migrated-folders.json";
+const CONFIG_FILE = ".config.json";
+const LEGACY_SET_LISTS_FILE = ".set-lists.json";
 const READ_ONLY_TEXT = "Die PDF oder ihr Ordner ist schreibgeschützt. Bitte den Schreibschutz entfernen.";
 const ENCRYPTED_TEXT = "Die PDF ist verschlüsselt. Bitte den Kennwortschutz entfernen.";
 const damagedText = (sidecarName: string) =>
@@ -99,17 +102,13 @@ function newProfile(): string {
   return profile;
 }
 
-/** The app's set lists: written into the sheet folder on start, not by the gate. */
-const SET_LISTS_FILE = ".set-lists.json";
-
-/** Every file below `folder` (except the set lists) by relative path: its sha256. */
+/** Every file below `folder` (also `.config.json` and `.set-lists.json`) by relative path: its sha256. */
 function snapshot(folder: string): Record<string, string> {
   const result: Record<string, string> = {};
   const entries = fs.readdirSync(folder, { withFileTypes: true, recursive: true }).filter((e) => e.isFile());
   for (const entry of entries) {
     const file = path.join(entry.parentPath, entry.name);
     const rel = path.relative(folder, file);
-    if (rel === SET_LISTS_FILE) continue;
     result[rel] = createHash("sha256").update(fs.readFileSync(file)).digest("hex");
   }
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b)));
@@ -118,11 +117,36 @@ function snapshot(folder: string): Record<string, string> {
 const zipsIn = (folder: string) => fs.readdirSync(folder).filter((name) => name.startsWith("Markierungen-Backup"));
 const legacyFilesIn = (folder: string) => fs.readdirSync(folder).filter((name) => name.startsWith(".") && name.endsWith(".data"));
 
-/** The folders the profile remembers as migrated ([] without the file). */
-function migratedFolders(profile: string): string[] {
-  const file = path.join(profile, MIGRATED_FOLDERS);
-  if (!fs.existsSync(file)) return [];
-  return (JSON.parse(fs.readFileSync(file, "utf8")) as { folders: string[] }).folders;
+/** The folder's `.config.json`, parsed (undefined without the file). */
+function configOf(folder: string): Record<string, unknown> | undefined {
+  const file = path.join(folder, CONFIG_FILE);
+  if (!fs.existsSync(file)) return undefined;
+  return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+}
+
+/** `markupMigrated` in the folder's `.config.json` (undefined without the file or the field). */
+const migratedMark = (folder: string) => configOf(folder)?.markupMigrated;
+
+/** The folder carries the mark of a run of this test: `{ at }` with an ISO time since `since`. */
+function expectMarked(folder: string, since: number): void {
+  const mark = migratedMark(folder) as { at?: unknown } | undefined;
+  expect(mark, "markupMigrated in .config.json").toEqual({ at: expect.any(String) });
+  const at = Date.parse(String(mark?.at));
+  expect(new Date(at).toISOString(), "markupMigrated.at is an ISO time").toBe(mark?.at);
+  expect(at, "markupMigrated.at of this run").toBeGreaterThanOrEqual(since - 1000);
+}
+
+/**
+ * The set lists the app takes over from a legacy `.set-lists.json` on its first read of the folder (also
+ * when the gate then fails): the file's content, a version 1 array converted to version 2.
+ */
+const legacySetLists = (folder: string): unknown =>
+  JSON.parse(migrateSetListsToV2(fs.readFileSync(path.join(folder, LEGACY_SET_LISTS_FILE), "utf8")));
+
+/** `snapshot` without the two settings files (their takeover is checked on its own). */
+function withoutSettings(snap: Record<string, string>): Record<string, string> {
+  const { [CONFIG_FILE]: _config, [LEGACY_SET_LISTS_FILE]: _legacy, ...rest } = snap;
+  return rest;
 }
 
 /** Pages with our embedded markup (pdf-lib, like the main process reads it). */
@@ -162,6 +186,8 @@ else {
   test("the whole corpus passes the gate", { timeout: 45 * 60_000 }, async () => {
     const copy = newCopy();
     const profile = newProfile();
+    const hasLegacySetLists = fs.existsSync(path.join(copy, LEGACY_SET_LISTS_FILE));
+    const setLists = hasLegacySetLists ? legacySetLists(copy) : undefined;
     // Every file the gate may change, with its bytes before the migration (zip entry name -> bytes).
     const original = new Map<string, Buffer>();
     for (const { pdfPath } of corpus) {
@@ -188,15 +214,20 @@ else {
     for (const { pdfPath, markedPages } of corpus) {
       expect(await embeddedPages(path.join(copy, pdfPath)), `${pdfPath}: pages with embedded markup`).toEqual(markedPages);
     }
-    expect(migratedFolders(profile), "folders remembered as migrated").toEqual([path.resolve(copy)]);
+    expectMarked(copy, started);
+    // After the migration there is `.config.json` and no `.set-lists.json`; its set lists were taken over.
+    expect(fs.existsSync(path.join(copy, LEGACY_SET_LISTS_FILE)), ".set-lists.json left").toBe(false);
+    if (hasLegacySetLists) expect(configOf(copy)?.setLists, "set lists taken over").toEqual(setLists);
     const after = snapshot(copy);
+    const configMtime = fs.statSync(path.join(copy, CONFIG_FILE)).mtimeMs;
 
-    // Second start with the same profile: the folder is remembered, nothing is shown or changed.
+    // Second start with the same profile: the mark in `.config.json` lets it pass; nothing is shown or written.
     const second = await runBulkMigration(app, copy, { profile });
     console.log(`second start: ${JSON.stringify(second)}`);
     expect(second.status).toBe("passed");
     expect(second.dialogShown, "migration dialog on the second start").toBe(false);
     expect(snapshot(copy), "sheet folder after the second start").toEqual(after);
+    expect(fs.statSync(path.join(copy, CONFIG_FILE)).mtimeMs, ".config.json mtime after the second start").toBe(configMtime);
 
     expect([...first.networkRequests, ...second.networkRequests], "http(s) requests of the app").toEqual([]);
   });
@@ -217,8 +248,11 @@ else {
       const encryptedPdf = path.join(copy, ENCRYPTED_PDF);
       fs.writeFileSync(encryptedPdf, makeEncryptedPdf());
       fs.writeFileSync(getSidecarPath(encryptedPdf), LEGACY_DATA);
+      const hasLegacySetLists = fs.existsSync(path.join(copy, LEGACY_SET_LISTS_FILE));
+      const setLists = hasLegacySetLists ? legacySetLists(copy) : undefined;
       const before = snapshot(copy);
 
+      const started = Date.now();
       const launched = await launchApp(app, copy, { bulkMigration: true, profile });
       cleanups.push(() => launched.close());
       const outcome = await settleBulkMigration(launched.page);
@@ -231,14 +265,24 @@ else {
           { path: ENCRYPTED_PDF, text: ENCRYPTED_TEXT },
         ].sort(byPath),
       );
-      expect(snapshot(copy), "sheet folder after the failed check").toEqual(before);
+      if (hasLegacySetLists) {
+        // The corpus' `.set-lists.json` is taken over on the app's first read of the folder (spec 2026-11-22),
+        // whatever the gate finds: `.config.json` holds exactly its set lists and no mark. Every other file is
+        // byte-equal; from here on the folder, `.config.json` included, must not change.
+        expect(withoutSettings(snapshot(copy)), "sheet folder after the failed check").toEqual(withoutSettings(before));
+        expect(fs.existsSync(path.join(copy, LEGACY_SET_LISTS_FILE)), ".set-lists.json left").toBe(false);
+        expect(configOf(copy), ".config.json after the failed check").toEqual({ version: 1, setLists });
+      } else {
+        expect(snapshot(copy), "sheet folder after the failed check").toEqual(before);
+      }
+      const afterCheck = snapshot(copy);
       expect(zipsIn(copy), "zips in the sheet folder").toEqual([]);
 
       await launched.page.getByTestId("migration-close").click();
       expect(await launched.waitForExit(30_000), "app ended by Schließen").toBe(true);
       await launched.close();
-      expect(snapshot(copy), "sheet folder after Schließen").toEqual(before);
-      expect(migratedFolders(profile), "folders remembered as migrated").toEqual([]);
+      expect(snapshot(copy), "sheet folder after Schließen").toEqual(afterCheck);
+      expect(migratedMark(copy), "markupMigrated after the failed check").toBeUndefined();
 
       // Fix all three: the original `.data`, writable again, the PDF without its password.
       fs.writeFileSync(damagedData, damagedBytes);
@@ -256,7 +300,8 @@ else {
       );
       expect(await embeddedPages(readOnlyPdf), `${readOnly.pdfPath}: pages with embedded markup`).toEqual(readOnly.markedPages);
       expect(await embeddedPages(encryptedPdf), `${ENCRYPTED_PDF}: pages with embedded markup`).toEqual([1]);
-      expect(migratedFolders(profile), "folders remembered as migrated").toEqual([path.resolve(copy)]);
+      expectMarked(copy, started);
+      if (hasLegacySetLists) expect(configOf(copy)?.setLists, "set lists kept next to the mark").toEqual(setLists);
       expect([...launched.networkRequests(), ...fixed.networkRequests], "http(s) requests of the app").toEqual([]);
     },
   );
@@ -287,7 +332,7 @@ test.skipIf(!canMakeReadOnly)(
     ]);
     await launched.close();
     expect(snapshot(folder), "sheet folder").toEqual(before);
-    expect(migratedFolders(profile), "folders remembered as migrated").toEqual([]);
+    expect(migratedMark(folder), "markupMigrated").toBeUndefined();
     expect(launched.networkRequests(), "http(s) requests of the app").toEqual([]);
   },
 );

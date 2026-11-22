@@ -1,11 +1,18 @@
 /**
  * Flow of the migration gate: scan -> pass 1 (check every file, write nothing) -> backup -> pass 2 (write
- * every file) -> mark the folder as migrated. Runs in the renderer: no Node or Electron imports,
- * everything comes in through `GateDeps`.
+ * every file) -> mark the folder as migrated (in its `.config.json`). Runs in the renderer: no Node or
+ * Electron imports, everything comes in through `GateDeps`.
  */
 import type { BackupResult } from "./backupZip";
 import { sidecarNameOf, type FileOutcome } from "./processFile";
-import type { GateFailure, GateFailureReason, MigrationCandidate, ScanError, ScanResult } from "./types";
+import type {
+  GateFailure,
+  GateFailureReason,
+  MigratedState,
+  MigrationCandidate,
+  ScanError,
+  ScanResult,
+} from "./types";
 
 export interface GateSummary {
   migrated: number;
@@ -33,7 +40,8 @@ export type GatePhase =
   | { phase: "done"; summary: GateSummary };
 
 export interface GateDeps {
-  isMigrated(root: string): Promise<boolean>;
+  /** The mark in the sheet folder's `.config.json`; an unreadable file is a failure of the run. */
+  isMigrated(root: string): Promise<MigratedState>;
   flushPending(): Promise<void>;
   scan(root: string): Promise<ScanResult>;
   hasPending(pdfPath: string): boolean;
@@ -148,13 +156,13 @@ export class MigrationGate {
 
   private async execute(root: string): Promise<GateResult> {
     const { deps } = this;
-    let migrated = false;
+    let state: MigratedState = "notMigrated";
     try {
-      migrated = await deps.isMigrated(root);
+      state = await deps.isMigrated(root);
     } catch (e) {
-      console.warn("Could not read the list of migrated sheet folders", e);
+      console.warn("Could not read whether the sheet folder is migrated", e);
     }
-    if (migrated) {
+    if (state === "migrated") {
       deps.onPhase({ phase: "idle" });
       return { status: "passed", summary: null };
     }
@@ -166,6 +174,12 @@ export class MigrationGate {
     if (flushed === CANCELLED) return { status: "cancelled" };
 
     const failures: GateFailure[] = [];
+    // An unreadable settings file keeps the gate shut (a passed run would have to write it), but every
+    // file is still checked, so the list is complete.
+    if (state !== "notMigrated") {
+      const { file, message } = state.unreadable;
+      failures.push({ relativePath: file, reason: "configUnreadable", message });
+    }
     const failedResult = (stage: "check" | "write", total: number, migratedCount: number, zipName: string | null) => {
       const result: GateFailed = { status: "failed", stage, total, migrated: migratedCount, zipName, failures };
       deps.onPhase({ phase: "failed", result });

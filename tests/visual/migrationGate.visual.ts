@@ -13,11 +13,16 @@ import { type AppUnderTest, currentApp, launchApp, type LaunchedApp, settleBulkM
 /**
  * The migration gate (spec 2026-11-20) end to end, headless, on synthetic folders below
  * test-results/visual/work/ (no corpus needed): a folder with legacy `.data` files must pass the gate
- * before any sheet opens; a failed check lists every problem and changes nothing.
+ * before any sheet opens; a failed check lists every problem and changes nothing. A passed run marks the
+ * folder in its own `.config.json` (spec 2026-11-22), never in the profile.
  */
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
 const ZIP_PATTERN = /^Markierungen-Backup \d{4}-\d{2}-\d{2} \d{2}-\d{2}( \(\d+\))?\.zip$/;
+/** Where older versions remembered migrated folders, by path; deleted on start, never read. */
 const MIGRATED_FOLDERS = "markup-migrated-folders.json";
+const CONFIG_FILE = ".config.json";
+const configText = (name: string, message: string) =>
+  `Die Einstellungsdatei „${name}“ kann nicht gelesen werden: ${message.replace(/\.$/, "")}. Bitte reparieren oder löschen; die Setlisten darin gehen beim Löschen verloren.`;
 const DAMAGED_TEXT = "Die alte Markierungsdatei „.b.data“ ist beschädigt. Bitte die Datei löschen und die Markierungen neu eintragen.";
 const READ_ONLY_TEXT = "Die PDF oder ihr Ordner ist schreibgeschützt. Bitte den Schreibschutz entfernen.";
 const ENCRYPTED_TEXT = "Die PDF ist verschlüsselt. Bitte den Kennwortschutz entfernen.";
@@ -29,6 +34,10 @@ const canMakeReadOnly = process.getuid?.() !== 0 && process.platform !== "win32"
 const rect = { type: "rect", left: 100, top: 200, width: 50, height: 40, angle: 0, scaleX: 1, scaleY: 1, fill: "red" };
 const LEGACY_DATA = JSON.stringify([{ page: 1, data: { version: "7", objects: [rect] }, drawWidth: 300, drawHeight: 400 }]);
 const DAMAGED_DATA = "{not json";
+const SET_LISTS = {
+  version: 2,
+  setLists: [{ id: 1, name: "Probe", sheets: [{ path: [], name: "a.pdf", isFile: true, isSearch: false }] }],
+};
 
 let app: AppUnderTest;
 let pdfBytes: Uint8Array;
@@ -62,6 +71,7 @@ function newFolder(): string {
   fs.mkdirSync(workDir, { recursive: true });
   const folder = fs.mkdtempSync(path.join(workDir, "gate-"));
   cleanups.push(() => {
+    if (!fs.existsSync(folder)) return;
     if (!isBelow(fs.realpathSync(workDir), fs.realpathSync(folder))) throw new Error(`not a work folder: ${folder}`);
     for (const name of fs.readdirSync(folder)) fs.chmodSync(path.join(folder, name), 0o644);
     fs.rmSync(folder, { recursive: true, force: true });
@@ -91,14 +101,10 @@ async function start(folder: string, profile: string): Promise<LaunchedApp> {
   return launched;
 }
 
-/** The app's set lists: written into the sheet folder on every start, not by the gate. */
-const SET_LISTS_FILE = ".set-lists.json";
-
-/** Every entry of `folder`, dot-files included (except the set lists), by name: sha256 of a file, "<not a file>" else. */
+/** Every entry of `folder`, dot-files included (also `.config.json`), by name: sha256 of a file, "<not a file>" else. */
 function snapshot(folder: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const entry of fs.readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name === SET_LISTS_FILE) continue;
     result[entry.name] = entry.isFile()
       ? createHash("sha256").update(fs.readFileSync(path.join(folder, entry.name))).digest("hex")
       : "<not a file>";
@@ -109,11 +115,23 @@ function snapshot(folder: string): Record<string, string> {
 const zipsIn = (folder: string) => fs.readdirSync(folder).filter((name) => name.startsWith("Markierungen-Backup"));
 const legacyFilesIn = (folder: string) => fs.readdirSync(folder).filter((name) => name.endsWith(".data"));
 
-/** The folders the profile remembers as migrated ([] without the file). */
-function migratedFolders(profile: string): string[] {
-  const file = path.join(profile, MIGRATED_FOLDERS);
-  if (!fs.existsSync(file)) return [];
-  return (JSON.parse(fs.readFileSync(file, "utf8")) as { folders: string[] }).folders;
+/** The folder's `.config.json`, parsed (undefined without the file). */
+function configOf(folder: string): Record<string, unknown> | undefined {
+  const file = path.join(folder, CONFIG_FILE);
+  if (!fs.existsSync(file)) return undefined;
+  return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+}
+
+/** `markupMigrated` in the folder's `.config.json` (undefined without the file or the field). */
+const migratedMark = (folder: string) => configOf(folder)?.markupMigrated;
+
+/** The folder carries the mark of a run of this test: `{ at }` with a time of the last ten minutes. */
+function expectMarked(folder: string): void {
+  const mark = migratedMark(folder) as { at?: unknown } | undefined;
+  expect(mark, "markupMigrated in .config.json").toEqual({ at: expect.any(String) });
+  const at = Date.parse(String(mark?.at));
+  expect(new Date(at).toISOString(), "markupMigrated.at is an ISO time").toBe(mark?.at);
+  expect(Date.now() - at, "markupMigrated.at of this run").toBeLessThan(10 * 60_000);
 }
 
 async function embeddedPages(pdf: string): Promise<number[]> {
@@ -183,7 +201,7 @@ test("two legacy files pass the gate; the second start shows nothing", { timeout
   expect(legacyFilesIn(folder)).toEqual([]);
   expect(await embeddedPages(a)).toEqual([1]);
   expect(await embeddedPages(b)).toEqual([1]);
-  expect(migratedFolders(profile)).toEqual([path.resolve(folder)]);
+  expectMarked(folder);
   const after = snapshot(folder);
 
   const second = await start(folder, profile);
@@ -213,7 +231,7 @@ test("a damaged .data among healthy files: full list, folder untouched, Schließ
   await launched.page.getByTestId("migration-close").click();
   expect(await launched.waitForExit(30_000), "app ended by Schließen").toBe(true);
   expect(snapshot(folder)).toEqual(before);
-  expect(migratedFolders(profile)).toEqual([]);
+  expect(migratedMark(folder)).toBeUndefined();
 });
 
 test.skipIf(!canMakeReadOnly)("a read-only PDF and an encrypted PDF are both listed", { timeout: 5 * 60_000 }, async () => {
@@ -333,7 +351,8 @@ test("a folder chosen while a run is in flight gets its own gate", { timeout: 10
   expect(await embeddedPages(c)).toEqual([1]);
   expect(await embeddedPages(d)).toEqual([1]);
   expect(zipsIn(second)).toHaveLength(1);
-  expect(migratedFolders(profile).sort()).toEqual([path.resolve(first), path.resolve(second)].sort());
+  expectMarked(first);
+  expectMarked(second);
 });
 
 test("Erneut prüfen after fixing the file passes the gate", { timeout: 5 * 60_000 }, async () => {
@@ -353,7 +372,7 @@ test("Erneut prüfen after fixing the file passes the gate", { timeout: 5 * 60_0
   expect(legacyFilesIn(folder)).toEqual([]);
   expect(await embeddedPages(a)).toEqual([1]);
   expect(zipsIn(folder)).toHaveLength(1);
-  expect(migratedFolders(profile)).toEqual([path.resolve(folder)]);
+  expectMarked(folder);
 });
 
 test("choosing the same folder again reruns the gate", { timeout: 5 * 60_000 }, async () => {
@@ -373,7 +392,7 @@ test("choosing the same folder again reruns the gate", { timeout: 5 * 60_000 }, 
   expect(outcome.lines[0]).toBe("1 Datei übernommen.");
   expect(await embeddedPages(a)).toEqual([1]);
   expect(await routeName(launched)).toBe("SheetSelection");
-  expect(migratedFolders(profile)).toEqual([path.resolve(folder)]);
+  expectMarked(folder);
 });
 
 test("a folder without legacy files is marked without a dialog", { timeout: 5 * 60_000 }, async () => {
@@ -386,8 +405,11 @@ test("a folder without legacy files is marked without a dialog", { timeout: 5 * 
   const outcome = await settleBulkMigration(launched.page);
   expect(outcome.status).toBe("passed");
   expect(outcome.dialogShown).toBe(false);
-  expect(migratedFolders(profile)).toEqual([path.resolve(folder)]);
-  expect(snapshot(folder)).toEqual(before);
+  expectMarked(folder);
+  // Only the mark was added.
+  const { [CONFIG_FILE]: config, ...rest } = snapshot(folder);
+  expect(config).toBeDefined();
+  expect(rest).toEqual(before);
 });
 
 test("Abbrechen during the check closes the app and changes nothing", { timeout: 10 * 60_000 }, async () => {
@@ -403,7 +425,7 @@ test("Abbrechen during the check closes the app and changes nothing", { timeout:
   // Also no folder probe of the file that was being checked (`.Markierungen-Backup-….zip.tmp`).
   expect(snapshot(folder)).toEqual(before);
   expect(zipsIn(folder)).toEqual([]);
-  expect(migratedFolders(profile)).toEqual([]);
+  expect(migratedMark(folder)).toBeUndefined();
 });
 
 test("Abbrechen whose close is cancelled keeps a window with the three choices", { timeout: 10 * 60_000 }, async () => {
@@ -468,5 +490,117 @@ test("Abbrechen whose close is cancelled keeps a window with the three choices",
   expect(await launched.waitForExit(30_000), "app ended by Schließen").toBe(true);
   expect(snapshot(folder)).toEqual(before);
   expect(zipsIn(folder)).toEqual([]);
-  expect(migratedFolders(profile)).toEqual([]);
+  expect(migratedMark(folder)).toBeUndefined();
+});
+
+test("a folder deleted and copied again after it was marked runs the gate again", { timeout: 5 * 60_000 }, async () => {
+  const original = newFolder();
+  addPdf(original, "a.pdf");
+  const folder = newFolder();
+  fs.cpSync(original, folder, { recursive: true });
+  const profile = newProfile();
+
+  const first = await start(folder, profile);
+  const outcome = await settleBulkMigration(first.page);
+  expect(outcome.status).toBe("passed");
+  expect(outcome.migrated).toBe(1);
+  await first.close();
+  expectMarked(folder);
+
+  // Like a fresh copy of the sheet music: the folder is deleted and copied again at the same path, without
+  // the `.config.json` the first run wrote.
+  fs.rmSync(folder, { recursive: true, force: true });
+  fs.cpSync(original, folder, { recursive: true });
+  expect(fs.existsSync(path.join(folder, CONFIG_FILE))).toBe(false);
+  // An older version remembered the path in the profile: that mark is deleted on start and never read.
+  fs.writeFileSync(path.join(profile, MIGRATED_FOLDERS), JSON.stringify({ version: 1, folders: [path.resolve(folder)] }));
+
+  const second = await start(folder, profile);
+  const again = await settleBulkMigration(second.page);
+  console.log(`copied again: ${JSON.stringify(again)}`);
+  expect(again.status).toBe("passed");
+  expect(again.dialogShown, "dialog on the start after the copy").toBe(true);
+  expect(again.migrated).toBe(1);
+  expect(again.lines[0]).toBe("1 Datei übernommen.");
+  await second.close();
+  expect(legacyFilesIn(folder)).toEqual([]);
+  expect(await embeddedPages(path.join(folder, "a.pdf"))).toEqual([1]);
+  expect(zipsIn(folder)).toHaveLength(1);
+  expectMarked(folder);
+  expect(fs.existsSync(path.join(profile, MIGRATED_FOLDERS)), "the profile's old list is deleted").toBe(false);
+});
+
+test("a second start does not rewrite .config.json", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const profile = newProfile();
+  addPdf(folder, "a.pdf");
+  const configFile = path.join(folder, CONFIG_FILE);
+  // Set lists already in the folder: the mark is added next to them.
+  fs.writeFileSync(configFile, JSON.stringify({ version: 1, setLists: SET_LISTS }));
+
+  const first = await start(folder, profile);
+  expect((await settleBulkMigration(first.page)).status).toBe("passed");
+  await first.close();
+  expect(configOf(folder)).toEqual({ version: 1, setLists: SET_LISTS, markupMigrated: { at: expect.any(String) } });
+  expectMarked(folder);
+  const bytes = fs.readFileSync(configFile);
+  const { mtimeMs } = fs.statSync(configFile);
+  const after = snapshot(folder);
+
+  const second = await start(folder, profile);
+  const again = await settleBulkMigration(second.page);
+  expect(again.status).toBe("passed");
+  expect(again.dialogShown, "dialog on the second start").toBe(false);
+  await second.close();
+  expect(fs.readFileSync(configFile).equals(bytes), ".config.json bytes after the second start").toBe(true);
+  expect(fs.statSync(configFile).mtimeMs, ".config.json mtime after the second start").toBe(mtimeMs);
+  expect(snapshot(folder)).toEqual(after);
+});
+
+test("a broken .config.json is listed by the gate and not overwritten", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const profile = newProfile();
+  const a = addPdf(folder, "a.pdf");
+  const b = addPdf(folder, "b.pdf", DAMAGED_DATA);
+  const configFile = path.join(folder, CONFIG_FILE);
+  const BROKEN = '{"version": 1, "setLists": ';
+  fs.writeFileSync(configFile, BROKEN);
+  const before = snapshot(folder);
+
+  const launched = await start(folder, profile);
+  const outcome = await settleBulkMigration(launched.page);
+  console.log(`broken config: ${JSON.stringify(outcome)}`);
+  // JSON.parse's message as the app's own V8 words it.
+  const message = await launched.electronApp.evaluate((_electron, text) => {
+    try {
+      JSON.parse(text);
+      return "";
+    } catch (e) {
+      return (e as Error).message;
+    }
+  }, BROKEN);
+  expect(message).not.toBe("");
+  expect(outcome.status).toBe("failed");
+  expect(outcome.headline).toBe(
+    "Der Notenordner konnte nicht vollständig geprüft werden. 1 von 2 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
+  );
+  // Every file is still checked: b.pdf's own problem is listed, too.
+  expect(outcome.failures).toEqual([
+    { path: CONFIG_FILE, text: configText(CONFIG_FILE, message) },
+    { path: "b.pdf", text: DAMAGED_TEXT },
+  ]);
+  expect(snapshot(folder)).toEqual(before);
+  expect(fs.readFileSync(configFile, "utf8")).toBe(BROKEN);
+
+  // Repaired by hand: the next check passes and adds the mark next to the set lists.
+  fs.writeFileSync(configFile, JSON.stringify({ version: 1, setLists: SET_LISTS }));
+  fs.rmSync(getSidecarPath(b));
+  await launched.page.getByTestId("migration-recheck").click();
+  await waitForGate(launched, "passed");
+  const fixed = await settleBulkMigration(launched.page);
+  expect(fixed.status).toBe("passed");
+  expect(fixed.lines[0]).toBe("1 Datei übernommen.");
+  expect(await embeddedPages(a)).toEqual([1]);
+  expect(configOf(folder)).toEqual({ version: 1, setLists: SET_LISTS, markupMigrated: { at: expect.any(String) } });
+  expectMarked(folder);
 });
