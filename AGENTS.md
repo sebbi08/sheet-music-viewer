@@ -92,8 +92,11 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   (relative path, cause, what to do) with "Erneut prüfen", "Anderen Notenordner wählen" and "Schließen";
   "Abbrechen" during a run closes the app. A cancelled run that leaves the app open (its close was
   cancelled) shows "Die Übernahme wurde abgebrochen. …" with the same three buttons. A run without any
-  failure marks the folder in **`markup-migrated-folders.json`** in the Electron profile (userData);
-  `.data` files in a marked folder are ignored from then on. A single-instance lock (per userData,
+  failure writes **`markupMigrated`** into `.config.json` in the sheet folder (shared between PCs, so a
+  fresh copy of the folder without that file runs the gate again); `.data` files in a marked folder are
+  ignored from then on. An unreadable `.config.json` is a `configUnreadable` failure in the gate's list.
+  The old `markup-migrated-folders.json` in the profile is deleted at start, its entries are not carried
+  over (every folder passes the gate once more). A single-instance lock (per userData,
   `src/main.ts`) keeps a second start from running a second gate; it focuses the running window. `SMV_DISABLE_BULK_MIGRATION=1` makes the app
   treat every folder as migrated, so the gate is skipped and `.data` files are ignored; it is honoured
   only together with `IS_TEST=1` (tests only: the visual driver sets both, the first unless
@@ -106,7 +109,16 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   flow on synthetic folders (failure list, "Erneut prüfen", folder change, also during a run, reload,
   "Abbrechen", no corpus needed); `writeBlock.visual.ts` checks the check on open (dialog on every open, pencil off, markup
   already in the PDF stays visible, a `.data` next to a PDF is ignored); `singleInstance.visual.ts`
-  checks the single-instance lock.
+  checks the single-instance lock; `folderConfig.visual.ts` checks `.config.json` (set lists stay in their
+  folder on a folder change, takeover of `.set-lists.json`, no write on a start without changes, a broken
+  file shows a notice and is not overwritten).
+
+- **`.config.json`** in the sheet folder (`src/folderConfig.ts`, spec:
+  `docs/superpowers/specs/2026-11-22-folder-config-design.md`) holds the set lists (`setLists`, formerly
+  `.set-lists.json`) and `markupMigrated`. On the first load of a folder without it, `.set-lists.json` is
+  taken over: `.config.json` is written and read back, only then the old file is deleted. Writes change
+  one part, atomically and only on a real change; reads are retried while the file is locked. An
+  unreadable file is never overwritten (set lists show a notice and are not saved; the gate lists it).
 
 ## Auto-Update
 

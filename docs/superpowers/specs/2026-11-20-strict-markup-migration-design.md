@@ -1,6 +1,6 @@
 # Migration als Schranke: erst alle `.data` übernehmen, danach nur noch die PDF
 
-Stand: 2026-11-20 · Status: freigegeben · Ändert: `2026-11-15-markup-in-pdf-design.md` (Abschnitt 1
+Stand: 2026-11-20 · Status: freigegeben (teilweise ersetzt durch `2026-11-22-folder-config-design.md`) · Ändert: `2026-11-15-markup-in-pdf-design.md` (Abschnitt 1
 „Fallback“, Abschnitt 7) und `2026-11-16-bulk-markup-migration-design.md` (Ziele, Abschnitte 1, 2, 4, 5, 6)
 
 ## Warum
@@ -40,7 +40,8 @@ muss der Nutzer selbst reparieren. Solche Fälle sind sehr selten.
   Version): Sie werden ohne Hinweis ignoriert. Das hebt das Ziel „Prüfung bei jedem Start“ der
   Spezifikation vom 16.11. auf.
 - Wiederherstellen aus der ZIP in der App. Wer von Hand aus der ZIP wiederherstellt, muss danach
-  `markup-migrated-folders.json` im App-Profil löschen, damit die Schranke erneut läuft.
+  `markupMigrated` aus `.config.json` im Notenordner entfernen (oder die Datei löschen), damit die
+  Schranke erneut läuft *(seit 2026-11-22; vorher: `markup-migrated-folders.json` im App-Profil)*.
 - Dateien, die die Notenliste des aktuellen Ordners nicht erreicht (z. B. PDFs einer Setliste aus einem
   früheren Ordner): eine `.data` daneben wird nicht gelesen und nicht angefasst.
 - Der Schreiber wird nicht toleranter gegenüber ungewöhnlich aufgebauten PDFs. Sie werden jetzt
@@ -94,8 +95,11 @@ muss der Nutzer selbst reparieren. Solche Fälle sind sehr selten.
 
 ### 1. Wann ein Ordner als übernommen gilt
 
-- Das Hauptprogramm führt lokal im App-Profil (`userData`), nie im Notenordner, die Datei
-  `markup-migrated-folders.json` mit den Notenordnern, die als übernommen gelten. Schlüssel ist der
+- **Ersetzt durch `2026-11-22-folder-config-design.md`:** Die Markierung steht als `markupMigrated` in
+  `.config.json` im Notenordner, nicht mehr in `markup-migrated-folders.json` im App-Profil; die Datei im
+  Profil wird beim Start gelöscht. Der folgende Text beschreibt den früheren Stand.
+- Das Hauptprogramm führte lokal im App-Profil (`userData`), nie im Notenordner, die Datei
+  `markup-migrated-folders.json` mit den Notenordnern, die als übernommen gelten. Schlüssel war der
   aufgelöste Ordnerpfad, unter Windows ohne Beachtung der Groß-/Kleinschreibung (wie heute
   `ReadOnlyFolders`). *(Entscheidung Claude: lokal statt im Ordner, damit ein Rechner, dessen
   Nextcloud-Kopie noch `.data`-Dateien enthält, sie übernimmt statt sie zu ignorieren.)*
@@ -348,7 +352,7 @@ Migration beim Öffnen, Schranke statt Sammelmigration bei jedem Start).
 
 ## Dem Builder überlassen
 
-- Format von `markup-migrated-folders.json`.
+- Format der Markierung (seit 2026-11-22: `markupMigrated` in `.config.json`).
 - Wie der Probelauf angeboten wird (Schalter an `saveMarkup` oder eigener Aufruf) und mit welcher
   Änderung er beim Öffnen den Schreiber laufen lässt; ob die Ordner-Probe innerhalb eines Durchlaufs
   je Ordner nur einmal läuft.
