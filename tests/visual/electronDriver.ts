@@ -291,7 +291,8 @@ export interface LaunchOptions {
    */
   bulkMigration?: boolean;
   /**
-   * Electron profile (userData) to use and keep, e.g. to start the app twice with the same migrated folders.
+   * Electron profile (userData) to use and keep, e.g. to start the app twice with the same profile or to
+   * put a file into it before the start (the migration mark is kept in the sheet folder's `.config.json`).
    * Default: a fresh temporary profile, removed on close.
    */
   profile?: string;

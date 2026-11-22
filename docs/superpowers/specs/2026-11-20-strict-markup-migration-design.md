@@ -40,8 +40,9 @@ muss der Nutzer selbst reparieren. Solche Fälle sind sehr selten.
   Version): Sie werden ohne Hinweis ignoriert. Das hebt das Ziel „Prüfung bei jedem Start“ der
   Spezifikation vom 16.11. auf.
 - Wiederherstellen aus der ZIP in der App. Wer von Hand aus der ZIP wiederherstellt, muss danach
-  `markupMigrated` aus `.config.json` im Notenordner entfernen (oder die Datei löschen), damit die
-  Schranke erneut läuft *(seit 2026-11-22; vorher: `markup-migrated-folders.json` im App-Profil)*.
+  `markupMigrated` aus `.config.json` im Notenordner entfernen (oder die Datei löschen, womit auch die
+  Setlisten darin verloren gehen), damit die Schranke erneut läuft *(seit 2026-11-22; vorher:
+  `markup-migrated-folders.json` im App-Profil)*.
 - Dateien, die die Notenliste des aktuellen Ordners nicht erreicht (z. B. PDFs einer Setliste aus einem
   früheren Ordner): eine `.data` daneben wird nicht gelesen und nicht angefasst.
 - Der Schreiber wird nicht toleranter gegenüber ungewöhnlich aufgebauten PDFs. Sie werden jetzt
@@ -95,22 +96,29 @@ muss der Nutzer selbst reparieren. Solche Fälle sind sehr selten.
 
 ### 1. Wann ein Ordner als übernommen gilt
 
-- **Ersetzt durch `2026-11-22-folder-config-design.md`:** Die Markierung steht als `markupMigrated` in
-  `.config.json` im Notenordner, nicht mehr in `markup-migrated-folders.json` im App-Profil; die Datei im
-  Profil wird beim Start gelöscht. Der folgende Text beschreibt den früheren Stand.
-- Das Hauptprogramm führte lokal im App-Profil (`userData`), nie im Notenordner, die Datei
-  `markup-migrated-folders.json` mit den Notenordnern, die als übernommen gelten. Schlüssel war der
-  aufgelöste Ordnerpfad, unter Windows ohne Beachtung der Groß-/Kleinschreibung (wie heute
-  `ReadOnlyFolders`). *(Entscheidung Claude: lokal statt im Ordner, damit ein Rechner, dessen
+- **Geändert durch `2026-11-22-folder-config-design.md`:** Ein Ordner gilt als übernommen, wenn seine
+  `.config.json` im Notenordner lesbar ist und `markupMigrated` enthält. Die Markierung steht nicht mehr in
+  `markup-migrated-folders.json` im App-Profil; diese Datei wird beim Start gelöscht, ihre Einträge werden
+  nicht übernommen.
+- *Früherer Stand (bis 2026-11-22):* Das Hauptprogramm führte lokal im App-Profil (`userData`), nie im
+  Notenordner, die Datei `markup-migrated-folders.json` mit den Notenordnern, die als übernommen galten.
+  Schlüssel war der aufgelöste Ordnerpfad, unter Windows ohne Beachtung der Groß-/Kleinschreibung (wie
+  `ReadOnlyFolders`). *(Entscheidung Claude damals: lokal statt im Ordner, damit ein Rechner, dessen
   Nextcloud-Kopie noch `.data`-Dateien enthält, sie übernimmt statt sie zu ignorieren.)*
-- Ein Ordner wird eingetragen, wenn ein Durchlauf der Schranke **ohne einen einzigen Fehler** endet: die
-  Suche hat jeden Unterordner vollständig gelesen, und jeder Kandidat ist übernommen. Das gilt auch,
-  wenn die Suche keinen Kandidaten findet (neue Installation, schon übernommener Ordner auf einem
-  zweiten Rechner).
-- Die App trägt einen Ordner nie wieder aus. Fehlt die Datei oder ist sie unlesbar, gilt kein Ordner als
-  übernommen. Lässt sie sich nicht schreiben, wird das nur protokolliert; die Schranke läuft dann beim
-  nächsten Start erneut.
-- Ein Unterordner oder übergeordneter Ordner eines eingetragenen Ordners ist ein eigener Ordner.
+- Ein Ordner wird markiert (`markupMigrated` geschrieben), wenn ein Durchlauf der Schranke **ohne einen
+  einzigen Fehler** endet: die Suche hat jeden Unterordner vollständig gelesen, und jeder Kandidat ist
+  übernommen. Das gilt auch, wenn die Suche keinen Kandidaten findet (neue Installation, schon
+  übernommener Ordner auf einem zweiten Rechner).
+- Die App nimmt eine Markierung nie wieder zurück. Lässt sie sich nicht schreiben, wird das nur
+  protokolliert; die Schranke läuft dann beim nächsten Start erneut.
+- **Geänderte Regel (seit 2026-11-22):** Früher galt bei fehlender oder unlesbarer Datei im Profil einfach
+  kein Ordner als übernommen. Jetzt gilt: Fehlt `.config.json` (oder `markupMigrated` darin), ist der Ordner
+  nicht übernommen. Ist `.config.json` (bzw. die alte `.set-lists.json`) **unlesbar**, ist das ein **Fehler
+  in der Liste der Schranke**; die Schranke bleibt zu und schreibt nichts. Stammt die Datei von einer
+  neueren Version der App, ist das ebenfalls ein Fehler in der Liste, mit der Bitte, die App zu
+  aktualisieren.
+- Ein Unterordner oder übergeordneter Ordner eines markierten Ordners ist ein eigener Ordner (mit eigener
+  `.config.json`).
 
 ### 2. Auslöser und Sperre
 

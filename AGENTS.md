@@ -18,8 +18,9 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   Needs the local `Noten/` corpus with `.data` files; without it the corpus tests are skipped. The
   tests on synthetic folders below `test-results/visual/work/` run without it: `migrationGate.visual.ts`
   (the gate's flow), `writeBlock.visual.ts` (the check on open), `folderSetup.visual.ts` (choosing a new
-  sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts` and the
-  read-only folder case of `bulkMigration.visual.ts`; see "Markup storage" for what each file checks.
+  sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts`,
+  `folderConfig.visual.ts` (`.config.json`) and the read-only folder case of `bulkMigration.visual.ts`;
+  see "Markup storage" for what each file checks.
 - Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
 - The comparison reaches the migration through the **migration gate**: per PDF a copy with only that PDF
   and its `.data` (`copyCorpusFiles`), the app starts with `bulkMigration: true` (the gate migrates the
@@ -111,14 +112,20 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   already in the PDF stays visible, a `.data` next to a PDF is ignored); `singleInstance.visual.ts`
   checks the single-instance lock; `folderConfig.visual.ts` checks `.config.json` (set lists stay in their
   folder on a folder change, takeover of `.set-lists.json`, no write on a start without changes, a broken
-  file shows a notice and is not overwritten).
+  file or one of a newer app shows a notice and is not overwritten, a save on set lists another PC changed
+  meanwhile is refused and reloads them).
 
 - **`.config.json`** in the sheet folder (`src/folderConfig.ts`, spec:
   `docs/superpowers/specs/2026-11-22-folder-config-design.md`) holds the set lists (`setLists`, formerly
   `.set-lists.json`) and `markupMigrated`. On the first load of a folder without it, `.set-lists.json` is
   taken over: `.config.json` is written and read back, only then the old file is deleted. Writes change
   one part, atomically and only on a real change; reads are retried while the file is locked. An
-  unreadable file is never overwritten (set lists show a notice and are not saved; the gate lists it).
+  unreadable file is never overwritten (set lists show a notice and are not saved; the gate lists it), and
+  a sheet folder that does not exist is unreadable, not empty. A set-list save sends the set lists it was
+  based on and writes only while the file still holds them; otherwise the store reloads them and asks to
+  repeat the change. A file of a newer app (`version` above 1 or `setLists.version` above 2) is a
+  `configNewer` failure in the gate and a set-list notice asking to update the app; unknown fields
+  (also inside set lists and `markupMigrated`) survive every write.
 
 ## Auto-Update
 
