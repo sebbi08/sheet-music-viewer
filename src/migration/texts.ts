@@ -41,6 +41,8 @@ export function failureText({ relativePath, reason, message, sidecarName }: Gate
       return "Die Verknüpfung führt zu einem Ziel, das nicht gelesen werden kann. Bitte entfernen oder das Ziel erreichbar machen.";
     case "configUnreadable":
       return `${withDetail(`Die Einstellungsdatei${quoted(relativePath ?? undefined)} kann nicht gelesen werden`, message)} Bitte reparieren oder löschen; die Setlisten darin gehen beim Löschen verloren.`;
+    case "configNewer":
+      return `Die Einstellungsdatei${quoted(relativePath ?? undefined)} stammt von einer neueren Version der App. Bitte die App aktualisieren.`;
     case "sidecarNotDeleted":
       return withDetail(`Die PDF wurde übernommen, aber${quoted(sidecarName)} konnte nicht gelöscht werden`, message);
     case "backupFailed":
@@ -55,6 +57,7 @@ const NOT_A_FILE: ReadonlySet<GateFailure["reason"]> = new Set<GateFailure["reas
   "folderUnreadable",
   "linkUnreadable",
   "configUnreadable",
+  "configNewer",
   "backupFailed",
 ]);
 
@@ -63,6 +66,7 @@ const FOLDER_INCOMPLETE: ReadonlySet<GateFailure["reason"]> = new Set<GateFailur
   "folderUnreadable",
   "linkUnreadable",
   "configUnreadable",
+  "configNewer",
 ]);
 
 /** Headline of the failure list. Only file problems count as "Dateien" (an entry without a path is none). */

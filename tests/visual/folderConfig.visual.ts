@@ -199,6 +199,24 @@ test("a broken .config.json shows the notice and is not overwritten", async () =
 const snackbarText = (launched: LaunchedApp) =>
   launched.page.evaluate(() => (document.querySelector(".v-snackbar .v-snackbar__content")?.textContent ?? "").trim());
 
+test("a .config.json of a newer app asks to update the app and is not overwritten", async () => {
+  const folder = makeFolder("newer");
+  fs.writeFileSync(path.join(folder, CONFIG), JSON.stringify({ version: 2, setLists: { version: 3, lists: [] } }));
+  const before = snapshot(folder);
+
+  const launched = await start(folder);
+  await expect
+    .poll(() => snackbarText(launched), { timeout: 30_000 })
+    .toBe(
+      "Die Setlisten stammen von einer neueren Version der App. Bitte die App aktualisieren; Änderungen an Setlisten werden nicht gespeichert.",
+    );
+  await navigate(launched, "SetListList");
+  await addSetList(launched, "Nicht gespeichert");
+  await expectSetLists(launched, ["Nicht gespeichert"]);
+  await settle();
+  expect(snapshot(folder)).toEqual(before);
+});
+
 test("a change to set lists another PC changed meanwhile is not saved; they are loaded again", async () => {
   const folder = makeFolder("changed");
   fs.writeFileSync(path.join(folder, CONFIG), JSON.stringify({ version: 1, setLists: setListsWith(1, "Liste A") }));

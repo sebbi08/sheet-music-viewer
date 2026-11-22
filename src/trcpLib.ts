@@ -99,7 +99,8 @@ export async function loadFilesAndFolder(
 export type LoadSetListsResult =
   /** `setLists` null: the file has none (missing file or field). */
   | { kind: "ok"; setLists: SetListsWrapper | null }
-  | { kind: "unreadable"; file: string; message: string };
+  /** `newerVersion`: written by a newer version of the app. */
+  | { kind: "unreadable"; file: string; message: string; newerVersion?: true };
 
 /**
  * The set lists of a sheet folder from its `.config.json` (spec 2026-11-22); `null` when the file has none.

@@ -4,6 +4,10 @@
 export const setListsUnreadableText = (file: string, message: string) =>
   `Die Setlisten konnten nicht geladen werden („${file}“: ${message}). Änderungen an Setlisten werden nicht gespeichert.`;
 
+/** The file was written by a newer version of the app; until the app is updated, changes are not saved. */
+export const setListsNewerVersionText =
+  "Die Setlisten stammen von einer neueren Version der App. Bitte die App aktualisieren; Änderungen an Setlisten werden nicht gespeichert.";
+
 /** Saving the set lists failed; a message that already ends with a period gets no second one. */
 export const setListsSaveFailedText = (message: string) =>
   `Die Setlisten konnten nicht gespeichert werden: ${message}${message.endsWith(".") ? "" : "."}`;

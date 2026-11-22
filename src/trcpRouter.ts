@@ -133,7 +133,10 @@ export const trcpRouter = createRouter({
     // the gate is skipped and legacy `.data` files are ignored.
     if (process.env.IS_TEST === "1" && process.env.SMV_DISABLE_BULK_MIGRATION === "1") return "migrated";
     const read = await loadFolderConfig(input);
-    if (read.kind === "unreadable") return { unreadable: { file: read.file, message: read.message } };
+    if (read.kind === "unreadable") {
+      const { file, message, newerVersion } = read;
+      return { unreadable: newerVersion ? { file, message, newerVersion } : { file, message } };
+    }
     return read.kind === "ok" && read.config.markupMigrated !== undefined ? "migrated" : "notMigrated";
   }),
 

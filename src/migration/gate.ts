@@ -177,8 +177,12 @@ export class MigrationGate {
     // An unreadable settings file keeps the gate shut (a passed run would have to write it), but every
     // file is still checked, so the list is complete.
     if (state !== "notMigrated") {
-      const { file, message } = state.unreadable;
-      failures.push({ relativePath: file, reason: "configUnreadable", message });
+      const { file, message, newerVersion } = state.unreadable;
+      failures.push(
+        newerVersion
+          ? { relativePath: file, reason: "configNewer" }
+          : { relativePath: file, reason: "configUnreadable", message },
+      );
     }
     const failedResult = (stage: "check" | "write", total: number, migratedCount: number, zipName: string | null) => {
       const result: GateFailed = { status: "failed", stage, total, migrated: migratedCount, zipName, failures };

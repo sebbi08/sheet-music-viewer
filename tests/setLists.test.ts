@@ -5,8 +5,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CONFIG_FILE } from "../src/folderConfig";
 import type { SetListsWrapper } from "../src/models/types";
 import { setLockRetryDelays } from "../src/pdfMarkup/lockRetry";
-import { setListsChangedText, setListsSaveFailedText, setListsUnreadableText } from "../src/store/setListTexts";
-import { loadSetLists, saveSetLists } from "../src/trcpLib";
+import {
+  setListsChangedText,
+  setListsNewerVersionText,
+  setListsSaveFailedText,
+  setListsUnreadableText,
+} from "../src/store/setListTexts";
+import { loadSetLists, saveSetLists, saveSetListsInputSchema } from "../src/trcpLib";
 
 // trcpLib.ts imports Electron at the top; the set list functions do not use it.
 vi.mock("electron", () => ({ app: { isPackaged: false }, autoUpdater: {}, dialog: {} }));
@@ -147,7 +152,42 @@ describe("saveSetLists", () => {
   });
 });
 
+describe("unknown fields of a newer version", () => {
+  test("survive load -> save -> load at wrapper, list and sheet level", async () => {
+    const sheet = { path: ["Weihnachten"], name: "a.pdf", isFile: true, isSearch: false, page: 3 };
+    const stored = { version: 2, color: "rot", setLists: [{ id: 1, name: "Advent", pinned: true, sheets: [sheet] }] };
+    fs.writeFileSync(configPath(), JSON.stringify({ version: 1, setLists: stored }));
+
+    const loaded = await loadSetLists(dir);
+    expect(loaded).toEqual({ kind: "ok", setLists: stored });
+    const base = loaded.kind === "ok" ? loaded.setLists : null;
+    // The renderer adds a sheet; the input goes through the tRPC schema like in the app.
+    const edited = structuredClone(base!);
+    edited.setLists[0].sheets.push({ path: [], name: "b.pdf", isFile: true, isSearch: false });
+    const input = saveSetListsInputSchema.parse({ basePath: dir, setListsWrapper: edited, base });
+    expect(await saveSetLists(input)).toEqual({ ok: true });
+
+    const expected = {
+      ...stored,
+      setLists: [{ ...stored.setLists[0], sheets: [sheet, { path: [], name: "b.pdf", isFile: true, isSearch: false }] }],
+    };
+    expect(readConfig().setLists).toEqual(expected);
+    expect(await loadSetLists(dir)).toEqual({ kind: "ok", setLists: expected });
+  });
+
+  test("a file of a newer app -> unreadable with newerVersion", async () => {
+    fs.writeFileSync(configPath(), JSON.stringify({ version: 1, setLists: { version: 3, setLists: [] } }));
+    expect(await loadSetLists(dir)).toMatchObject({ kind: "unreadable", file: CONFIG_FILE, newerVersion: true });
+  });
+});
+
 describe("notice texts", () => {
+  test("set lists of a newer app", () => {
+    expect(setListsNewerVersionText).toBe(
+      "Die Setlisten stammen von einer neueren Version der App. Bitte die App aktualisieren; Änderungen an Setlisten werden nicht gespeichert.",
+    );
+  });
+
   test("set lists changed on another PC", () => {
     expect(setListsChangedText).toBe(
       "Die Setlisten wurden inzwischen an einem anderen PC geändert und neu geladen. Bitte die letzte Änderung wiederholen.",

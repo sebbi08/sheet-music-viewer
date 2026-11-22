@@ -77,6 +77,32 @@ describe("loadFolderConfig", () => {
     expect(fs.readFileSync(configPath(), "utf8")).toBe(text);
   });
 
+  test.each([
+    ["version 2", { version: 2 }],
+    ["set lists version 3", { version: 1, setLists: { version: 3, setLists: "anders" } }],
+    ["both", { version: 7, setLists: { version: 9 } }],
+  ])("a file of a newer app (%s) -> unreadable with newerVersion, never overwritten", async (_name, content) => {
+    const text = JSON.stringify(content);
+    writeConfig(text);
+    const read = await loadFolderConfig(dir);
+    expect(read).toMatchObject({ kind: "unreadable", file: CONFIG_FILE, newerVersion: true });
+    const error = await updateFolderConfig(dir, { markupMigrated: mark }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FolderConfigUnreadableError);
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(text);
+  });
+
+  test.each([
+    ["version as text", { version: "2" }],
+    ["version 0", { version: 0 }],
+    ["set lists version 1", { version: 1, setLists: { version: 1, setLists: [] } }],
+    ["broken set lists, known versions", { version: 1, setLists: { version: 2, setLists: 7 } }],
+  ])("an invalid file that is not newer (%s) -> unreadable without newerVersion", async (_name, content) => {
+    writeConfig(content);
+    const read = await loadFolderConfig(dir);
+    expect(read).toMatchObject({ kind: "unreadable", file: CONFIG_FILE });
+    expect(read).not.toHaveProperty("newerVersion");
+  });
+
   test.skipIf(isRoot)("a file that cannot be read -> unreadable with the error", async () => {
     writeConfig({ version: 1 });
     fs.chmodSync(configPath(), 0o000);
@@ -147,13 +173,26 @@ describe("updateFolderConfig", () => {
       future: [1, 2],
     });
 
+    // A re-mark merges into the existing mark: fields a newer version wrote into it stay.
     await updateFolderConfig(dir, { markupMigrated: { at: "2026-11-23T08:00:00.000Z" } });
     expect(readConfig()).toEqual({
       version: 1,
       setLists: setListsB,
-      markupMigrated: { at: "2026-11-23T08:00:00.000Z" },
+      markupMigrated: { at: "2026-11-23T08:00:00.000Z", by: "PC-2" },
       future: [1, 2],
     });
+  });
+
+  test("unknown fields inside the set lists are kept by a load and an update", async () => {
+    const withUnknown = {
+      version: 2,
+      color: "rot",
+      setLists: [{ id: 1, name: "Advent", pinned: true, sheets: [{ ...setListsA.setLists[0].sheets[0], page: 3 }] }],
+    };
+    writeConfig({ version: 1, setLists: withUnknown });
+    expect(await loadFolderConfig(dir)).toEqual({ kind: "ok", config: { version: 1, setLists: withUnknown } });
+    await updateFolderConfig(dir, { markupMigrated: mark });
+    expect(readConfig()).toEqual({ version: 1, setLists: withUnknown, markupMigrated: mark });
   });
 
   test("updating set lists keeps a mark written by someone else", async () => {

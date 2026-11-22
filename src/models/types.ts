@@ -8,17 +8,22 @@ export const sheetFileSchema = z.object({
 });
 export type SheetFile = z.infer<typeof sheetFileSchema>;
 
-export const setListSheetSchema = sheetFileSchema.extend({
-  path: z.array(z.string()),
-});
+// The set list schemas keep unknown keys (`.loose()`): fields a newer version adds survive an edit here.
+export const setListSheetSchema = sheetFileSchema
+  .extend({
+    path: z.array(z.string()),
+  })
+  .loose();
 
 export type SetListSheet = z.infer<typeof setListSheetSchema>;
 
-export const setListSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  sheets: z.array(setListSheetSchema),
-});
+export const setListSchema = z
+  .object({
+    id: z.number(),
+    name: z.string(),
+    sheets: z.array(setListSheetSchema),
+  })
+  .loose();
 
 export type SetList = z.infer<typeof setListSchema>;
 
@@ -29,10 +34,12 @@ export const setListSchemaV1 = z.object({
 });
 export type SetListV1 = z.infer<typeof setListSchemaV1>;
 
-export const setListsWrapperSchema = z.object({
-  version: z.literal(2),
-  setLists: z.array(setListSchema),
-});
+export const setListsWrapperSchema = z
+  .object({
+    version: z.literal(2),
+    setLists: z.array(setListSchema),
+  })
+  .loose();
 export type SetListsWrapper = z.infer<typeof setListsWrapperSchema>;
 
 export interface OverlayData {

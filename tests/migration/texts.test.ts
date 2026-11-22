@@ -109,6 +109,12 @@ describe("failureText", () => {
     );
   });
 
+  test("configNewer asks to update the app", () => {
+    expect(failureText(f("configNewer", { relativePath: ".config.json" }))).toBe(
+      "Die Einstellungsdatei „.config.json“ stammt von einer neueren Version der App. Bitte die App aktualisieren.",
+    );
+  });
+
   test("sidecarNotDeleted", () => {
     expect(failureText(f("sidecarNotDeleted", { sidecarName: ".Africa.data", message: "EBUSY" }))).toBe(
       "Die PDF wurde übernommen, aber „.Africa.data“ konnte nicht gelöscht werden: EBUSY.",
@@ -185,6 +191,16 @@ describe("failedHeadline", () => {
       "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.",
     );
     expect(failedHeadline(failed({ failures: [config, failure] }))).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. 1 von 214 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
+    );
+  });
+
+  test("a config of a newer app counts like an unreadable one", () => {
+    const newer = f("configNewer", { relativePath: ".config.json" });
+    expect(failedHeadline(failed({ total: 3, failures: [newer] }))).toBe(
+      "Der Notenordner konnte nicht vollständig geprüft werden. Es wurde nichts verändert.",
+    );
+    expect(failedHeadline(failed({ failures: [newer, failure] }))).toBe(
       "Der Notenordner konnte nicht vollständig geprüft werden. 1 von 214 Dateien hat ein Problem. Es wurde nichts verändert. Bitte beheben und erneut prüfen.",
     );
   });

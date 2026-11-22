@@ -28,16 +28,20 @@ export const folderConfigSchema = z
   .object({
     version: z.literal(1),
     setLists: setListsWrapperSchema.optional(),
-    markupMigrated: z.object({ at: z.string() }).passthrough().optional(),
+    markupMigrated: z.object({ at: z.string() }).loose().optional(),
   })
-  .passthrough();
+  .loose();
 export type FolderConfig = z.infer<typeof folderConfigSchema>;
 
 export type FolderConfigRead =
   | { kind: "missing" }
   | { kind: "ok"; config: FolderConfig }
-  /** `file`: basename of the file that could not be read (`.config.json` or `.set-lists.json`). */
-  | { kind: "unreadable"; file: string; message: string };
+  /**
+   * `file`: basename of the file that could not be read (`.config.json` or `.set-lists.json`).
+   * `newerVersion`: it breaks the schema and states a newer `version` (or `setLists.version`) than this app
+   * knows; the remedy is to update the app, not to delete the file.
+   */
+  | { kind: "unreadable"; file: string; message: string; newerVersion?: true };
 
 /** The message when the sheet folder itself does not exist or is not a folder. */
 export const FOLDER_UNREACHABLE_MESSAGE = "Der Notenordner ist nicht erreichbar.";
@@ -192,9 +196,23 @@ async function deleteLegacy(folder: string): Promise<void> {
 type DiskState =
   | { kind: "missing" }
   | { kind: "ok" | "legacy"; raw: JsonObject; config: FolderConfig }
-  | { kind: "unreadable"; file: string; message: string };
+  | { kind: "unreadable"; file: string; message: string; newerVersion?: true };
 
 const unreadable = (file: string, message: string) => ({ kind: "unreadable", file, message }) as const;
+
+const isObject = (v: unknown): v is JsonObject => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** `raw` states a newer format than this app knows: `version` above 1 or `setLists.version` above 2. */
+function isNewerVersion(raw: unknown): boolean {
+  const above = (v: unknown, known: number) => typeof v === "number" && v > known;
+  return isObject(raw) && (above(raw.version, 1) || (isObject(raw.setLists) && above(raw.setLists.version, 2)));
+}
+
+/** The state for `raw` that breaks the schema; marked when it comes from a newer version of the app. */
+function schemaViolation(file: string, raw: unknown, error: z.ZodError): DiskState {
+  const state = unreadable(file, schemaMessage(error));
+  return isNewerVersion(raw) ? { ...state, newerVersion: true } : state;
+}
 
 async function readDisk(folder: string): Promise<DiskState> {
   // A folder that is gone for a moment must not look like a folder without settings.
@@ -222,7 +240,7 @@ async function readDisk(folder: string): Promise<DiskState> {
     return unreadable(CONFIG_FILE, errorMessage(e));
   }
   const parsed = folderConfigSchema.safeParse(raw);
-  if (!parsed.success) return unreadable(CONFIG_FILE, schemaMessage(parsed.error));
+  if (!parsed.success) return schemaViolation(CONFIG_FILE, raw, parsed.error);
   return { kind: "ok", raw: raw as JsonObject, config: parsed.data };
 }
 
@@ -238,7 +256,7 @@ async function readLegacy(folder: string): Promise<DiskState> {
   }
   const raw: JsonObject = { version: 1, setLists };
   const parsed = folderConfigSchema.safeParse(raw);
-  if (!parsed.success) return unreadable(LEGACY_SET_LISTS_FILE, schemaMessage(parsed.error));
+  if (!parsed.success) return schemaViolation(LEGACY_SET_LISTS_FILE, raw, parsed.error);
   return { kind: "legacy", raw, config: parsed.data };
 }
 
@@ -286,7 +304,11 @@ export function updateFolderConfig(
     const base: JsonObject = state.kind === "missing" ? { version: 1 } : state.raw;
     const merged: JsonObject = { ...base };
     if (patch.setLists !== undefined) merged.setLists = patch.setLists;
-    if (patch.markupMigrated !== undefined) merged.markupMigrated = patch.markupMigrated;
+    if (patch.markupMigrated !== undefined) {
+      // Merged into an existing mark, so fields a newer version wrote into it stay.
+      const previous = isObject(base.markupMigrated) ? base.markupMigrated : {};
+      merged.markupMigrated = { ...previous, ...patch.markupMigrated };
+    }
     const valid = folderConfigSchema.safeParse(merged);
     if (!valid.success) throw new Error(`Invalid ${CONFIG_FILE} content: ${schemaMessage(valid.error)}`);
 

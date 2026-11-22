@@ -124,6 +124,25 @@ describe("MigrationGate", () => {
     expect(deps.markMigrated).not.toHaveBeenCalled();
   });
 
+  test("a config of a newer app is listed as configNewer and fails the run", async () => {
+    const { gate, deps } = setup([A], {
+      isMigrated: async (): Promise<MigratedState> => ({
+        unreadable: { file: ".config.json", message: "Invalid input", newerVersion: true },
+      }),
+    });
+    expect(await gate.run("/s")).toEqual({
+      status: "failed",
+      stage: "check",
+      total: 1,
+      migrated: 0,
+      zipName: null,
+      failures: [{ relativePath: ".config.json", reason: "configNewer" }],
+    });
+    expect(deps.processFile).toHaveBeenCalledWith(A, "check");
+    expect(writeCalls(deps)).toEqual([]);
+    expect(deps.markMigrated).not.toHaveBeenCalled();
+  });
+
   test("no candidates and a complete scan: marked, passed with summary null, no backup", async () => {
     const { gate, deps, phases } = setup([]);
     expect(await gate.run("/s")).toEqual({ status: "passed", summary: null });

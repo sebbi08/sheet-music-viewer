@@ -2,7 +2,12 @@ import { defineStore } from "pinia";
 import type { SetListsWrapper, SheetFile } from "../models/types";
 import { client } from "../trcpClient";
 import { useNotices } from "./notices";
-import { setListsChangedText, setListsSaveFailedText, setListsUnreadableText } from "./setListTexts";
+import {
+  setListsChangedText,
+  setListsNewerVersionText,
+  setListsSaveFailedText,
+  setListsUnreadableText,
+} from "./setListTexts";
 
 const noSetLists = (): SetListsWrapper => ({ version: 2, setLists: [] });
 
@@ -123,7 +128,9 @@ const useStore = defineStore("app", {
         setListsSnapshot = null;
         setListsBase = "null";
         this.setListsFolder = "";
-        this.setListsError = setListsUnreadableText(result.file, result.message);
+        this.setListsError = result.newerVersion
+          ? setListsNewerVersionText
+          : setListsUnreadableText(result.file, result.message);
         this.setListsWrapper = noSetLists();
         useNotices().show(this.setListsError);
       }
