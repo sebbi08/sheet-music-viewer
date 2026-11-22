@@ -3,6 +3,7 @@ import fs from "fs-extra";
 import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
+import { absoluteFolderSchema } from "./migration/ipcInput";
 import { resolveListedEntry } from "./sheetFiles";
 import {
   FolderConfigChangedError,
@@ -116,7 +117,7 @@ export const saveSetListsInputSchema = z.object({
   setListsWrapper: setListsWrapperSchema,
   /** The set lists the renderer last loaded or saved for this folder (`null`: the file had none). */
   base: setListsWrapperSchema.nullable(),
-  basePath: z.string(),
+  basePath: absoluteFolderSchema,
 });
 
 export type SaveSetListsResult =

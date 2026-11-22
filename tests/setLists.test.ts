@@ -152,6 +152,19 @@ describe("saveSetLists", () => {
   });
 });
 
+describe("saveSetListsInputSchema", () => {
+  test.each([["a relative", "Noten"], ["an empty", ""], ["a NUL in the", `${path.sep}a\0b`]])(
+    "rejects %s folder path",
+    (_name, basePath) => {
+      expect(saveSetListsInputSchema.safeParse({ basePath, setListsWrapper: setLists, base: null }).success).toBe(false);
+    },
+  );
+
+  test("accepts an absolute folder", () => {
+    expect(saveSetListsInputSchema.safeParse({ basePath: dir, setListsWrapper: setLists, base: null }).success).toBe(true);
+  });
+});
+
 describe("unknown fields of a newer version", () => {
   test("survive load -> save -> load at wrapper, list and sheet level", async () => {
     const sheet = { path: ["Weihnachten"], name: "a.pdf", isFile: true, isSearch: false, page: 3 };

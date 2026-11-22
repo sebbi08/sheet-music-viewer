@@ -111,7 +111,7 @@ export const trcpRouter = createRouter({
 
   /** Set lists of a sheet folder, from its `.config.json` (src/folderConfig.ts). */
   loadSetLists: publicProcedure
-    .input(z.string())
+    .input(absoluteFolderSchema)
     .query(({ input }) => loadSetLists(input)),
 
   saveSetLists: publicProcedure

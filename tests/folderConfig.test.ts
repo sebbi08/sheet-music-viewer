@@ -154,6 +154,21 @@ describe("loadFolderConfig", () => {
     expect(fs.readdirSync(dir)).toEqual(before);
   });
 
+  test("a file with a byte order mark loads and is not rewritten by the load", async () => {
+    const text = `\uFEFF${JSON.stringify({ version: 1, setLists: setListsA, markupMigrated: mark })}`;
+    writeConfig(text);
+    const before = fs.statSync(configPath());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(await loadFolderConfig(dir)).toEqual({
+      kind: "ok",
+      config: { version: 1, setLists: setListsA, markupMigrated: mark },
+    });
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(text);
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before.mtimeMs);
+    expect(fs.readdirSync(dir)).toEqual([CONFIG_FILE]);
+  });
+
   test("a missing file is not retried", async () => {
     setLockRetryDelays([1, 1]);
     const readFile = vi.spyOn(fs.promises, "readFile");
@@ -261,6 +276,28 @@ describe("updateFolderConfig", () => {
     expect(tempFiles()).toEqual([]);
   });
 
+  test.each([
+    ["the temp file", () => path.join(dir, `.${CONFIG_FILE}.smv-tmp`)],
+    ["the written file", () => configPath()],
+  ])("a read-back of %s that is locked once is retried", async (_name, lockedFile) => {
+    setLockRetryDelays([1, 1]);
+    const realReadFile = fs.promises.readFile.bind(fs.promises);
+    let failed = false;
+    vi.spyOn(fs.promises, "readFile").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+      // Only a read of a file that exists is a read-back (the first read of the missing config is not).
+      if (!failed && String(target) === lockedFile() && fs.existsSync(lockedFile())) {
+        failed = true;
+        return Promise.reject(errorWithCode("EBUSY"));
+      }
+      return (realReadFile as (...a: unknown[]) => Promise<unknown>)(target, ...rest);
+    }) as typeof fs.promises.readFile);
+
+    await updateFolderConfig(dir, { setLists: setListsA });
+    expect(failed).toBe(true);
+    expect(readConfig()).toEqual({ version: 1, setLists: setListsA });
+    expect(tempFiles()).toEqual([]);
+  });
+
   test("calls for one folder run one after another", async () => {
     await Promise.all([
       updateFolderConfig(dir, { setLists: setListsA }),
@@ -298,6 +335,31 @@ describe("takeover of .set-lists.json", () => {
     expect(readConfig()).toEqual({ version: 1, setLists: setListsA });
     expect(fs.readdirSync(dir)).toEqual([CONFIG_FILE]);
     expect(order).toEqual(["read-back", "delete legacy"]);
+  });
+
+  test("a takeover whose read-back is locked once still deletes the legacy file", async () => {
+    setLockRetryDelays([1, 1]);
+    fs.writeFileSync(legacyPath(), JSON.stringify(setListsA));
+    const realReadFile = fs.promises.readFile.bind(fs.promises);
+    let failed = false;
+    vi.spyOn(fs.promises, "readFile").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+      if (!failed && String(target) === configPath() && fs.existsSync(configPath())) {
+        failed = true;
+        return Promise.reject(errorWithCode("EBUSY"));
+      }
+      return (realReadFile as (...a: unknown[]) => Promise<unknown>)(target, ...rest);
+    }) as typeof fs.promises.readFile);
+
+    expect(await loadFolderConfig(dir)).toEqual({ kind: "ok", config: { version: 1, setLists: setListsA } });
+    expect(failed).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual([CONFIG_FILE]);
+  });
+
+  test("a legacy file with a byte order mark is taken over", async () => {
+    fs.writeFileSync(legacyPath(), `\uFEFF${v1Text}`);
+    expect(await loadFolderConfig(dir)).toEqual({ kind: "ok", config: { version: 1, setLists: setListsA } });
+    expect(readConfig()).toEqual({ version: 1, setLists: setListsA });
+    expect(fs.readdirSync(dir)).toEqual([CONFIG_FILE]);
   });
 
   test("a legacy v1 file is converted to v2 on takeover", async () => {

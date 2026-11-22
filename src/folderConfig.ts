@@ -114,6 +114,9 @@ function canonicalJson(value: unknown): string {
   );
 }
 
+/** The text without a leading byte order mark (some Windows editors write one), ready for `JSON.parse`. */
+const withoutBom = (text: string) => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+
 /** One line per schema violation, joined, for a message shown to the user. */
 const schemaMessage = (error: z.ZodError) => z.prettifyError(error).replace(/\s*\n\s*/g, " ");
 
@@ -133,8 +136,8 @@ async function readTextIfExists(file: string): Promise<string | null> {
 /**
  * Replaces `target` atomically: writes `.<name>.smv-tmp` in the same folder (flushed to disk, with the
  * target's permissions), lets `verify` check the text read back from it, then renames it over `target`.
- * Opening the temp file and the rename are retried while the file is locked. On any failure the temp file
- * is removed and `target` is untouched.
+ * Opening the temp file, reading it back and the rename are retried while the file is locked. On any
+ * failure the temp file is removed and `target` is untouched.
  */
 async function atomicReplace(target: string, text: string, verify: (written: string) => void): Promise<void> {
   const temp = path.join(path.dirname(target), `.${path.basename(target)}.smv-tmp`);
@@ -151,7 +154,7 @@ async function atomicReplace(target: string, text: string, verify: (written: str
     } finally {
       await handle.close();
     }
-    verify(await fs.promises.readFile(temp, "utf8"));
+    verify(await retryWhileLocked(() => fs.promises.readFile(temp, "utf8")));
     await retryWhileLocked(() => fs.promises.rename(temp, target));
   } catch (e) {
     await fs.promises.rm(temp, { force: true }).catch(() => undefined);
@@ -164,14 +167,14 @@ function checkWritten(text: string, expected: string, file: string): void {
   if (canonicalJson(JSON.parse(text)) !== expected) throw new Error(`${file} reads back with other content`);
 }
 
-/** Writes `raw` as `.config.json`, then reads the file back; throws if anything fails. */
+/** Writes `raw` as `.config.json`, then reads the file back (retried while locked); throws if anything fails. */
 async function writeConfig(folder: string, raw: JsonObject): Promise<void> {
   const target = path.join(folder, CONFIG_FILE);
   const expected = canonicalJson(raw);
   await atomicReplace(target, `${JSON.stringify(raw, null, 2)}\n`, (written) =>
     checkWritten(written, expected, CONFIG_FILE),
   );
-  checkWritten(await fs.promises.readFile(target, "utf8"), expected, CONFIG_FILE);
+  checkWritten(await retryWhileLocked(() => fs.promises.readFile(target, "utf8")), expected, CONFIG_FILE);
 }
 
 /** Deletes `.set-lists.json` after its takeover; a failure is logged (the config wins from now on). */
@@ -235,7 +238,7 @@ async function readDisk(folder: string): Promise<DiskState> {
 
   let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    raw = JSON.parse(withoutBom(text));
   } catch (e) {
     return unreadable(CONFIG_FILE, errorMessage(e));
   }
@@ -250,7 +253,7 @@ async function readLegacy(folder: string): Promise<DiskState> {
   try {
     const text = await readTextIfExists(path.join(folder, LEGACY_SET_LISTS_FILE));
     if (text === null) return { kind: "missing" };
-    setLists = JSON.parse(migrateSetListsToV2(text));
+    setLists = JSON.parse(migrateSetListsToV2(withoutBom(text)));
   } catch (e) {
     return unreadable(LEGACY_SET_LISTS_FILE, errorMessage(e));
   }
@@ -270,7 +273,9 @@ export function loadFolderConfig(folder: string): Promise<FolderConfigRead> {
         await writeConfig(folder, state.raw);
         await deleteLegacy(folder);
       } catch (e) {
-        // The set lists are still readable; the takeover is tried again on the next load or update.
+        // The set lists are still readable. If `.config.json` was not written, the takeover is tried again
+        // on the next load or update; if it was written but did not read back, it wins from now on and
+        // `.set-lists.json` stays (both files: the config wins, the legacy file is left alone).
         console.warn(`Could not take over ${LEGACY_SET_LISTS_FILE} in ${folder}:`, e);
       }
     }
