@@ -343,6 +343,8 @@ function toggleSetListSortMode() {
 
 const { setListsWrapper } = storeToRefs(store);
 store.loadSetLists();
+// Every change is offered for saving; the store saves only real changes of the loaded folder's set lists
+// (not the load itself, not after a failed load, never into another folder).
 watch(setListsWrapper, async () => {
   await store.saveSetLists();
 }, { deep: true });

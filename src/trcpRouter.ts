@@ -21,7 +21,7 @@ import {
 } from "./migration/ipcInput";
 import { MigratedFolders } from "./migration/migratedFolders";
 import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
-import { setListsWrapperSchema, type UpdateData } from "./models/types";
+import { type UpdateData } from "./models/types";
 import { readSidecarContent } from "./pdfMarkup/legacySidecar";
 import {
     checkMarkupWritable,
@@ -103,14 +103,14 @@ export const trcpRouter = createRouter({
     .input(loadFilesAndFolderInputSchema)
     .query(loadFilesAndFolder),
 
+  /** Set lists of a sheet folder, from its `.config.json` (src/folderConfig.ts). */
   loadSetLists: publicProcedure
     .input(z.string())
-    .output(setListsWrapperSchema)
-    .query(loadSetLists),
+    .query(({ input }) => loadSetLists(input)),
 
   saveSetLists: publicProcedure
     .input(saveSetListsInputSchema)
-    .query(saveSetLists),
+    .mutation(({ input }) => saveSetLists(input)),
 
   loadMarkup: publicProcedure.input(pdfPathSchema).query(({ input }) => loadMarkupFromFile(input)),
 

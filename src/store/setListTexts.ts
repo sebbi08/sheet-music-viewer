@@ -1,0 +1,9 @@
+/** Notices about the set lists in the sheet folder's `.config.json` (spec 2026-11-22). No imports: unit-tested. */
+
+/** The set lists could not be loaded; until they can, changes to them are not saved. */
+export const setListsUnreadableText = (file: string, message: string) =>
+  `Die Setlisten konnten nicht geladen werden („${file}“: ${message}). Änderungen an Setlisten werden nicht gespeichert.`;
+
+/** Saving the set lists failed; a message that already ends with a period gets no second one. */
+export const setListsSaveFailedText = (message: string) =>
+  `Die Setlisten konnten nicht gespeichert werden: ${message}${message.endsWith(".") ? "" : "."}`;
