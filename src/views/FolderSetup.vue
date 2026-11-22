@@ -1,8 +1,11 @@
 <template>
   <div class="container">
-    <v-card @click="selectFolder">
+    <v-card data-testid="select-folder" @click="selectFolder">
       <v-icon x-large>mdi-folder</v-icon>
       <h2>Select a root folder</h2>
+      <p v-if="store.sheetMusicFolder" data-testid="current-folder" class="current-folder">
+        Current folder: {{ store.sheetMusicFolder }}
+      </p>
     </v-card>
   </div>
 </template>
@@ -16,7 +19,8 @@ import { client } from "../trcpClient";
 const store = useStore();
 
 async function selectFolder() {
-  const selectedFolder = await client.selectFolder.query()
+  // The dialog opens at the current folder.
+  const selectedFolder = await client.selectFolder.query(store.sheetMusicFolder || undefined)
   store.setSheetMusicFolder(selectedFolder ?? "");
   router.push({
     name: "SheetSelection",
@@ -39,6 +43,13 @@ async function selectFolder() {
     align-items: center;
     justify-content: center;
     padding: 16px;
+  }
+
+  .current-folder {
+    margin-top: 8px;
+    word-break: break-all;
+    text-align: center;
+    user-select: text;
   }
 }
 </style>

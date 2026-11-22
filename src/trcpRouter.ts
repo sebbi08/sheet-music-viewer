@@ -93,7 +93,9 @@ export const trcpRouter = createRouter({
     }
   }),
 
-  selectFolder: publicProcedure.query(openFolderDialog),
+  selectFolder: publicProcedure
+    .input(z.string().optional())
+    .query(({ input }) => openFolderDialog(input)),
 
   search: publicProcedure.input(searchForSheetParams).query(searchForSheet),
 

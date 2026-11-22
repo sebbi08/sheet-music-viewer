@@ -17,7 +17,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   `VISUAL_BASELINE_REF`) on every `Noten/*.pdf` that has a legacy `.data` file (spec section 8).
   Needs the local `Noten/` corpus with `.data` files; without it the corpus tests are skipped. The
   tests on synthetic folders below `test-results/visual/work/` run without it: `migrationGate.visual.ts`
-  (the gate's flow), `writeBlock.visual.ts` (the check on open), `singleInstance.visual.ts` and the
+  (the gate's flow), `writeBlock.visual.ts` (the check on open), `folderSetup.visual.ts` (choosing a new
+  sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts` and the
   read-only folder case of `bulkMigration.visual.ts`; see "Markup storage" for what each file checks.
 - Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
 - The comparison reaches the migration through the **migration gate**: per PDF a copy with only that PDF
