@@ -26,9 +26,11 @@ export function checkForUpdates() {
   }
 }
 
-export async function openFolderDialog() {
+/** Folder picker; opens at `defaultPath` (the current sheet folder) when one is given. */
+export async function openFolderDialog(defaultPath?: string) {
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory"],
+    ...(defaultPath ? { defaultPath } : {}),
   });
   return result.filePaths[0];
 }

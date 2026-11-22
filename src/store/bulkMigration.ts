@@ -184,7 +184,7 @@ export const useBulkMigration = defineStore("bulkMigration", () => {
     let folder: string | undefined;
     choosingFolder = true;
     try {
-      folder = await client.selectFolder.query();
+      folder = await client.selectFolder.query(useStore().sheetMusicFolder || undefined);
     } finally {
       choosingFolder = false;
     }
