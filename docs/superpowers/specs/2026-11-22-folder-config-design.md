@@ -3,6 +3,9 @@
 Stand: 2026-11-22 · Status: freigegeben · Ändert: `2026-11-20-strict-markup-migration-design.md` (Abschnitt 1
 „Wann ein Ordner als übernommen gilt“)
 
+Nachtrag 2026-11-23: `.config.json` hat einen weiteren Teil `sheets` (Seitenteiler pro Notenblatt); er ist
+in `2026-11-23-page-divider-design.md` spezifiziert.
+
 ## Warum
 
 Die Markierung „Markierungen dieses Ordners sind übernommen“ steht heute im lokalen App-Profil

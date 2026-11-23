@@ -19,8 +19,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   tests on synthetic folders below `test-results/visual/work/` run without it: `migrationGate.visual.ts`
   (the gate's flow), `writeBlock.visual.ts` (the check on open), `folderSetup.visual.ts` (choosing a new
   sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts`,
-  `folderConfig.visual.ts` (`.config.json`) and the read-only folder case of `bulkMigration.visual.ts`;
-  see "Markup storage" for what each file checks.
+  `folderConfig.visual.ts` (`.config.json`), `pageDivider.visual.ts` (the movable page divider) and the
+  read-only folder case of `bulkMigration.visual.ts`; see "Markup storage" for what each file checks.
 - Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
 - The comparison reaches the migration through the **migration gate**: per PDF a copy with only that PDF
   and its `.data` (`copyCorpusFiles`), the app starts with `bulkMigration: true` (the gate migrates the
@@ -117,7 +117,7 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 
 - **`.config.json`** in the sheet folder (`src/folderConfig.ts`, spec:
   `docs/superpowers/specs/2026-11-22-folder-config-design.md`) holds the set lists (`setLists`, formerly
-  `.set-lists.json`) and `markupMigrated`. On the first load of a folder without it, `.set-lists.json` is
+  `.set-lists.json`), `markupMigrated` and the page dividers (`sheets`, see "Page divider"). On the first load of a folder without it, `.set-lists.json` is
   taken over: `.config.json` is written and read back, only then the old file is deleted. Writes change
   one part, atomically and only on a real change; reads are retried while the file is locked. An
   unreadable file is never overwritten (set lists show a notice and are not saved; the gate lists it), and
@@ -126,6 +126,23 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   repeat the change. A file of a newer app (`version` above 1 or `setLists.version` above 2) is a
   `configNewer` failure in the gate and a set-list notice asking to update the app; unknown fields
   (also inside set lists and `markupMigrated`) survive every write.
+
+## Page divider
+
+- Spec: `docs/superpowers/specs/2026-11-23-page-divider-design.md`. The page-turn view shows a page in two
+  half steps; the divider decides where the page is cut. Per page turn n → n+1 it is a **ratio of page
+  n+1's height** (key = the page on the left, default 0.5, range 0.05–0.95, 3 decimals; logic in
+  `src/pageDivider.ts`).
+- Stored in `.config.json` → `sheets["<path relative to the sheet folder, />"].pageDividers["<n>"]`
+  (`sheetKey`/`pageDivider` in `src/folderConfig.ts`; tRPC `loadPageDividers`/`savePageDivider` in
+  `src/trcpLib.ts`): only values other than 0.5, empty levels are removed, written only on a real change.
+  Never stored in the PDF.
+- The cut is a CSS `clip-path` on the half-step copy of the page and on its markup overlays, plus the
+  backdrop height (`dividers`, `applyCut`, `getSplitIndicatorStyle` in `src/views/SheetViewer.vue`).
+- The app-bar button `mdi-arrow-split-horizontal` (`src/App.vue`) starts the divider mode (`dividerTurn`):
+  each page turn shows its divider, which can be moved; the button becomes `mdi-check` and the app bar
+  teal. The mode excludes the pencil mode.
+- `tests/visual/pageDivider.visual.ts` runs on synthetic folders, no corpus needed.
 
 ## Auto-Update
 
