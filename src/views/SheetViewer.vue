@@ -102,6 +102,8 @@
       </v-btn>
       <v-btn color="green" dark small @click="textDialog = !textDialog" icon="mdi-format-text">
       </v-btn>
+      <v-btn v-if="isZoomed(zoomView)" data-testid="zoom-fit" color="blue darken-2" dark
+        icon="mdi-fit-to-page-outline" @click="resetZoom"></v-btn>
     </div>
     <!--  Mode Selection  -->
 
@@ -175,9 +177,22 @@ import {
 } from "../Enums";
 import WriteBlockDialog from "../components/WriteBlockDialog.vue";
 import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
+import {
+  clampView,
+  FIT_VIEW,
+  isZoomed,
+  panBy,
+  type Size,
+  toViewportTransform,
+  viewCenter,
+  wheelZoomFactor,
+  zoomAt,
+  type ZoomView,
+} from "../markup/editZoom";
 import { displayTransform, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
 import { loadMarkupFonts } from "../markup/renderPng";
 import { writeBlockText } from "../markup/writeBlockTexts";
+import { createZoomPageRenderer, type ZoomPageRenderer } from "../markup/zoomPageRenderer";
 import { type LoadMarkupResult, type MarkupPayload, type Rect, type WriteBlock } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
 import { type EditState } from "../models/types";
@@ -281,6 +296,10 @@ const text = ref("");
 const buttonGroupLeft = ref(false);
 let pdf: pdfJs.PDFDocumentProxy;
 let existingText: fabric.FabricObject | undefined;
+/** Zoom of the edit canvas (spec 2026-11-23-edit-zoom); FIT_VIEW = the whole page. */
+const zoomView = ref<ZoomView>(FIT_VIEW);
+/** The sharp page picture under the zoomed edit canvas; only while editing. */
+let zoomRenderer: ZoomPageRenderer | undefined;
 
 
 
@@ -368,6 +387,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
+  zoomRenderer?.dispose();
+  zoomRenderer = undefined;
   // Unsaved changes stay in the markupSaves store and are retried there; an open edit canvas is queued.
   saveDrawnData();
   markupSaves.setEditCapture(null);
@@ -490,6 +511,11 @@ function onClick(event: MouseEvent): void {
 function onResize(): void {
   // The re-render removes the divider line, and with it the capture of a drag.
   cancelDividerDrag();
+  // The page is drawn anew: the edit canvas goes back to the whole page, with a picture of the new page.
+  resetZoom();
+  zoomRenderer?.dispose();
+  zoomRenderer = undefined;
+  if (editFabric) startZoomRenderer(editFabric);
   renderPdf();
 }
 
@@ -862,10 +888,8 @@ function addTextToCanvas(): void {
   text.value = ""
   editFabric.add(textbox);
 
-  textbox.set({
-    left: (editFabric?.width || 0) / 2,
-    top: (editFabric?.height || 0) / 2,
-  });
+  const center = viewCenter(zoomView.value, editCanvasSize());
+  textbox.set({ left: center.x, top: center.y });
   editFabric.setActiveObject(textbox);
 }
 
@@ -889,10 +913,8 @@ function addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
   removeStretchControls(iconObject);
 
   editFabric?.add(iconObject);
-  iconObject.set({
-    left: (editFabric?.width || 0) / 2,
-    top: (editFabric?.height || 0) / 2,
-  });
+  const center = viewCenter(zoomView.value, editCanvasSize());
+  iconObject.set({ left: center.x, top: center.y });
   if (!editState.value.interactiveMode) {
     startInteractiveMode();
   }
@@ -909,10 +931,11 @@ function addMusicSvg(svg: Svg): void {
     getImgUrl(svg.file),
     () => {
       const loadedObjects = new fabric.Group(group);
+      const center = viewCenter(zoomView.value, editCanvasSize());
 
       loadedObjects.set({
-        left: (editFabric?.width || 0) / 2,
-        top: (editFabric?.height || 0) / 2,
+        left: center.x,
+        top: center.y,
         width: svg.width,
         height: svg.height,
         scaleX: svg.scaleX,
@@ -1069,6 +1092,8 @@ async function createFabricCanvas(): Promise<void> {
     isDrawingMode: false,
   });
   startInteractiveMode();
+  sheetViewerWrapper?.addEventListener("wheel", onEditWheel, { passive: false });
+  startZoomRenderer(editFabric);
   const handleSelection = () => {
     if (!editFabric) return;
     if (editFabric.getActiveObjects().length > 1) {
@@ -1107,6 +1132,8 @@ async function createFabricCanvas(): Promise<void> {
   });
 
   editFabric.on("object:added", (event) => {
+    // Drawn directly: a cached object is limited in size and turns blurry when zoomed in.
+    event.target.objectCaching = false;
     setDefaultPropsOnFabricObject(event.target, (event, transform) => {
       text.value = transform.target.get("text");
       textDialog.value = true;
@@ -1137,6 +1164,11 @@ async function createFabricCanvas(): Promise<void> {
 }
 
 function removeFabricCanvas(): void {
+  document.getElementById(sheetViewerWrapperId)?.removeEventListener("wheel", onEditWheel);
+  resetZoom();
+  // Before the edit canvas is looked up below: the picture is a canvas in the same wrapper.
+  zoomRenderer?.dispose();
+  zoomRenderer = undefined;
   editFabric?.dispose();
   editFabric = undefined;
   editLoaded = false;
@@ -1145,6 +1177,65 @@ function removeFabricCanvas(): void {
   const sheetViewerWrapper = document.getElementById(sheetViewerWrapperId);
   sheetViewerWrapper?.querySelector(".canvasWrapper > canvas")?.remove();
   setEditMode({});
+}
+
+const editCanvasSize = (): Size => ({ width: editFabric?.width ?? 0, height: editFabric?.height ?? 0 });
+
+/** Shows the edit canvas and the page under it at `view` (clamped to the page). */
+function applyZoomView(view: ZoomView): void {
+  const next = clampView(view, editCanvasSize());
+  const current = zoomView.value;
+  // E.g. a pan against the edge of the page: nothing to show anew (and no sharp render to restart).
+  if (next.zoom === current.zoom && next.x === current.x && next.y === current.y) return;
+  zoomView.value = next;
+  editFabric?.setViewportTransform(toViewportTransform(next));
+  if (isZoomed(next)) zoomRenderer?.show(next);
+  else zoomRenderer?.hide();
+  const wrapper = document.getElementById(sheetViewerWrapperId);
+  if (wrapper) {
+    wrapper.dataset.editZoom = String(next.zoom);
+    wrapper.dataset.editView = `${next.zoom},${next.x},${next.y}`;
+  }
+}
+
+function resetZoom(): void {
+  applyZoomView(FIT_VIEW);
+}
+
+/** Creates the page picture for the zoomed edit canvas `canvas` (unless edit mode was left meanwhile). */
+function startZoomRenderer(canvas: fabric.Canvas): void {
+  const page = currentPage.value;
+  void pdf.getPage(page).then((pdfPage) => {
+    const container = document.querySelector<HTMLElement>(`#${sheetViewerWrapperId} > .canvasWrapper`);
+    const pageCanvas = container?.querySelector<HTMLCanvasElement>(`canvas[data-page="${page}"]`);
+    if (editFabric !== canvas || zoomRenderer || !container || !pageCanvas) return;
+    zoomRenderer = createZoomPageRenderer({
+      container,
+      pageCanvas,
+      page: pdfPage,
+      optionalContentConfig,
+      devicePixelRatio: window.devicePixelRatio,
+    });
+  }, (e: unknown) => console.warn("Could not load the page for zooming", e));
+}
+
+/**
+ * In edit mode the wheel moves the page instead of the app: Ctrl + wheel (also a trackpad pinch) zooms
+ * around the pointer, the wheel alone pans (Shift: sideways). The app itself never zooms here.
+ */
+function onEditWheel(event: WheelEvent): void {
+  event.preventDefault();
+  if (!editFabric || !zoomRenderer || !Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
+  const size = editCanvasSize();
+  if (event.ctrlKey) {
+    const rect = editFabric.upperCanvasEl.getBoundingClientRect();
+    const at = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    applyZoomView(zoomAt(zoomView.value, wheelZoomFactor(event.deltaY), at, size));
+  } else if (event.shiftKey) {
+    applyZoomView(panBy(zoomView.value, -event.deltaY, 0, size));
+  } else {
+    applyZoomView(panBy(zoomView.value, -event.deltaX, -event.deltaY, size));
+  }
 }
 
 function clearOverlayCanvas(): void {
