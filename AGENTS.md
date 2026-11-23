@@ -19,9 +19,10 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   tests on synthetic folders below `test-results/visual/work/` run without it: `migrationGate.visual.ts`
   (the gate's flow), `writeBlock.visual.ts` (the check on open), `folderSetup.visual.ts` (choosing a new
   sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts`,
-  `folderConfig.visual.ts` (`.config.json`), `pageDivider.visual.ts` (the movable page divider) and the
-  read-only folder case of `bulkMigration.visual.ts`; see "Markup storage" for what each file checks
-  ("Page divider" for `pageDivider.visual.ts`).
+  `folderConfig.visual.ts` (`.config.json`), `pageDivider.visual.ts` (the movable page divider),
+  `editZoom.visual.ts` (zooming in edit mode) and the read-only folder case of `bulkMigration.visual.ts`;
+  see "Markup storage" for what each file checks ("Page divider" for `pageDivider.visual.ts`, "Zoom in
+  edit mode" for `editZoom.visual.ts`).
 - Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
 - The comparison reaches the migration through the **migration gate**: per PDF a copy with only that PDF
   and its `.data` (`copyCorpusFiles`), the app starts with `bulkMigration: true` (the gate migrates the
@@ -153,6 +154,37 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   to the grab saves 3 decimals and leaves the PDF byte-identical, a press without movement, keys and
   clicks write nothing, restart and „Zur Mitte“, a broken `.config.json`, a failed save (read-only
   folder), a single-page PDF, the exclusion with the pencil.
+
+## Zoom in edit mode
+
+- Spec: `docs/superpowers/specs/2026-11-23-edit-zoom-design.md`. In pen mode the edit canvas zooms
+  1–20× (`MIN_ZOOM`/`MAX_ZOOM`); view math in `src/markup/editZoom.ts` (`ZoomView` = zoom + offset,
+  `zoomAt`, `panBy`, `pinchView`, `wheelZoomFactor`, `viewForWheel`, `viewToApply`, `viewCenter`). Zoom only
+  goes through fabric's `viewportTransform`; the save path is unchanged (markup stays in PDF points). No zoom
+  before the sharp page picture exists (`viewToApply`); back to the whole page always works.
+- Input (`src/views/SheetViewer.vue`, mapping in `viewForWheel`): Ctrl+wheel (also a trackpad pinch) zooms
+  around the pointer, the plain wheel pans, Shift+wheel pans sideways only (by deltaX, as Chromium delivers
+  it on Windows, else by deltaY), only in pen mode. Two fingers pinch and pan. The edit-toolbar
+  button `mdi-fit-to-page-outline` (`data-testid="zoom-fit"`) shows while zoomed and resets to the whole
+  page. Zoom also resets on leaving edit mode and on resize.
+- Gesture rules (`src/markup/editGestures.ts`, pure tracker; `src/markup/editTouchInput.ts` connects
+  touch and pen events on `.canvas-container`, capture phase, to it): two touch pointers make a gesture;
+  the pen never starts one and a pen stroke is never discarded; touches that land while the pen is down
+  are ignored (blocked); the mouse never counts as a finger. When the second finger lands, the first
+  finger's input is discarded (stroke or drag undone) if it is younger than 300 ms
+  (`DISCARD_WINDOW_MS`), otherwise it is ended and kept. That end is a synthetic touchend; the controls'
+  mouse-up actions (delete, clone, edit text) ignore it (`isEndingFabricTouch`). A cancelled finger
+  (`touchcancel`) ends fabric's input the same way. When one finger of a gesture lifts, the other stays
+  blocked; a finger that lands beside it (no other finger, the pen neither down nor down meanwhile)
+  resumes the pinch with it (`resume`, no fabric input to end).
+- Sharp page: `src/markup/zoomPageRenderer.ts` draws the visible page area as a picture below
+  `.canvas-container`, laid out with the same mapping as the saved markup (the edit canvas size). It
+  renders about 200 ms after the last view change; a newer view cancels an older render.
+- New symbols and texts are placed at the centre of the visible area (`viewCenter`). Object caching is off
+  on the edit canvas, recursively for groups (a cached object turns blurry when zoomed); the global fabric
+  config is untouched.
+- `tests/visual/editZoom.visual.ts` (synthetic folders, no corpus needed) checks the zoom in edit mode
+  (see the file for the cases).
 
 ## Auto-Update
 

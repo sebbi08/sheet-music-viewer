@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { _electron, type ElectronApplication, type Page } from "playwright-core";
+import { _electron, type CDPSession, type ElectronApplication, type Page } from "playwright-core";
 import { repoRoot } from "./corpus";
 import { decodePng, type Img } from "./imageCompare";
 
@@ -55,8 +55,91 @@ export interface SheetSession {
   waitForExit(timeoutMs: number): Promise<boolean>;
   /** Number of open app windows (devtools excluded). */
   windowCount(): Promise<number>;
-  /** Sets the window's content size and waits until the sheet and its markup are rendered again. */
-  resizeContent(width: number, height: number): Promise<void>;
+  /**
+   * Sets the window's content size and waits until the sheet and its markup are rendered again. In edit
+   * mode only with `whileEditing` (and only on a sheet without markup overlays).
+   */
+  resizeContent(width: number, height: number, options?: { whileEditing?: boolean }): Promise<void>;
+  /** In edit mode: the zoom of the edit canvas (`data-edit-zoom` of the sheet; 1 when absent). */
+  editZoom(): Promise<number>;
+  /** In edit mode: the view of the edit canvas, screen = canvas point * zoom + (x, y) (`data-edit-view`). */
+  editView(): Promise<{ zoom: number; x: number; y: number }>;
+  /** In edit mode: the CSS size of the edit canvas (= its canvas coordinates at 1x). */
+  editCanvasSize(): Promise<{ width: number; height: number }>;
+  /** In edit mode: switches the edit canvas to drawing (pencil) if it is in the hand mode. */
+  startDrawing(): Promise<void>;
+  /** In edit mode: switches the edit canvas to the hand mode (moving and selecting) if it is drawing. */
+  setHandMode(): Promise<void>;
+  /**
+   * Touch input through the DevTools protocol (`Input.dispatchTouchEvent`), real touch events in the
+   * renderer. `points` are all fingers on the screen after the event (CSS px relative to the edit canvas,
+   * `id` per finger) for "touchStart" and "touchMove": a new id lands, a changed position moves (a missing
+   * one stays down). "touchEnd" lifts the fingers in `points` (CDP releases the listed points), with no
+   * points every finger; "touchCancel" cancels every finger (`points` must be empty).
+   */
+  touch(
+    type: "touchStart" | "touchMove" | "touchEnd" | "touchCancel",
+    points: { x: number; y: number; id: number }[],
+  ): Promise<void>;
+  /**
+   * Two fingers on a horizontal line through `center` (CSS px relative to the edit canvas), `fromDistance`
+   * apart, land one right after the other, spread (or pinch) to `toDistance` in `steps` moves and lift.
+   */
+  pinch(center: { x: number; y: number }, fromDistance: number, toDistance: number, steps?: number): Promise<void>;
+  /**
+   * Pen input through the DevTools protocol (`Input.dispatchMouseEvent` with `pointerType: "pen"`): pointer
+   * events of a pen plus mouse events, as Chromium delivers a pen. CSS px relative to the edit canvas.
+   */
+  pen(type: "down" | "move" | "up", at: { x: number; y: number }): Promise<void>;
+  /** Mouse wheel with Ctrl held (like a trackpad pinch) at `at`, CSS px relative to the edit canvas. */
+  ctrlWheel(at: { x: number; y: number }, deltaY: number): Promise<void>;
+  /** Mouse wheel without modifiers over the centre of the edit canvas. */
+  wheel(dx: number, dy: number): Promise<void>;
+  /**
+   * One wheel event with Shift held over the centre of the edit canvas, through the DevTools protocol
+   * (`Input.dispatchMouseEvent` "mouseWheel"): the deltas arrive in the page as given.
+   */
+  shiftWheel(deltaX: number, deltaY: number): Promise<void>;
+  /** Whether the text dialog („Add Text“) is open. */
+  textDialogShown(): Promise<boolean>;
+  /** Clicks the edit mode's „ganze Seite“ button. */
+  zoomFit(): Promise<void>;
+  /** Whether the edit mode's „ganze Seite“ button is shown. */
+  zoomFitShown(): Promise<boolean>;
+  /** Whether the zoomed page picture (`.zoomPageCanvas`) is shown. */
+  zoomPictureShown(): Promise<boolean>;
+  /**
+   * The zoomed page picture: its pixel size, the zoom it shows sharply (`data-zoom`, null while it is only
+   * scaled) and its CSS size.
+   */
+  zoomPicture(): Promise<{ width: number; height: number; zoom: number | null; cssWidth: number; cssHeight: number }>;
+  /**
+   * RGBA pixels of the zoomed page picture in the given rectangle (its device px), and where the picture
+   * lies relative to the edit canvas (CSS px of its left/top edge minus those of the edit canvas).
+   */
+  zoomPicturePixels(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): Promise<{ data: number[]; offsetX: number; offsetY: number }>;
+  /**
+   * How the zoomed page picture is stacked: whether the topmost element at `at` (CSS px relative to the edit
+   * canvas) is the edit canvas's upper canvas, the computed z-indices of the picture and of the edit canvas's
+   * container, and whether the picture comes before that container in the DOM.
+   */
+  zoomPictureStacking(at: { x: number; y: number }): Promise<{
+    editCanvasOnTop: boolean;
+    pictureZ: number;
+    containerZ: number;
+    pictureBeforeContainer: boolean;
+  }>;
+  /** Mouse down at the first point, moves through the others, mouse up; CSS px relative to the edit canvas. */
+  drawStroke(points: { x: number; y: number }[]): Promise<void>;
+  /** RGBA pixels of the edit canvas's lower canvas (device px) in the given rectangle. */
+  editCanvasPixels(x: number, y: number, width: number, height: number): Promise<number[]>;
+  /** The app's own zoom: device pixel ratio, layout width of the document and the window's zoom factor. */
+  appZoom(): Promise<{ devicePixelRatio: number; clientWidth: number; zoomFactor: number }>;
   networkRequests(): string[];
   /**
    * Proves that the network log is armed: the renderer requests a unique https URL, which must show
@@ -674,6 +757,16 @@ export async function openSheet(
       .filter({ has: page.locator(".mdi-arrow-split-horizontal, .mdi-check") });
     const dividerLine = page.locator("#sheetViewerWrapper .dividerLine");
     const dividerControl = (control: "prev" | "next" | "reset" | "label") => page.getByTestId(`divider-${control}`);
+    /** Where the edit canvas is (its upper canvas takes the input), in CSS px of the window. */
+    const editCanvasBox = async () => {
+      const box = await page.locator("#sheetViewerWrapper .canvas-container canvas.upper-canvas").boundingBox();
+      if (!box) throw new Error("no edit canvas shown");
+      return box;
+    };
+    /** DevTools session for touch input, opened on the first touch. */
+    let cdp: CDPSession | undefined;
+    /** The edit canvas's box at the last touchStart. */
+    let touchBox: { x: number; y: number } | undefined;
 
     const session: SheetSession = {
       async gotoPage(target) {
@@ -727,6 +820,8 @@ export async function openSheet(
         await dialog.locator("input").fill(text);
         await dialog.getByRole("button", { name: "Ok" }).click();
         await dialog.waitFor({ state: "detached" });
+        // The scrim fades out after the card is gone; until then it takes touches meant for the edit canvas.
+        await page.waitForSelector(".v-overlay__scrim", { state: "detached" });
         await refreshRequests();
       },
       async leaveSheet() {
@@ -774,11 +869,11 @@ export async function openSheet(
         electronApp.evaluate(
           ({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => !w.webContents.getURL().startsWith("devtools:")).length,
         ),
-      async resizeContent(width, height) {
+      async resizeContent(width, height, { whileEditing = false } = {}) {
         const size = { width, height };
         const hasSize = () => page.evaluate((s) => window.innerWidth === s.width && window.innerHeight === s.height, size);
         if (await hasSize()) return;
-        if ((await page.locator("#sheetViewerWrapper .canvas-container").count()) > 0) {
+        if (!whileEditing && (await page.locator("#sheetViewerWrapper .canvas-container").count()) > 0) {
           throw new Error("cannot resize while editing");
         }
         // The resize handler renders every page again and then replaces all markup overlays.
@@ -803,6 +898,171 @@ export async function openSheet(
           }, overlays),
         );
         await refreshRequests();
+      },
+      editZoom: async () =>
+        Number((await page.evaluate(() => document.querySelector<HTMLElement>("#sheetViewerWrapper")?.dataset.editZoom)) ?? 1),
+      async editView() {
+        const view = await page.evaluate(() => document.querySelector<HTMLElement>("#sheetViewerWrapper")?.dataset.editView);
+        if (!view) return { zoom: 1, x: 0, y: 0 };
+        const [zoom, x, y] = view.split(",").map(Number);
+        return { zoom, x, y };
+      },
+      async editCanvasSize() {
+        const box = await editCanvasBox();
+        return { width: box.width, height: box.height };
+      },
+      async startDrawing() {
+        const hand = page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-hand-back-right-outline") });
+        if ((await hand.count()) > 0) await hand.click();
+        await page.locator(".fabContainer .v-btn .mdi-marker, .fabContainer .v-btn .mdi-pencil").first().waitFor();
+      },
+      async setHandMode() {
+        const toggle = page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-hand-back-right-outline") });
+        if ((await toggle.count()) === 0) await page.locator(".fabContainer:not(.dividerControls) > .v-btn").first().click();
+        await toggle.waitFor();
+      },
+      async touch(type, points) {
+        if (type === "touchCancel" && points.length > 0) throw new Error("touchCancel cancels every finger, pass no points");
+        // Looked up once per touch sequence: the moves of a gesture follow each other quickly.
+        if (type === "touchStart" || !touchBox) touchBox = await editCanvasBox();
+        const box = touchBox;
+        cdp ??= await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchTouchEvent", {
+          type,
+          touchPoints: points.map((p) => ({ x: box.x + p.x, y: box.y + p.y, id: p.id })),
+        });
+      },
+      async pinch(center, fromDistance, toDistance, steps = 10) {
+        const fingers = (distance: number) => [
+          { x: center.x - distance / 2, y: center.y, id: 1 },
+          { x: center.x + distance / 2, y: center.y, id: 2 },
+        ];
+        const [a] = fingers(fromDistance);
+        await session.touch("touchStart", [a]);
+        await session.touch("touchStart", fingers(fromDistance));
+        for (let i = 1; i <= steps; i++) {
+          await session.touch("touchMove", fingers(fromDistance + ((toDistance - fromDistance) * i) / steps));
+        }
+        await session.touch("touchEnd", []);
+      },
+      async pen(type, at) {
+        const box = await editCanvasBox();
+        cdp ??= await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: type === "down" ? "mousePressed" : type === "up" ? "mouseReleased" : "mouseMoved",
+          x: box.x + at.x,
+          y: box.y + at.y,
+          button: "left",
+          buttons: type === "up" ? 0 : 1,
+          clickCount: type === "move" ? 0 : 1,
+          pointerType: "pen",
+        });
+      },
+      async ctrlWheel(at, deltaY) {
+        const box = await editCanvasBox();
+        await page.mouse.move(box.x + at.x, box.y + at.y);
+        await page.keyboard.down("Control");
+        try {
+          await page.mouse.wheel(0, deltaY);
+        } finally {
+          await page.keyboard.up("Control");
+        }
+      },
+      async wheel(dx, dy) {
+        const box = await editCanvasBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.wheel(dx, dy);
+      },
+      async shiftWheel(deltaX, deltaY) {
+        const box = await editCanvasBox();
+        cdp ??= await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x: box.x + box.width / 2,
+          y: box.y + box.height / 2,
+          deltaX,
+          deltaY,
+          modifiers: 8, // Shift
+        });
+      },
+      textDialogShown: () => page.locator(".v-overlay--active .v-card").filter({ hasText: "Add Text" }).isVisible(),
+      zoomFit: () => page.getByTestId("zoom-fit").click(),
+      zoomFitShown: () => page.getByTestId("zoom-fit").isVisible(),
+      zoomPictureShown: () => page.locator("#sheetViewerWrapper .zoomPageCanvas").isVisible(),
+      zoomPicture: () =>
+        page.evaluate(() => {
+          const canvas = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .zoomPageCanvas");
+          if (!canvas) throw new Error("no zoomed page picture");
+          const rect = canvas.getBoundingClientRect();
+          const zoom = canvas.dataset.zoom;
+          return {
+            width: canvas.width,
+            height: canvas.height,
+            zoom: zoom ? Number(zoom) : null,
+            cssWidth: rect.width,
+            cssHeight: rect.height,
+          };
+        }),
+      zoomPicturePixels: (x, y, width, height) =>
+        page.evaluate(
+          (r) => {
+            const picture = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .zoomPageCanvas");
+            const edit = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .canvas-container canvas.upper-canvas");
+            const context = picture?.getContext("2d");
+            if (!picture || !edit || !context) throw new Error("no zoomed page picture or edit canvas");
+            const p = picture.getBoundingClientRect();
+            const e = edit.getBoundingClientRect();
+            return {
+              data: [...context.getImageData(r.x, r.y, r.width, r.height).data],
+              offsetX: p.left - e.left,
+              offsetY: p.top - e.top,
+            };
+          },
+          { x, y, width, height },
+        ),
+      zoomPictureStacking: (at) =>
+        page.evaluate((point) => {
+          const picture = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .zoomPageCanvas");
+          const container = document.querySelector<HTMLElement>("#sheetViewerWrapper .canvas-container");
+          const upper = container?.querySelector<HTMLCanvasElement>("canvas.upper-canvas");
+          if (!picture || !container || !upper) throw new Error("no zoomed page picture or edit canvas");
+          const box = upper.getBoundingClientRect();
+          return {
+            editCanvasOnTop: document.elementFromPoint(box.left + point.x, box.top + point.y) === upper,
+            pictureZ: Number(getComputedStyle(picture).zIndex),
+            containerZ: Number(getComputedStyle(container).zIndex),
+            pictureBeforeContainer: (picture.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          };
+        }, at),
+      async drawStroke(points) {
+        const box = await editCanvasBox();
+        const [first, ...rest] = points;
+        await page.mouse.move(box.x + first.x, box.y + first.y);
+        await page.mouse.down();
+        for (const p of rest) await page.mouse.move(box.x + p.x, box.y + p.y, { steps: 10 });
+        await page.mouse.up();
+      },
+      editCanvasPixels: (x, y, width, height) =>
+        page.evaluate(
+          (r) => {
+            const canvas = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .canvas-container canvas.lower-canvas");
+            const context = canvas?.getContext("2d");
+            if (!context) throw new Error("no edit canvas");
+            return [...context.getImageData(r.x, r.y, r.width, r.height).data];
+          },
+          { x, y, width, height },
+        ),
+      async appZoom() {
+        const zoomFactor = await electronApp.evaluate(({ BrowserWindow }) => {
+          const win = BrowserWindow.getAllWindows().find((w) => !w.webContents.getURL().startsWith("devtools:"));
+          if (!win) throw new Error("app window not found");
+          return win.webContents.getZoomFactor();
+        });
+        const metrics = await page.evaluate(() => ({
+          devicePixelRatio: window.devicePixelRatio,
+          clientWidth: document.documentElement.clientWidth,
+        }));
+        return { ...metrics, zoomFactor };
       },
       networkRequests: launched.networkRequests,
       async probeNetworkLog() {

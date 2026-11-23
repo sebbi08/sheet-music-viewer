@@ -5,6 +5,7 @@ import {
   type Transform,
 } from "fabric";
 import { ACTION_ICONS } from "./Enums";
+import { isEndingFabricTouch } from "./markup/editTouchInput";
 
 export function enhanceFabricPrototype(): void {
   fabric.Group.prototype.lockMovementX = true;
@@ -26,6 +27,16 @@ export function enhanceFabricPrototype(): void {
   // enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
 }
 
+/**
+ * Switches fabric's object cache off for `object` and, in a group, for every object inside it (a group
+ * without a cache lets each child cache itself): a cached object is limited in size and turns blurry when
+ * the edit canvas is zoomed in. `toObject` does not serialize the flag.
+ */
+export function disableObjectCaching(object: FabricObject): void {
+  object.objectCaching = false;
+  if (object instanceof fabric.Group) object.getObjects().forEach(disableObjectCaching);
+}
+
 export function setDefaultPropsOnFabricObject(
   object: FabricObject,
   customHandler: ControlActionHandler,
@@ -42,7 +53,7 @@ export function setDefaultPropsOnFabricObject(
     offsetY: -50,
     offsetX: 50,
     cursorStyle: "pointer",
-    mouseUpHandler: deleteObject,
+    mouseUpHandler: unlessEndingTouch(deleteObject),
     render: renderIcon(deleteImg),
   });
 
@@ -56,7 +67,7 @@ export function setDefaultPropsOnFabricObject(
       offsetY: -50,
       offsetX: -50,
       cursorStyle: "pointer",
-      mouseUpHandler: cloneObject,
+      mouseUpHandler: unlessEndingTouch(cloneObject),
       render: renderIcon(cloneImg),
     });
 
@@ -101,10 +112,18 @@ export function setDefaultPropsOnFabricObject(
       offsetY: -50,
       offsetX: 0,
       cursorStyle: "pointer",
-      mouseUpHandler: customHandler,
+      mouseUpHandler: unlessEndingTouch(customHandler),
       render: renderIcon(editImg),
     });
   }
+}
+
+/**
+ * A control's mouse-up action that does nothing for the touchend with which a gesture ends fabric's input of
+ * the first finger: that finger did not tap the control (spec 2026-11-23-edit-zoom „Bedienung“).
+ */
+function unlessEndingTouch(action: ControlActionHandler): ControlActionHandler {
+  return (eventData, transform, x, y) => (isEndingFabricTouch() ? false : action(eventData, transform, x, y));
 }
 
 export function removeStretchControls(object: FabricObject) {
