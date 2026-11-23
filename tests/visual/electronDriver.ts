@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { _electron, type ElectronApplication, type Page } from "playwright-core";
+import { _electron, type CDPSession, type ElectronApplication, type Page } from "playwright-core";
 import { repoRoot } from "./corpus";
 import { decodePng, type Img } from "./imageCompare";
 
@@ -68,6 +68,25 @@ export interface SheetSession {
   editCanvasSize(): Promise<{ width: number; height: number }>;
   /** In edit mode: switches the edit canvas to drawing (pencil) if it is in the hand mode. */
   startDrawing(): Promise<void>;
+  /** In edit mode: switches the edit canvas to the hand mode (moving and selecting) if it is drawing. */
+  setHandMode(): Promise<void>;
+  /**
+   * Touch input through the DevTools protocol (`Input.dispatchTouchEvent`), real touch events in the
+   * renderer. `points` are all fingers on the screen after the event (CSS px relative to the edit canvas,
+   * `id` per finger): a new id lands, a missing one lifts, a changed position moves. "touchEnd" lifts every
+   * finger (`points` must be empty).
+   */
+  touch(type: "touchStart" | "touchMove" | "touchEnd", points: { x: number; y: number; id: number }[]): Promise<void>;
+  /**
+   * Two fingers on a horizontal line through `center` (CSS px relative to the edit canvas), `fromDistance`
+   * apart, land one right after the other, spread (or pinch) to `toDistance` in `steps` moves and lift.
+   */
+  pinch(center: { x: number; y: number }, fromDistance: number, toDistance: number, steps?: number): Promise<void>;
+  /**
+   * Pen input through the DevTools protocol (`Input.dispatchMouseEvent` with `pointerType: "pen"`): pointer
+   * events of a pen plus mouse events, as Chromium delivers a pen. CSS px relative to the edit canvas.
+   */
+  pen(type: "down" | "move" | "up", at: { x: number; y: number }): Promise<void>;
   /** Mouse wheel with Ctrl held (like a trackpad pinch) at `at`, CSS px relative to the edit canvas. */
   ctrlWheel(at: { x: number; y: number }, deltaY: number): Promise<void>;
   /** Mouse wheel without modifiers over the centre of the edit canvas. */
@@ -733,6 +752,10 @@ export async function openSheet(
       if (!box) throw new Error("no edit canvas shown");
       return box;
     };
+    /** DevTools session for touch input, opened on the first touch. */
+    let cdp: CDPSession | undefined;
+    /** The edit canvas's box at the last touchStart. */
+    let touchBox: { x: number; y: number } | undefined;
 
     const session: SheetSession = {
       async gotoPage(target) {
@@ -786,6 +809,8 @@ export async function openSheet(
         await dialog.locator("input").fill(text);
         await dialog.getByRole("button", { name: "Ok" }).click();
         await dialog.waitFor({ state: "detached" });
+        // The scrim fades out after the card is gone; until then it takes touches meant for the edit canvas.
+        await page.waitForSelector(".v-overlay__scrim", { state: "detached" });
         await refreshRequests();
       },
       async leaveSheet() {
@@ -879,6 +904,48 @@ export async function openSheet(
         const hand = page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-hand-back-right-outline") });
         if ((await hand.count()) > 0) await hand.click();
         await page.locator(".fabContainer .v-btn .mdi-marker, .fabContainer .v-btn .mdi-pencil").first().waitFor();
+      },
+      async setHandMode() {
+        const toggle = page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-hand-back-right-outline") });
+        if ((await toggle.count()) === 0) await page.locator(".fabContainer:not(.dividerControls) > .v-btn").first().click();
+        await toggle.waitFor();
+      },
+      async touch(type, points) {
+        if (type === "touchEnd" && points.length > 0) throw new Error("touchEnd lifts every finger, pass no points");
+        // Looked up once per touch sequence: the moves of a gesture follow each other quickly.
+        if (type === "touchStart" || !touchBox) touchBox = await editCanvasBox();
+        const box = touchBox;
+        cdp ??= await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchTouchEvent", {
+          type,
+          touchPoints: points.map((p) => ({ x: box.x + p.x, y: box.y + p.y, id: p.id })),
+        });
+      },
+      async pinch(center, fromDistance, toDistance, steps = 10) {
+        const fingers = (distance: number) => [
+          { x: center.x - distance / 2, y: center.y, id: 1 },
+          { x: center.x + distance / 2, y: center.y, id: 2 },
+        ];
+        const [a] = fingers(fromDistance);
+        await session.touch("touchStart", [a]);
+        await session.touch("touchStart", fingers(fromDistance));
+        for (let i = 1; i <= steps; i++) {
+          await session.touch("touchMove", fingers(fromDistance + ((toDistance - fromDistance) * i) / steps));
+        }
+        await session.touch("touchEnd", []);
+      },
+      async pen(type, at) {
+        const box = await editCanvasBox();
+        cdp ??= await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: type === "down" ? "mousePressed" : type === "up" ? "mouseReleased" : "mouseMoved",
+          x: box.x + at.x,
+          y: box.y + at.y,
+          button: "left",
+          buttons: type === "up" ? 0 : 1,
+          clickCount: type === "move" ? 0 : 1,
+          pointerType: "pen",
+        });
       },
       async ctrlWheel(at, deltaY) {
         const box = await editCanvasBox();

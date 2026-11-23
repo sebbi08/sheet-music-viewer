@@ -422,3 +422,197 @@ test("the zoomed page lies exactly where marks are saved", { timeout: 5 * 60_000
   expect(Math.abs(edge.y - expected.y), `top edge at ${edge.y}, marks at ${expected.y}`).toBeLessThanOrEqual(1);
   expect(session.networkRequests()).toEqual([]);
 });
+
+// --- Two fingers (touch through the DevTools protocol, spec 2026-11-23-edit-zoom „Bedienung“) ---
+
+type Finger = { x: number; y: number; id: number };
+/** `points` moved by (dx, dy). */
+const moved = (points: Finger[], dx: number, dy: number) => points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }));
+
+/** Moves the fingers in `steps` from `from` to `to` (same ids, same order). */
+async function moveFingers(session: SheetSession, from: Finger[], to: Finger[], steps = 10): Promise<void> {
+  for (let i = 1; i <= steps; i++) {
+    await session.touch(
+      "touchMove",
+      from.map((p, k) => ({ id: p.id, x: p.x + ((to[k].x - p.x) * i) / steps, y: p.y + ((to[k].y - p.y) * i) / steps })),
+    );
+  }
+}
+
+test("a pinch zooms and leaves no stroke", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  await session.startDrawing();
+  const size = await session.editCanvasSize();
+  const center = { x: size.width / 2, y: size.height / 2 };
+
+  await session.pinch(center, 100, 300);
+  const zoom = await session.editZoom();
+  expect(Math.abs(zoom - 3), `zoom ${zoom}`).toBeLessThanOrEqual(0.3);
+
+  // Also when the first finger drew a little before the second one landed (well within 300 ms).
+  const first = { x: center.x - 50, y: center.y, id: 1 };
+  const [drawn] = moved([first], 20, 15);
+  await session.touch("touchStart", [first]);
+  await moveFingers(session, [first], [drawn], 3);
+  const pair = [drawn, { x: drawn.x + 100, y: drawn.y, id: 2 }];
+  await session.touch("touchStart", pair);
+  await moveFingers(session, pair, [...moved([pair[0]], -20, 0), ...moved([pair[1]], 20, 0)]);
+  await session.touch("touchEnd", []);
+  expect(await session.editZoom(), "zoomed further").toBeGreaterThan(zoom);
+
+  await session.toggleEdit();
+  await sleep(2000);
+  expect(fs.readFileSync(pdf).equals(Buffer.from(pdfBytes)), "PDF bytes unchanged: no stroke saved").toBe(true);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a slow second finger keeps the first stroke", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  await session.startDrawing();
+
+  // Finger 1 draws for 400 ms ...
+  const start = { x: 200, y: 400, id: 1 };
+  await session.touch("touchStart", [start]);
+  for (let i = 1; i <= 8; i++) {
+    await sleep(50);
+    await session.touch("touchMove", moved([start], 10 * i, 5 * i));
+  }
+  // ... then finger 2 lands and both spread.
+  const [a] = moved([start], 80, 40);
+  const pair = [a, { x: a.x + 100, y: a.y, id: 2 }];
+  await session.touch("touchStart", pair);
+  await moveFingers(session, pair, [...moved([pair[0]], -50, 0), ...moved([pair[1]], 50, 0)]);
+  await session.touch("touchEnd", []);
+  expect(await session.editZoom(), "zoomed").toBeGreaterThan(1.5);
+
+  await session.toggleEdit();
+  await waitUntil("save of the stroke", async () => (await savedObjects(pdf)).length > 0);
+  await sleep(1000);
+  const objects = await savedObjects(pdf);
+  expect(objects.map((o) => o.type), "saved objects").toHaveLength(1);
+  expect(objects[0].type, "saved object").toMatch(/path/i);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("two fingers move the zoomed view", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  const size = await session.editCanvasSize();
+  const center = { x: size.width / 2, y: size.height / 2 };
+  await zoomTo(session, 3, center);
+  const before = await session.editView();
+
+  const pair = [
+    { x: center.x - 60, y: center.y, id: 1 },
+    { x: center.x + 60, y: center.y, id: 2 },
+  ];
+  await session.touch("touchStart", [pair[0]]);
+  await session.touch("touchStart", pair);
+  await moveFingers(session, pair, moved(pair, -100, 0));
+  await session.touch("touchEnd", []);
+  const after = await session.editView();
+  expect(after.zoom, "zoom").toBeCloseTo(before.zoom, 6);
+  expect(Math.abs(after.x - (before.x - 100)), `x ${before.x} -> ${after.x}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(after.y - before.y), `y ${before.y} -> ${after.y}`).toBeLessThanOrEqual(2);
+
+  await session.toggleEdit();
+  await sleep(2000);
+  expect(fs.readFileSync(pdf).equals(Buffer.from(pdfBytes)), "PDF bytes unchanged").toBe(true);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a pinch that starts on a symbol in hand mode leaves the symbol where it was", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  const size = await session.editCanvasSize();
+  // A new text lies at the centre of the visible area (the whole page at 1x), selected.
+  await session.addText("Pinch");
+  await session.setHandMode();
+  const center = { x: size.width / 2, y: size.height / 2 };
+
+  // Finger 1 grabs the text and drags it; 100 ms after it landed, finger 2 lands and both spread.
+  const first = { ...center, id: 1 };
+  await session.touch("touchStart", [first]);
+  const landed = Date.now();
+  const [dragged] = moved([first], 40, 30);
+  await moveFingers(session, [first], [dragged], 3);
+  await sleep(Math.max(0, 100 - (Date.now() - landed)));
+  // Finger 2 must land well within the 300 ms in which the drag of finger 1 is undone.
+  expect(Date.now() - landed, "ms since finger 1 landed").toBeLessThan(250);
+  const pair = [dragged, { x: dragged.x + 120, y: dragged.y, id: 2 }];
+  await session.touch("touchStart", pair);
+  await moveFingers(session, pair, [...moved([pair[0]], -60, 0), ...moved([pair[1]], 60, 0)]);
+  await session.touch("touchEnd", []);
+  expect(await session.editZoom(), "zoomed").toBeGreaterThan(1.5);
+
+  await session.toggleEdit();
+  await waitUntil("save of the text", async () => (await savedObjects(pdf)).length > 0);
+  const [text] = await savedObjects(pdf);
+  // Payload points per canvas px (payloadFromCanvas scales each axis by its own canvas side).
+  const sx = PAGE.width / size.width;
+  const sy = PAGE.height / size.height;
+  expect(Math.abs(text.left - center.x * sx), `left ${text.left} vs ${center.x * sx}`).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(text.top - center.y * sy), `top ${text.top} vs ${center.y * sy}`).toBeLessThanOrEqual(0.5);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("fingers do nothing while the pen is down, and zoom again once it lifted", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  await session.startDrawing();
+  const size = await session.editCanvasSize();
+  const center = { x: size.width / 2, y: size.height / 2 };
+
+  await session.pen("down", { x: 200, y: 300 });
+  await session.pen("move", { x: 240, y: 330 });
+  await session.pinch(center, 100, 300);
+  expect(await session.editZoom(), "no zoom while the pen is down").toBe(1);
+  await session.pen("move", { x: 280, y: 360 });
+  await session.pen("up", { x: 280, y: 360 });
+
+  await session.pinch(center, 100, 300);
+  expect(await session.editZoom(), "zoom after the pen lifted").toBeGreaterThan(2.5);
+
+  // The pen's stroke is kept; the fingers left nothing.
+  await session.toggleEdit();
+  await waitUntil("save of the stroke", async () => (await savedObjects(pdf)).length > 0);
+  await sleep(1000);
+  const objects = await savedObjects(pdf);
+  expect(objects, "saved objects").toHaveLength(1);
+  expect(objects[0].type, "saved object").toMatch(/path/i);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a single finger still draws", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  await session.startDrawing();
+
+  const start = { x: 300, y: 300, id: 1 };
+  await session.touch("touchStart", [start]);
+  await moveFingers(session, [start], moved([start], 150, 100));
+  await session.touch("touchEnd", []);
+  expect(await session.editZoom(), "no zoom").toBe(1);
+
+  await session.toggleEdit();
+  await waitUntil("save of the stroke", async () => (await savedObjects(pdf)).length > 0);
+  await sleep(1000);
+  const objects = await savedObjects(pdf);
+  expect(objects, "saved objects").toHaveLength(1);
+  expect(objects[0].type, "saved object").toMatch(/path/i);
+  expect(session.networkRequests()).toEqual([]);
+});

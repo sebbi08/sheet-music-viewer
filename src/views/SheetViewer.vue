@@ -194,6 +194,7 @@ import {
   zoomAt,
   type ZoomView,
 } from "../markup/editZoom";
+import { attachEditTouchInput } from "../markup/editTouchInput";
 import { displayTransform, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
 import { loadMarkupFonts } from "../markup/renderPng";
 import { writeBlockText } from "../markup/writeBlockTexts";
@@ -305,6 +306,8 @@ let existingText: fabric.FabricObject | undefined;
 const zoomView = ref<ZoomView>(FIT_VIEW);
 /** The sharp page picture under the zoomed edit canvas; only while editing. */
 let zoomRenderer: ZoomPageRenderer | undefined;
+/** Disconnects two-finger zooming from the edit canvas; only while editing. */
+let detachEditTouch: (() => void) | undefined;
 
 
 
@@ -392,6 +395,9 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
+  // Leaving the sheet while editing: the edit canvas is not removed, but its listeners on the document are.
+  detachEditTouch?.();
+  detachEditTouch = undefined;
   zoomRenderer?.dispose();
   zoomRenderer = undefined;
   // Unsaved changes stay in the markupSaves store and are retried there; an open edit canvas is queued.
@@ -1098,7 +1104,14 @@ async function createFabricCanvas(): Promise<void> {
   });
   startInteractiveMode();
   sheetViewerWrapper?.addEventListener("wheel", onEditWheel, { passive: false });
-  startZoomRenderer(editFabric);  const handleSelection = () => {
+  detachEditTouch = attachEditTouchInput({
+    canvas: editFabric,
+    view: () => zoomView.value,
+    size: editCanvasSize,
+    applyView: applyZoomView,
+  });
+  startZoomRenderer(editFabric);
+  const handleSelection = () => {
     if (!editFabric) return;
     if (editFabric.getActiveObjects().length > 1) {
       const groupSelector = editFabric.getActiveObject()
@@ -1169,6 +1182,8 @@ async function createFabricCanvas(): Promise<void> {
 
 function removeFabricCanvas(): void {
   document.getElementById(sheetViewerWrapperId)?.removeEventListener("wheel", onEditWheel);
+  detachEditTouch?.();
+  detachEditTouch = undefined;
   resetZoom();
   // Before the edit canvas is looked up below: the picture is a canvas in the same wrapper.
   zoomRenderer?.dispose();
