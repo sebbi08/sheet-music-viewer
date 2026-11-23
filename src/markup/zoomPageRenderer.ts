@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
-import { FIT_VIEW, type ZoomView } from "./editZoom";
+import { FIT_VIEW, type Size, type ZoomView } from "./editZoom";
 
 /** Wait after the last change of the view before the visible area is rendered sharply. */
 export const SHARP_RENDER_DELAY_MS = 200;
@@ -25,20 +25,26 @@ interface Picture {
 }
 
 /**
- * The page under the zoomed edit canvas (spec 2026-11-23-edit-zoom, "Seite"): a canvas of the page canvas's
- * CSS size at screen resolution that shows the visible area. While the view changes it is drawn at once from
+ * The page under the zoomed edit canvas (spec 2026-11-23-edit-zoom, "Seite"): a canvas of the edit canvas's
+ * CSS size and position at screen resolution that shows the visible area. The page is laid out on it the
+ * way markup is saved (`payloadFromCanvas`): a fraction f of the page lies at canvas point f * canvasSize,
+ * each axis on its own, then the view applies. So a mark lies on the page exactly where it is seen zoomed,
+ * although the page canvas itself has a fractional CSS size and the edit canvas a whole-pixel one. While the view changes it is drawn at once from
  * the page canvas and the last sharp render, scaled to the new view (instead of a CSS transform, so nothing
  * reaches beyond the page and areas the last render did not cover show the page canvas, not a gap);
  * SHARP_RENDER_DELAY_MS after the last change pdf.js renders exactly the visible area.
  */
 export function createZoomPageRenderer(opts: {
   container: HTMLElement;
+  /** The current page canvas: its z-index and the first picture. */
   pageCanvas: HTMLCanvasElement;
+  /** CSS size of the edit canvas (= its canvas points at 1x); the picture has this size. */
+  canvasSize: Size;
   page: PDFPageProxy;
   optionalContentConfig?: OptionalContentConfig;
   devicePixelRatio: number;
 }): ZoomPageRenderer {
-  const { container, pageCanvas, page, optionalContentConfig } = opts;
+  const { container, pageCanvas, page, optionalContentConfig, canvasSize } = opts;
   const dpr = opts.devicePixelRatio;
   let picture: HTMLCanvasElement | null = null;
   let sharp: Picture | null = null;
@@ -48,20 +54,16 @@ export function createZoomPageRenderer(opts: {
   let generation = 0;
   let disposed = false;
 
-  const cssSize = () => ({
-    width: parseFloat(pageCanvas.style.width) || 0,
-    height: parseFloat(pageCanvas.style.height) || 0,
-  });
-
   function ensurePicture(): HTMLCanvasElement {
     if (picture) return picture;
-    const { width, height } = cssSize();
+    const { width, height } = canvasSize;
     const canvas = document.createElement("canvas");
     canvas.className = "pageCanvas pageVisible zoomPageCanvas";
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
-    canvas.style.width = pageCanvas.style.width;
-    canvas.style.height = pageCanvas.style.height;
+    // Centred like the edit canvas (class pageCanvas), so it lies exactly under it.
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
     canvas.style.zIndex = String((parseInt(pageCanvas.style.zIndex, 10) || 0) + 1);
     canvas.dataset.zoom = "";
     container.appendChild(canvas);
@@ -96,11 +98,14 @@ export function createZoomPageRenderer(opts: {
     const canvas = document.createElement("canvas");
     canvas.width = target.width;
     canvas.height = target.height;
-    const scale = (cssSize().width / page.getViewport({ scale: 1 }).width) * view.zoom * dpr;
+    // Device px per point on each axis: page fraction f -> canvas point f * canvasSize -> screen.
+    const page1 = page.getViewport({ scale: 1 });
+    const scaleX = (canvasSize.width / page1.width) * view.zoom * dpr;
+    const scaleY = (canvasSize.height / page1.height) * view.zoom * dpr;
     const renderTask = page.render({
       canvas,
-      viewport: page.getViewport({ scale }),
-      transform: [1, 0, 0, 1, view.x * dpr, view.y * dpr],
+      viewport: page.getViewport({ scale: scaleY }),
+      transform: [scaleX / scaleY, 0, 0, 1, view.x * dpr, view.y * dpr],
       background: "#ffffff",
       // The same settings as the page itself: our stamps stay hidden.
       optionalContentConfigPromise: optionalContentConfig ? Promise.resolve(optionalContentConfig) : undefined,
@@ -146,10 +151,11 @@ export function createZoomPageRenderer(opts: {
         context.setTransform(1, 0, 0, 1, 0, 0);
         context.fillStyle = "#ffffff";
         context.fillRect(0, 0, canvas.width, canvas.height);
-        const { width, height } = cssSize();
+        const { width, height } = canvasSize;
         if (width > 0 && height > 0) {
-          const page = { canvas: pageCanvas, view: FIT_VIEW, scaleX: pageCanvas.width / width, scaleY: pageCanvas.height / height };
-          draw(context, page, view);
+          // The page canvas holds the whole page: at 1x it spans exactly the edit canvas.
+          const whole = { canvas: pageCanvas, view: FIT_VIEW, scaleX: pageCanvas.width / width, scaleY: pageCanvas.height / height };
+          draw(context, whole, view);
         }
         if (sharp) draw(context, sharp, view);
       }

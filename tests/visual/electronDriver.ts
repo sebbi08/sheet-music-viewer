@@ -83,6 +83,16 @@ export interface SheetSession {
    * scaled) and its CSS size.
    */
   zoomPicture(): Promise<{ width: number; height: number; zoom: number | null; cssWidth: number; cssHeight: number }>;
+  /**
+   * RGBA pixels of the zoomed page picture in the given rectangle (its device px), and where the picture
+   * lies relative to the edit canvas (CSS px of its left/top edge minus those of the edit canvas).
+   */
+  zoomPicturePixels(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): Promise<{ data: number[]; offsetX: number; offsetY: number }>;
   /** Mouse down at the first point, moves through the others, mouse up; CSS px relative to the edit canvas. */
   drawStroke(points: { x: number; y: number }[]): Promise<void>;
   /** RGBA pixels of the edit canvas's lower canvas (device px) in the given rectangle. */
@@ -891,6 +901,23 @@ export async function openSheet(
             cssHeight: rect.height,
           };
         }),
+      zoomPicturePixels: (x, y, width, height) =>
+        page.evaluate(
+          (r) => {
+            const picture = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .zoomPageCanvas");
+            const edit = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .canvas-container canvas.upper-canvas");
+            const context = picture?.getContext("2d");
+            if (!picture || !edit || !context) throw new Error("no zoomed page picture or edit canvas");
+            const p = picture.getBoundingClientRect();
+            const e = edit.getBoundingClientRect();
+            return {
+              data: [...context.getImageData(r.x, r.y, r.width, r.height).data],
+              offsetX: p.left - e.left,
+              offsetY: p.top - e.top,
+            };
+          },
+          { x, y, width, height },
+        ),
       async drawStroke(points) {
         const box = await editCanvasBox();
         const [first, ...rest] = points;

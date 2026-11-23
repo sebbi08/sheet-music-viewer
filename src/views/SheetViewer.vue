@@ -1212,6 +1212,7 @@ function startZoomRenderer(canvas: fabric.Canvas): void {
     zoomRenderer = createZoomPageRenderer({
       container,
       pageCanvas,
+      canvasSize: { width: canvas.width, height: canvas.height },
       page: pdfPage,
       optionalContentConfig,
       devicePixelRatio: window.devicePixelRatio,

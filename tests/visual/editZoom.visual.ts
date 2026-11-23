@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import { type Point, viewCenter, wheelZoomFactor } from "../../src/markup/editZoom";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
@@ -22,14 +22,28 @@ const PAGE = { width: 595, height: 842 };
 /** More than the wait before the sharp render (200 ms) plus the render itself. */
 const SHARP_WAIT_MS = 500;
 
+/** A black square on page 1 of `squarePdf`: its top left corner in displayed PDF points (y down). */
+const SQUARE = { left: 500, top: 300, width: 30, height: 40 };
+
 let app: AppUnderTest;
 let pdfBytes: Uint8Array;
+/** One A4 page with the black SQUARE: a sharp page feature at a known position. */
+let squarePdf: Uint8Array;
 /** Everything a test created: removed after each test, also when it failed. */
 const cleanups: (() => Promise<void> | void)[] = [];
 
 beforeAll(async () => {
   app = await currentApp();
   pdfBytes = await makePdf({ pages: 3, xref: "table" });
+  const doc = await PDFDocument.create();
+  doc.addPage([PAGE.width, PAGE.height]).drawRectangle({
+    x: SQUARE.left,
+    y: PAGE.height - SQUARE.top - SQUARE.height,
+    width: SQUARE.width,
+    height: SQUARE.height,
+    color: rgb(0, 0, 0),
+  });
+  squarePdf = await doc.save({ useObjectStreams: false });
 }, 15 * 60_000);
 
 afterEach(async () => {
@@ -304,5 +318,38 @@ test("marks stay sharp at 10x", { timeout: 5 * 60_000 }, async () => {
   };
   expect(partial(first - 1, -1), `upper edge: ${alpha.join(",")}`).toBeLessThanOrEqual(3);
   expect(partial(last + 1, 1), `lower edge: ${alpha.join(",")}`).toBeLessThanOrEqual(3);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("the zoomed page lies exactly where marks are saved", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  fs.writeFileSync(path.join(folder, "a.pdf"), squarePdf);
+  const session = await open(folder);
+  await session.toggleEdit();
+  const size = await session.editCanvasSize();
+  // The square's corner in canvas points under the mapping of the save (payloadFromCanvas: a canvas point p
+  // is saved at p * page size / edit canvas size, each axis on its own).
+  const corner = { x: (SQUARE.left * size.width) / PAGE.width, y: (SQUARE.top * size.height) / PAGE.height };
+  await zoomTo(session, 10, corner);
+  await sleep(SHARP_WAIT_MS);
+  const view = await session.editView();
+  expect((await session.zoomPicture()).zoom, "sharp picture").toBe(view.zoom);
+
+  // Where a mark at the corner is drawn on screen (CSS px relative to the edit canvas, = device px at 1x).
+  const expected = { x: corner.x * view.zoom + view.x, y: corner.y * view.zoom + view.y };
+  const dark = (data: number[], i: number) => data[i * 4 + 3] === 255 && data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2] < 3 * 128;
+  const span = 40;
+  const x0 = Math.round(expected.x) - span;
+  const row = await session.zoomPicturePixels(x0, Math.round(expected.y) + 40, 2 * span, 1);
+  const left = Array.from({ length: 2 * span }, (_, i) => dark(row.data, i)).indexOf(true);
+  const y0 = Math.round(expected.y) - span;
+  const column = await session.zoomPicturePixels(Math.round(expected.x) + 40, y0, 1, 2 * span);
+  const top = Array.from({ length: 2 * span }, (_, i) => dark(column.data, i)).indexOf(true);
+  expect(left, "square's left edge in the row").toBeGreaterThan(0);
+  expect(top, "square's top edge in the column").toBeGreaterThan(0);
+  const edge = { x: row.offsetX + x0 + left, y: column.offsetY + y0 + top };
+  console.log(`square edge at ${edge.x}, ${edge.y}; marks at ${expected.x}, ${expected.y} (zoom ${view.zoom})`);
+  expect(Math.abs(edge.x - expected.x), `left edge at ${edge.x}, marks at ${expected.x}`).toBeLessThanOrEqual(1);
+  expect(Math.abs(edge.y - expected.y), `top edge at ${edge.y}, marks at ${expected.y}`).toBeLessThanOrEqual(1);
   expect(session.networkRequests()).toEqual([]);
 });
