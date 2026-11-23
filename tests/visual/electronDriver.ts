@@ -94,8 +94,11 @@ export interface SheetSession {
   dividerButtonEnabled(): Promise<boolean>;
   /** Whether the divider mode shows its line. */
   dividerModeOn(): Promise<boolean>;
-  /** In divider mode: mouse down on the centre of the line, moves by `dy` CSS px in steps, mouse up. */
-  dragDivider(dy: number): Promise<void>;
+  /**
+   * In divider mode: mouse down `grabOffset` CSS px below the centre of the line (default 0), moves by `dy`
+   * CSS px in steps, mouse up. With `dy` 0 there is no move at all: a press without movement.
+   */
+  dragDivider(dy: number, grabOffset?: number): Promise<void>;
   /** In divider mode: the label naming the turn shown, e.g. "Seite 1 → 2". */
   dividerLabel(): Promise<string>;
   /** In divider mode: clicks one of its controls (‹, ›, „Zur Mitte“). */
@@ -852,12 +855,13 @@ export async function openSheet(
       },
       dividerButtonEnabled: () => dividerButton.isEnabled(),
       dividerModeOn: async () => (await dividerLine.count()) > 0,
-      async dragDivider(dy) {
+      async dragDivider(dy, grabOffset = 0) {
         const box = await dividerLine.boundingBox();
         if (!box) throw new Error("no divider line shown");
         const x = box.x + box.width / 2;
-        const y = box.y + box.height / 2;
-        const steps = 10;
+        const y = box.y + box.height / 2 + grabOffset;
+        if (Math.abs(grabOffset) >= box.height / 2) throw new Error(`grab offset ${grabOffset} misses the line`);
+        const steps = dy === 0 ? 0 : 10;
         await page.mouse.move(x, y);
         await page.mouse.down();
         for (let i = 1; i <= steps; i++) await page.mouse.move(x, y + (dy * i) / steps);

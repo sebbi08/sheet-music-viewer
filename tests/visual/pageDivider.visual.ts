@@ -8,7 +8,8 @@ import { type AppUnderTest, currentApp, openSheet, type SheetSession } from "./e
 /**
  * The movable page divider (spec 2026-11-23) end to end, headless, on synthetic folders below
  * test-results/visual/work/ (no corpus needed): the first step of a page turn is cut at the stored divider
- * (page image, backdrop, red marks), in the middle without one, also after a resize.
+ * (page image, backdrop, red marks), in the middle without one, also after a resize; the divider mode
+ * (drag relative to the grab, a press without movement, keys, restart, „Zur Mitte“, failed load and save).
  * The driver's default `SMV_DISABLE_BULK_MIGRATION=1` lets every folder count as migrated.
  */
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
@@ -137,13 +138,18 @@ const threeDecimals = (value: number) => Math.round(value * 1000) / 1000 === val
 const settle = () => new Promise((resolve) => setTimeout(resolve, 500));
 const LOAD_FAILED_PREFIX =
   "Die Seitenteiler können nicht verschoben werden: „.config.json“ kann nicht gelesen werden: ";
+const SAVE_FAILED_PREFIX = "Der Seitenteiler konnte nicht gespeichert werden: ";
+const SAVE_FAILED_SUFFIX = ". Er gilt nur, bis das Blatt geschlossen wird.";
 
-/** In a sheet on page 1: drags the line of the turn 1 -> 2 down by 0.2 of the page height; returns the stored value. */
-async function dragTurnOneDown(session: SheetSession, folder: string): Promise<number> {
+/**
+ * In a sheet on page 1: grabs the line of the turn 1 -> 2 `grabOffset` CSS px below its centre and drags it
+ * down by 0.2 of the page height; returns the stored value.
+ */
+async function dragTurnOneDown(session: SheetSession, folder: string, grabOffset = 0): Promise<number> {
   const { pageHeightPx } = await session.cutState(1);
   await session.toggleDividerMode();
   expect(await session.dividerLabel(), "label on entering on page 1").toBe("Seite 1 → 2");
-  await session.dragDivider(0.2 * pageHeightPx);
+  await session.dragDivider(0.2 * pageHeightPx, grabOffset);
   await expect.poll(() => storedDivider(folder, 1), { timeout: 30_000 }).toBeTypeOf("number");
   const stored = storedDivider(folder, 1) as number;
   expect(Math.abs(stored - 0.7), "stored divider").toBeLessThanOrEqual(0.01);
@@ -155,13 +161,43 @@ test("dragging the line saves the divider, the PDF stays byte-identical", { time
   const folder = newFolder();
   const before = fs.readFileSync(path.join(folder, "a.pdf"));
   const session = await open(folder);
+  const middle = await session.cutState(1);
+  expect(middle.marksTopPx, "marks on page 1 before the drag").not.toBeNull();
 
-  const stored = await dragTurnOneDown(session, folder);
+  // Grabbed off-centre: a line that jumped to the pointer would end GRAB_OFFSET px lower.
+  const GRAB_OFFSET = 15;
+  const stored = await dragTurnOneDown(session, folder, GRAB_OFFSET);
+  expect(GRAB_OFFSET / middle.pageHeightPx, "the offset is visible in the ratio").toBeGreaterThan(0.006);
+  expect(
+    Math.abs(stored - (0.5 + 0.2)),
+    `stored ${stored} follows dy / page height, not the pointer (page ${middle.pageHeightPx} px)`,
+  ).toBeLessThanOrEqual(GRAB_OFFSET / middle.pageHeightPx / 2);
   expect(fs.readFileSync(path.join(folder, "a.pdf")).equals(before), "PDF bytes unchanged").toBe(true);
 
   await session.toggleDividerMode();
   expect(await session.currentPage(), "page after leaving the mode").toBe(1);
-  expect((await session.cutState(1)).ratio, "cut of turn 1 after leaving the mode").toBeCloseTo(stored, 3);
+  const after = await session.cutState(1);
+  expect(after.ratio, "cut of turn 1 after leaving the mode").toBeCloseTo(stored, 3);
+  expect(after.marksTopPx, "marks on page 1 after the drag").not.toBeNull();
+  expect(
+    Math.abs((after.marksTopPx as number) - (middle.marksTopPx as number) - (stored - 0.5) * middle.pageHeightPx),
+    "marks moved with the cut",
+  ).toBeLessThanOrEqual(1);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a press on the line without movement writes nothing", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const session = await open(folder);
+  await session.toggleDividerMode();
+
+  await session.dragDivider(0, 15);
+  await settle();
+  expect((await session.cutState(1)).ratio, "cut of turn 1 after the press").toBeCloseTo(0.5, 3);
+  expect(await session.dividerControlEnabled("reset"), "Zur Mitte after the press").toBe(false);
+  await session.toggleDividerMode();
+  expect((await session.cutState(1)).ratio, "cut of turn 1 after leaving the mode").toBeCloseTo(0.5, 3);
+  expect(fs.existsSync(configPath(folder)), ".config.json").toBe(false);
   expect(session.networkRequests()).toEqual([]);
 });
 
@@ -245,6 +281,37 @@ test.skipIf(!canMakeReadOnly)("the mode works on a PDF that cannot take markup",
   expect(session.networkRequests()).toEqual([]);
 });
 
+test.skipIf(!canMakeReadOnly)(
+  "a failed save shows a notice, the divider holds while the sheet is open",
+  { timeout: 5 * 60_000 },
+  async () => {
+    const folder = newFolder();
+    fs.writeFileSync(configPath(folder), JSON.stringify({ version: 1 }, null, 2));
+    const bytes = fs.readFileSync(configPath(folder));
+    // A read-only file alone does not fail the save on Linux (the atomic rename replaces it); a read-only
+    // folder does. It also blocks markup (folder probe), so the "no markup possible" dialog comes first.
+    fs.chmodSync(folder, 0o555);
+    cleanups.push(() => fs.chmodSync(folder, 0o755));
+    const session = await open(folder);
+    await expect.poll(() => session.writeBlockText(), { timeout: 30_000 }).not.toBeNull();
+    await session.confirmWriteBlock();
+
+    const { pageHeightPx } = await session.cutState(1);
+    await session.toggleDividerMode();
+    await session.dragDivider(0.2 * pageHeightPx);
+    await expect.poll(() => session.snackbarText(), { timeout: 30_000 }).toContain(SAVE_FAILED_PREFIX);
+    const text = await session.snackbarText();
+    expect(text.startsWith(SAVE_FAILED_PREFIX), `notice text: ${text}`).toBe(true);
+    expect(text.endsWith(SAVE_FAILED_SUFFIX), `notice text: ${text}`).toBe(true);
+    const dragged = (await session.cutState(1)).ratio;
+    expect(Math.abs(dragged - 0.7), "cut of turn 1 after the failed save").toBeLessThanOrEqual(0.01);
+    await session.toggleDividerMode();
+    expect((await session.cutState(1)).ratio, "cut of turn 1 after leaving the mode").toBeCloseTo(dragged, 3);
+    expect(fs.readFileSync(configPath(folder)).equals(bytes), ".config.json unchanged").toBe(true);
+    expect(session.networkRequests()).toEqual([]);
+  },
+);
+
 test("a broken .config.json keeps the mode off with a notice", { timeout: 5 * 60_000 }, async () => {
   const folder = newFolder();
   fs.writeFileSync(configPath(folder), "{");
@@ -260,13 +327,14 @@ test("a broken .config.json keeps the mode off with a notice", { timeout: 5 * 60
   expect((await session.snackbarText()).startsWith(LOAD_FAILED_PREFIX), "notice text").toBe(true);
   expect(await session.dividerModeOn(), "divider line").toBe(false);
   expect(await session.currentPage(), "page").toBe(1);
+  expect((await session.cutState(1)).ratio, "cut of turn 1 in the middle").toBeCloseTo(0.5, 3);
   expect(fs.readFileSync(configPath(folder)).equals(bytes), ".config.json unchanged").toBe(true);
   expect(session.networkRequests()).toEqual([]);
 });
 
 test("a single page PDF has no divider mode", { timeout: 5 * 60_000 }, async () => {
   const folder = newFolder();
-  fs.writeFileSync(path.join(folder, "a.pdf"), await makePdf({ pages: 1 }));
+  fs.writeFileSync(path.join(folder, "a.pdf"), await makePdf({ pages: 1, xref: "table" }));
   const session = await open(folder);
   expect(await session.dividerButtonEnabled(), "divider button").toBe(false);
   expect(session.networkRequests()).toEqual([]);
