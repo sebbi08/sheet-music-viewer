@@ -120,3 +120,170 @@ test("the cut follows the divider after a resize", { timeout: 5 * 60_000 }, asyn
   expect(Math.abs(after.backdropPx - (0.7 * after.pageHeightPx + STRIP_PX)), "backdrop after the resize").toBeLessThanOrEqual(1);
   expect(session.networkRequests()).toEqual([]);
 });
+
+// --- the divider mode ---
+
+/** chmod-based read-only files do not work as root or on Windows. */
+const canMakeReadOnly = process.getuid?.() !== 0 && process.platform !== "win32";
+const configPath = (folder: string) => path.join(folder, ".config.json");
+type StoredConfig = { sheets?: Record<string, { pageDividers?: Record<string, number> }> };
+const readConfig = (folder: string): StoredConfig | null =>
+  fs.existsSync(configPath(folder)) ? (JSON.parse(fs.readFileSync(configPath(folder), "utf8")) as StoredConfig) : null;
+/** The stored divider of the turn `page` -> `page + 1` of `a.pdf`; undefined while none is stored. */
+const storedDivider = (folder: string, page: number): number | undefined =>
+  readConfig(folder)?.sheets?.["a.pdf"]?.pageDividers?.[String(page)];
+const threeDecimals = (value: number) => Math.round(value * 1000) / 1000 === value;
+/** A key press or click that must change nothing cannot be awaited; this gives it time to show. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 500));
+const LOAD_FAILED_PREFIX =
+  "Die Seitenteiler können nicht verschoben werden: „.config.json“ kann nicht gelesen werden: ";
+
+/** In a sheet on page 1: drags the line of the turn 1 -> 2 down by 0.2 of the page height; returns the stored value. */
+async function dragTurnOneDown(session: SheetSession, folder: string): Promise<number> {
+  const { pageHeightPx } = await session.cutState(1);
+  await session.toggleDividerMode();
+  expect(await session.dividerLabel(), "label on entering on page 1").toBe("Seite 1 → 2");
+  await session.dragDivider(0.2 * pageHeightPx);
+  await expect.poll(() => storedDivider(folder, 1), { timeout: 30_000 }).toBeTypeOf("number");
+  const stored = storedDivider(folder, 1) as number;
+  expect(Math.abs(stored - 0.7), "stored divider").toBeLessThanOrEqual(0.01);
+  expect(threeDecimals(stored), `three decimals: ${stored}`).toBe(true);
+  return stored;
+}
+
+test("dragging the line saves the divider, the PDF stays byte-identical", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const before = fs.readFileSync(path.join(folder, "a.pdf"));
+  const session = await open(folder);
+
+  const stored = await dragTurnOneDown(session, folder);
+  expect(fs.readFileSync(path.join(folder, "a.pdf")).equals(before), "PDF bytes unchanged").toBe(true);
+
+  await session.toggleDividerMode();
+  expect(await session.currentPage(), "page after leaving the mode").toBe(1);
+  expect((await session.cutState(1)).ratio, "cut of turn 1 after leaving the mode").toBeCloseTo(stored, 3);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("the divider holds after a restart and Zur Mitte removes it", { timeout: 8 * 60_000 }, async () => {
+  const folder = newFolder();
+  const first = await open(folder);
+  const stored = await dragTurnOneDown(first, folder);
+  await first.close();
+
+  const session = await open(folder);
+  expect((await session.cutState(1)).ratio, "cut of turn 1 after a restart").toBeCloseTo(stored, 3);
+  await session.toggleDividerMode();
+  expect(await session.dividerControlEnabled("reset"), "Zur Mitte with a divider").toBe(true);
+  await session.clickDividerControl("reset");
+  await expect.poll(() => readConfig(folder)?.sheets, { timeout: 30_000 }).toBeUndefined();
+  expect(readConfig(folder), ".config.json still there").not.toBeNull();
+  expect(await session.dividerControlEnabled("reset"), "Zur Mitte in the middle").toBe(false);
+  expect((await session.cutState(1)).ratio, "cut of turn 1 after Zur Mitte").toBeCloseTo(0.5, 3);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("keys and a click beside the line change no divider", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const session = await open(folder);
+  await session.toggleDividerMode();
+  expect(await session.dividerLabel()).toBe("Seite 1 → 2");
+
+  await session.pressKey("ArrowRight");
+  await expect.poll(() => session.dividerLabel()).toBe("Seite 2 → 3");
+  expect(await session.currentPage(), "page after ArrowRight").toBe(2.5);
+  await session.pressKey("ArrowRight");
+  await settle();
+  expect(await session.dividerLabel(), "stays at the last turn").toBe("Seite 2 → 3");
+  await session.pressKey("ArrowLeft");
+  await expect.poll(() => session.dividerLabel()).toBe("Seite 1 → 2");
+  await session.pressKey("ArrowLeft");
+  await settle();
+  expect(await session.dividerLabel(), "stays at the first turn").toBe("Seite 1 → 2");
+  expect(await session.currentPage(), "page at the first turn").toBe(1.5);
+
+  // Right half (outside the mode a click there turns the page), below the line, away from the controls.
+  await session.clickAt(0.75, 0.75);
+  await settle();
+  expect(await session.dividerLabel(), "label after the click").toBe("Seite 1 → 2");
+  expect(await session.currentPage(), "page after the click").toBe(1.5);
+  expect((await session.cutState(1)).ratio, "cut of turn 1 after the click").toBeCloseTo(0.5, 3);
+  expect(fs.existsSync(configPath(folder)), ".config.json").toBe(false);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("entering and leaving without a drag writes nothing", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const session = await open(folder);
+
+  await session.gotoPage(2);
+  await session.toggleDividerMode();
+  expect(await session.dividerLabel(), "label on page 2").toBe("Seite 2 → 3");
+  await session.toggleDividerMode();
+  expect(await session.currentPage(), "page after leaving on page 2").toBe(2);
+
+  await session.gotoPage(3);
+  await session.toggleDividerMode();
+  expect(await session.dividerLabel(), "label on the last page").toBe("Seite 2 → 3");
+  await session.toggleDividerMode();
+  expect(await session.currentPage(), "page after leaving on page 3: the last turn 2 -> 3").toBe(2);
+
+  expect(fs.existsSync(configPath(folder)), ".config.json").toBe(false);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test.skipIf(!canMakeReadOnly)("the mode works on a PDF that cannot take markup", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  fs.chmodSync(path.join(folder, "a.pdf"), 0o444);
+  const session = await open(folder);
+  await expect.poll(() => session.writeBlockText(), { timeout: 30_000 }).not.toBeNull();
+  await session.confirmWriteBlock();
+
+  expect(await session.editButtonEnabled(), "pencil").toBe(false);
+  expect(await session.dividerButtonEnabled(), "divider button").toBe(true);
+  await dragTurnOneDown(session, folder);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a broken .config.json keeps the mode off with a notice", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  fs.writeFileSync(configPath(folder), "{");
+  const bytes = fs.readFileSync(configPath(folder));
+  const session = await open(folder);
+  // The set lists report the broken file first (App.vue); the notices wait in a queue.
+  await expect.poll(() => session.snackbarText(), { timeout: 30_000 }).toContain("Setlisten");
+  await session.dismissSnackbar();
+
+  expect(await session.dividerButtonEnabled(), "divider button").toBe(true);
+  await session.clickDividerButton();
+  await expect.poll(() => session.snackbarText(), { timeout: 30_000 }).toContain(LOAD_FAILED_PREFIX);
+  expect((await session.snackbarText()).startsWith(LOAD_FAILED_PREFIX), "notice text").toBe(true);
+  expect(await session.dividerModeOn(), "divider line").toBe(false);
+  expect(await session.currentPage(), "page").toBe(1);
+  expect(fs.readFileSync(configPath(folder)).equals(bytes), ".config.json unchanged").toBe(true);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a single page PDF has no divider mode", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  fs.writeFileSync(path.join(folder, "a.pdf"), await makePdf({ pages: 1 }));
+  const session = await open(folder);
+  expect(await session.dividerButtonEnabled(), "divider button").toBe(false);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("pencil and divider mode exclude each other", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const session = await open(folder);
+
+  await session.toggleDividerMode();
+  expect(await session.editButtonEnabled(), "pencil in divider mode").toBe(false);
+  await session.toggleDividerMode();
+
+  await session.toggleEdit();
+  expect(await session.dividerButtonEnabled(), "divider button in pencil mode").toBe(false);
+  await session.toggleEdit();
+  expect(await session.dividerButtonEnabled(), "divider button after the pencil mode").toBe(true);
+  expect(fs.existsSync(configPath(folder)), ".config.json").toBe(false);
+  expect(session.networkRequests()).toEqual([]);
+});

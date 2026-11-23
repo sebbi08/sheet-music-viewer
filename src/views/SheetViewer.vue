@@ -26,6 +26,24 @@
     </div>
 
 
+    <!-- Divider mode (spec 2026-11-23): the line of the turn shown, to drag, and its controls. -->
+    <div v-if="dividerTurn !== null && pagesLoaded === pageNumbers" class="dividerLine" :data-turn="dividerTurn"
+      :style="getDividerLineStyle(dividerTurn)" @pointerdown="onDividerPointerDown" @pointermove="onDividerPointerMove"
+      @pointerup="onDividerPointerUp" @pointercancel="onDividerPointerCancel">
+      <div class="dividerLineMark"></div>
+    </div>
+    <div v-if="dividerTurn !== null" class="fabContainer dividerControls" :style="{ zIndex: dividerZIndex() + 1 }">
+      <v-btn data-testid="divider-prev" color="teal" dark icon="mdi-chevron-left" :disabled="dividerTurn <= 1"
+        @click="showDividerTurn(dividerTurn - 1)"></v-btn>
+      <span data-testid="divider-label" class="dividerLabel">{{ dividerTurnText(dividerTurn) }}</span>
+      <v-btn data-testid="divider-next" color="teal" dark icon="mdi-chevron-right"
+        :disabled="dividerTurn >= pageNumbers - 1" @click="showDividerTurn(dividerTurn + 1)"></v-btn>
+      <v-btn data-testid="divider-reset" color="teal" dark rounded="pill" size="large"
+        :disabled="dividerFor(dividers, dividerTurn, pageNumbers) === DEFAULT_DIVIDER" @click="resetDivider">
+        Zur Mitte
+      </v-btn>
+    </div>
+
     <div v-if="editMode" class="fabContainer" :class="buttonGroupLeft ? 'fabButtonsLeft' : ''" absolute bottom right>
       <v-btn color="blue darken-2" dark @click="toggleDrawingAndInteractiveMode"
         :icon="editState.interactiveMode ? 'mdi-hand-back-right-outline' : 'mdi-pencil'"></v-btn>
@@ -162,7 +180,15 @@ import { writeBlockText } from "../markup/writeBlockTexts";
 import { type LoadMarkupResult, type MarkupPayload, type Rect, type WriteBlock } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
 import { type EditState } from "../models/types";
-import { dividerFor, dividersLoadFailedText, type PageDividers } from "../pageDivider";
+import {
+  clampDivider,
+  DEFAULT_DIVIDER,
+  dividerFor,
+  dividerSaveFailedText,
+  dividersLoadFailedText,
+  type PageDividers,
+  roundDivider,
+} from "../pageDivider";
 import router from "../router";
 import useStore from "../store";
 import { useMarkupSaves } from "../store/markupSaves";
@@ -207,6 +233,22 @@ const writeBlockDialog = ref(false);
 const dividers = ref<PageDividers>({});
 /** Why the dividers could not be loaded (text for the notice); null = loaded. */
 const dividersError = ref<string | null>(null);
+/** In divider mode: the turn shown (the page left, n -> n+1); null outside the mode. */
+const dividerTurn = ref<number | null>(null);
+/** Height of the area that grabs the divider line (the line sits in its middle). */
+const DIVIDER_GRAB_PX = 48;
+/** The divider line being dragged: the pointer, where it was pressed and the divider at that moment. */
+let dividerDrag: {
+  pointerId: number;
+  turn: number;
+  startY: number;
+  startRatio: number;
+  /** The entry of `dividers` at the press, restored by a drag that ends where it began. */
+  startEntry: number | undefined;
+  pageHeight: number;
+} | null = null;
+/** Divider saves run one after another, so the last one wins. */
+let dividerSaves: Promise<void> = Promise.resolve();
 /** Set when the sheet is left: a load still running for it must not change the app any more. */
 let unmounted = false;
 /**
@@ -242,7 +284,7 @@ let existingText: fabric.FabricObject | undefined;
 const store = useStore();
 const notices = useNotices();
 const markupSaves = useMarkupSaves();
-const { editMode } = storeToRefs(store);
+const { editMode, dividerMode } = storeToRefs(store);
 const debouncedResize = _.debounce(onResize, 500);
 
 
@@ -327,6 +369,8 @@ onBeforeUnmount(() => {
   saveDrawnData();
   markupSaves.setEditCapture(null);
   store.markupEditDisabled = false;
+  store.dividerModeAvailable = false;
+  store.dividerMode = false;
 })
 
 /**
@@ -397,6 +441,12 @@ function onKeyDown(event: KeyboardEvent): void {
   if (store.editMode) {
     return;
   }
+  if (dividerTurn.value !== null) {
+    // In divider mode the arrows (and so the pedal) choose the turn.
+    if (event.key === "ArrowRight") showDividerTurn(dividerTurn.value + 1);
+    if (event.key === "ArrowLeft") showDividerTurn(dividerTurn.value - 1);
+    return;
+  }
   if (event.key === "ArrowRight") {
     nextPage();
   }
@@ -416,7 +466,8 @@ function onClick(event: MouseEvent): void {
   if (!sheetViewerWrapper.contains(event.target as HTMLElement)) {
     return;
   }
-  if (store.editMode) {
+  // In divider mode a click (beside the line or on it) neither turns the page nor moves the divider.
+  if (store.editMode || dividerTurn.value !== null) {
     return;
   }
   if (pagesLoaded.value !== pageNumbers.value) {
@@ -436,7 +487,10 @@ function onResize(): void {
 watch(editMode, async (editMode) => {
   // Not while the sheet is still loading, and not if its markup could not be loaded (it would be overwritten)
   // or cannot be saved into the PDF (the hint says why).
-  if (editMode && (pageNumbers.value === 0 || pagesLoaded.value !== pageNumbers.value || store.markupEditDisabled)) {
+  if (
+    editMode &&
+    (pageNumbers.value === 0 || pagesLoaded.value !== pageNumbers.value || store.markupEditDisabled || dividerTurn.value !== null)
+  ) {
     store.editMode = false
     if (store.markupEditDisabled) notices.show(writeBlock.value ? writeBlockText(writeBlock.value) : LOAD_FAILED);
     return;
@@ -453,6 +507,154 @@ watch(editMode, async (editMode) => {
     await populateOverlayCanvas();
   }
 })
+
+// The app bar's divider button can be used once every page is rendered, if there is a page turn at all.
+watch([pageNumbers, pagesLoaded], ([pages, loaded]) => {
+  store.dividerModeAvailable = pages >= 2 && loaded === pages;
+}, { immediate: true });
+
+/**
+ * Divider mode (spec 2026-11-23): shows the first step of a page turn, as when playing, with a line to drag.
+ * It starts at the turn from the page shown (the last turn on the last page, the turn of a half step) and
+ * ends on the whole page left by the last turn shown. Dividers that could not be loaded cannot be moved.
+ */
+watch(dividerMode, (on) => {
+  if (on) {
+    if (dividerTurn.value !== null) return;
+    if (store.editMode || !store.dividerModeAvailable) {
+      store.dividerMode = false;
+      return;
+    }
+    if (dividersError.value !== null) {
+      store.dividerMode = false;
+      notices.show(dividersError.value);
+      return;
+    }
+    const page = currentPage.value;
+    showDividerTurn(Number.isInteger(page) ? Math.min(page, pageNumbers.value - 1) : Math.floor(page));
+  } else if (dividerTurn.value !== null) {
+    cancelDividerDrag();
+    currentPage.value = dividerTurn.value;
+    dividerTurn.value = null;
+    setOverlayVisible();
+  }
+});
+
+const dividerTurnText = (turn: number) => `Seite ${turn} → ${turn + 1}`;
+
+/** Shows the first step of the turn `turn` -> `turn + 1`; nothing outside the turns of the sheet. */
+function showDividerTurn(turn: number): void {
+  if (!(turn >= 1 && turn <= pageNumbers.value - 1)) return;
+  cancelDividerDrag();
+  dividerTurn.value = turn;
+  currentPage.value = turn + 0.5;
+  setOverlayVisible();
+}
+
+/** Above every page canvas (z-index up to twice the page count) and the loading overlay. */
+function dividerZIndex(): number {
+  return Math.max(100, 2 * pageNumbers.value + 1);
+}
+
+/** The grab area of the turn's divider: over the whole page width, the line at the divider in its middle. */
+function getDividerLineStyle(turn: number): Record<string, string | number> {
+  const pageHeight = pageSizes[turn + 1]?.height ?? 0;
+  const width = Math.max(pageSizes[turn]?.width ?? 0, pageSizes[turn + 1]?.width ?? 0);
+  return {
+    top: dividerFor(dividers.value, turn, pageNumbers.value) * pageHeight - DIVIDER_GRAB_PX / 2 + "px",
+    height: DIVIDER_GRAB_PX + "px",
+    width: width + "px",
+    zIndex: dividerZIndex(),
+  };
+}
+
+/** Sets (or with `undefined` removes) the divider of `turn` for this open sheet and cuts its first step anew. */
+function setDivider(turn: number, ratio: number | undefined): void {
+  const next = { ...dividers.value };
+  if (ratio === undefined) delete next[turn];
+  else next[turn] = ratio;
+  dividers.value = next;
+  applyCut(turn + 0.5);
+}
+
+function onDividerPointerDown(event: PointerEvent): void {
+  const turn = dividerTurn.value;
+  if (turn === null || dividerDrag || !event.isPrimary || event.button !== 0) return;
+  const pageHeight = pageSizes[turn + 1]?.height ?? 0;
+  if (!(pageHeight > 0)) return;
+  event.preventDefault();
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  dividerDrag = {
+    pointerId: event.pointerId,
+    turn,
+    startY: event.clientY,
+    startRatio: dividerFor(dividers.value, turn, pageNumbers.value),
+    startEntry: dividers.value[turn],
+    pageHeight,
+  };
+}
+
+/** The line follows the pointer relative to where it was grabbed; it never jumps to the pointer. */
+function onDividerPointerMove(event: PointerEvent): void {
+  const drag = dividerDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  setDivider(drag.turn, clampDivider(drag.startRatio + (event.clientY - drag.startY) / drag.pageHeight));
+}
+
+/** Releasing saves the rounded divider, only if it differs from the one at the press. */
+function onDividerPointerUp(event: PointerEvent): void {
+  const drag = dividerDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  dividerDrag = null;
+  const ratio = roundDivider(dividerFor(dividers.value, drag.turn, pageNumbers.value));
+  if (ratio === roundDivider(drag.startRatio)) {
+    setDivider(drag.turn, drag.startEntry);
+    return;
+  }
+  setDivider(drag.turn, ratio === DEFAULT_DIVIDER ? undefined : ratio);
+  saveDivider(drag.turn, ratio === DEFAULT_DIVIDER ? null : ratio);
+}
+
+function onDividerPointerCancel(event: PointerEvent): void {
+  if (dividerDrag && event.pointerId === dividerDrag.pointerId) cancelDividerDrag();
+}
+
+/** Ends a drag without saving: the divider goes back to where it was at the press. */
+function cancelDividerDrag(): void {
+  const drag = dividerDrag;
+  if (!drag) return;
+  dividerDrag = null;
+  setDivider(drag.turn, drag.startEntry);
+}
+
+/** „Zur Mitte“: the turn shown gets the middle again; its entry is removed from `.config.json`. */
+function resetDivider(): void {
+  const turn = dividerTurn.value;
+  if (turn === null || dividerFor(dividers.value, turn, pageNumbers.value) === DEFAULT_DIVIDER) return;
+  cancelDividerDrag();
+  setDivider(turn, undefined);
+  saveDivider(turn, null);
+}
+
+/**
+ * Saves one divider (`null`: removes it) into the sheet folder's `.config.json`. A failure shows a notice;
+ * the divider stays in effect for the open sheet.
+ */
+function saveDivider(page: number, ratio: number | null): void {
+  const input = { folder: store.sheetMusicFolder, pdfPath: sheetPath, page, ratio };
+  dividerSaves = dividerSaves.then(async () => {
+    let result: { ok: true } | { ok: false; message: string };
+    try {
+      result = await client.savePageDivider.mutate(input);
+    } catch (e) {
+      result = { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+    if (!result.ok) {
+      console.warn("Could not save the page divider", result.message);
+      notices.show(dividerSaveFailedText(result.message));
+    }
+  });
+}
 
 
 
@@ -1348,6 +1550,39 @@ function copyPageToHalfPageAndBackdrop(
   align-items: center;
   gap: 8px;
   z-index: 99;
+}
+
+.dividerLine {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  cursor: ns-resize;
+  // Finger drags reach the pointer handlers instead of scrolling.
+  touch-action: none;
+  user-select: none;
+
+  >.dividerLineMark {
+    width: 100%;
+    height: 3px;
+    background-color: red;
+    pointer-events: none;
+  }
+}
+
+.fabContainer.dividerControls {
+  flex-direction: row;
+}
+
+.dividerLabel {
+  background: white;
+  color: black;
+  border-radius: 16px;
+  padding: 6px 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .square-red {

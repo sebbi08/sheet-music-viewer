@@ -84,6 +84,30 @@ export interface SheetSession {
    * CSS px from the top of the sheet area. The marks belong to the page shown now, not to `turn`.
    */
   cutState(turn: number): Promise<{ ratio: number; backdropPx: number; pageHeightPx: number; marksTopPx: number | null }>;
+  /** The page shown now (n + 0.5 in the first step of the turn n -> n+1). */
+  currentPage(): Promise<number>;
+  /** Clicks the app bar's divider button (no waiting: the mode may refuse to start). */
+  clickDividerButton(): Promise<void>;
+  /** Clicks the app bar's divider button and waits until the divider line appears (or disappears). */
+  toggleDividerMode(): Promise<void>;
+  /** Whether the app bar's divider button can be clicked. */
+  dividerButtonEnabled(): Promise<boolean>;
+  /** Whether the divider mode shows its line. */
+  dividerModeOn(): Promise<boolean>;
+  /** In divider mode: mouse down on the centre of the line, moves by `dy` CSS px in steps, mouse up. */
+  dragDivider(dy: number): Promise<void>;
+  /** In divider mode: the label naming the turn shown, e.g. "Seite 1 → 2". */
+  dividerLabel(): Promise<string>;
+  /** In divider mode: clicks one of its controls (‹, ›, „Zur Mitte“). */
+  clickDividerControl(control: "prev" | "next" | "reset"): Promise<void>;
+  /** In divider mode: whether one of its controls can be clicked. */
+  dividerControlEnabled(control: "prev" | "next" | "reset"): Promise<boolean>;
+  /** Presses a key in the app window (no waiting). */
+  pressKey(key: string): Promise<void>;
+  /** Clicks the window at a share of its width and height (no waiting). */
+  clickAt(xShare: number, yShare: number): Promise<void>;
+  /** Closes the open snackbar with its OK button and waits until it is gone. */
+  dismissSnackbar(): Promise<void>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
   /** What the migration gate reported before the sheet opened; null unless started with `bulkMigration: true`. */
@@ -642,6 +666,11 @@ export async function openSheet(
 
     const currentPage = () => page.evaluate(rendererCurrentPage);
     const editButton = page.locator("header .v-btn").filter({ has: page.locator(".mdi-pencil, .mdi-close") });
+    const dividerButton = page
+      .locator("header .v-btn")
+      .filter({ has: page.locator(".mdi-arrow-split-horizontal, .mdi-check") });
+    const dividerLine = page.locator("#sheetViewerWrapper .dividerLine");
+    const dividerControl = (control: "prev" | "next" | "reset" | "label") => page.getByTestId(`divider-${control}`);
 
     const session: SheetSession = {
       async gotoPage(target) {
@@ -810,6 +839,51 @@ export async function openSheet(
         }, pageNumber),
       markupLayerCount: () => page.locator("#sheetViewerWrapper canvas.overlayCanvas").count(),
       cutState: (turn) => page.evaluate(rendererCutState, turn),
+      currentPage,
+      async clickDividerButton() {
+        await dividerButton.click();
+        await refreshRequests();
+      },
+      async toggleDividerMode() {
+        const wasOn = (await dividerLine.count()) > 0;
+        await dividerButton.click();
+        await dividerLine.first().waitFor({ state: wasOn ? "detached" : "attached" });
+        await refreshRequests();
+      },
+      dividerButtonEnabled: () => dividerButton.isEnabled(),
+      dividerModeOn: async () => (await dividerLine.count()) > 0,
+      async dragDivider(dy) {
+        const box = await dividerLine.boundingBox();
+        if (!box) throw new Error("no divider line shown");
+        const x = box.x + box.width / 2;
+        const y = box.y + box.height / 2;
+        const steps = 10;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        for (let i = 1; i <= steps; i++) await page.mouse.move(x, y + (dy * i) / steps);
+        await page.mouse.up();
+        await refreshRequests();
+      },
+      dividerLabel: async () => ((await dividerControl("label").textContent()) ?? "").trim(),
+      async clickDividerControl(control) {
+        await dividerControl(control).click();
+        await refreshRequests();
+      },
+      dividerControlEnabled: (control) => dividerControl(control).isEnabled(),
+      async pressKey(key) {
+        await page.keyboard.press(key);
+        await refreshRequests();
+      },
+      async clickAt(xShare, yShare) {
+        const size = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        await page.mouse.click(size.width * xShare, size.height * yShare);
+        await refreshRequests();
+      },
+      async dismissSnackbar() {
+        const snackbar = page.locator(".v-snackbar .v-snackbar__wrapper");
+        await snackbar.getByRole("button", { name: "OK" }).click();
+        await page.waitForFunction(() => !document.querySelector(".v-snackbar .v-snackbar__content"));
+      },
       fontStatus: () =>
         page.evaluate(async () => {
           const weights = [100, 300, 400, 500, 700, 900];
