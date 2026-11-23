@@ -3,12 +3,15 @@ import fs from "fs-extra";
 import { glob } from "glob";
 import path from "path";
 import { z } from "zod";
-import { absoluteFolderSchema } from "./migration/ipcInput";
+import { absoluteFolderSchema, isInsideFolder } from "./migration/ipcInput";
+import { pdfPathSchema } from "./models/markup";
+import { MAX_DIVIDER, MIN_DIVIDER, type PageDividers } from "./pageDivider";
 import { resolveListedEntry } from "./sheetFiles";
 import {
   FolderConfigChangedError,
   FolderConfigUnreadableError,
   loadFolderConfig,
+  sheetKey,
   updateFolderConfig,
 } from "./folderConfig";
 import {
@@ -146,6 +149,66 @@ export async function saveSetLists(input: {
     return {
       ok: false,
       reason: "failed",
+      message: e instanceof FolderConfigUnreadableError ? `„${e.file}“ kann nicht gelesen werden: ${message}` : message,
+    };
+  }
+}
+
+/** A sheet outside the folder is no input error: it has no dividers (`kind: "outside"`). */
+export const pageDividersInputSchema = z.object({ folder: absoluteFolderSchema, pdfPath: pdfPathSchema });
+
+export const savePageDividerInputSchema = z
+  .object({
+    folder: absoluteFolderSchema,
+    pdfPath: pdfPathSchema,
+    /** The page left of the turn (`page` -> `page + 1`). */
+    page: z.number().int().min(1),
+    /** `null` removes the divider. */
+    ratio: z.number().min(MIN_DIVIDER).max(MAX_DIVIDER).nullable(),
+  })
+  .refine(({ folder, pdfPath }) => isInsideFolder(folder, pdfPath), { message: "outside the sheet folder" });
+
+export type LoadPageDividersResult =
+  | { kind: "ok"; dividers: PageDividers }
+  | { kind: "unreadable"; file: string; message: string; newerVersion?: true }
+  /** The sheet is not below the sheet folder: no dividers, no divider mode (the file is not read). */
+  | { kind: "outside" };
+
+/**
+ * The page dividers of one sheet from the folder's `.config.json` (spec 2026-11-23); values as stored, only
+ * keys that are whole pages >= 1 are taken. An unreadable file is reported, never treated as empty. Never throws.
+ */
+export async function loadPageDividers(input: z.infer<typeof pageDividersInputSchema>): Promise<LoadPageDividersResult> {
+  try {
+    const key = sheetKey(input.folder, input.pdfPath);
+    if (key === null) return { kind: "outside" };
+    const read = await loadFolderConfig(input.folder);
+    if (read.kind === "unreadable") return read;
+    const stored = (read.kind === "ok" ? read.config.sheets?.[key]?.pageDividers : undefined) ?? {};
+    const dividers: PageDividers = {};
+    for (const [page, ratio] of Object.entries(stored)) {
+      if (/^[1-9]\d*$/.test(page)) dividers[Number(page)] = ratio;
+    }
+    return { kind: "ok", dividers };
+  } catch (e) {
+    return { kind: "unreadable", file: ".config.json", message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Sets (`ratio` number) or removes (`ratio` null) one divider in the folder's `.config.json`. Never throws. */
+export async function savePageDivider(
+  input: z.infer<typeof savePageDividerInputSchema>,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const sheet = sheetKey(input.folder, input.pdfPath);
+    if (sheet === null) return { ok: false, message: "Das Blatt liegt nicht im Notenordner." };
+    await updateFolderConfig(input.folder, { pageDivider: { sheet, page: input.page, ratio: input.ratio } });
+    return { ok: true };
+  } catch (e) {
+    console.warn(`Could not save the page divider in ${input.folder}:`, e);
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
       message: e instanceof FolderConfigUnreadableError ? `„${e.file}“ kann nicht gelesen werden: ${message}` : message,
     };
   }

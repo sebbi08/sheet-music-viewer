@@ -78,6 +78,39 @@ export interface SheetSession {
   pageRendered(page: number): Promise<boolean>;
   /** Number of markup overlay canvases in the view (0: no markup shown on any page). */
   markupLayerCount(): Promise<number>;
+  /**
+   * The cut of the half step `turn + 0.5` as drawn: ratio from the clip-path of its page canvas (1 without
+   * one), backdrop height in CSS px, page height in CSS px, and the red marks' top (null when hidden), in
+   * CSS px from the top of the sheet area. The marks belong to the page shown now, not to `turn`.
+   */
+  cutState(turn: number): Promise<{ ratio: number; backdropPx: number; pageHeightPx: number; marksTopPx: number | null }>;
+  /** The page shown now (n + 0.5 in the first step of the turn n -> n+1). */
+  currentPage(): Promise<number>;
+  /** Clicks the app bar's divider button (no waiting: the mode may refuse to start). */
+  clickDividerButton(): Promise<void>;
+  /** Clicks the app bar's divider button and waits until the divider line appears (or disappears). */
+  toggleDividerMode(): Promise<void>;
+  /** Whether the app bar's divider button can be clicked. */
+  dividerButtonEnabled(): Promise<boolean>;
+  /** Whether the divider mode shows its line. */
+  dividerModeOn(): Promise<boolean>;
+  /**
+   * In divider mode: mouse down `grabOffset` CSS px below the centre of the line (default 0), moves by `dy`
+   * CSS px in steps, mouse up. With `dy` 0 there is no move at all: a press without movement.
+   */
+  dragDivider(dy: number, grabOffset?: number): Promise<void>;
+  /** In divider mode: the label naming the turn shown, e.g. "Seite 1 → 2". */
+  dividerLabel(): Promise<string>;
+  /** In divider mode: clicks one of its controls (‹, ›, „Zur Mitte“). */
+  clickDividerControl(control: "prev" | "next" | "reset"): Promise<void>;
+  /** In divider mode: whether one of its controls can be clicked. */
+  dividerControlEnabled(control: "prev" | "next" | "reset"): Promise<boolean>;
+  /** Presses a key in the app window (no waiting). */
+  pressKey(key: string): Promise<void>;
+  /** Clicks the window at a share of its width and height (no waiting). */
+  clickAt(xShare: number, yShare: number): Promise<void>;
+  /** Closes the open snackbar with its OK button and waits until it is gone. */
+  dismissSnackbar(): Promise<void>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
   /** What the migration gate reported before the sheet opened; null unless started with `bulkMigration: true`. */
@@ -225,6 +258,37 @@ function rendererComposite(
   let ink = false;
   for (let i = 3; i < pixels.length && !ink; i += 4) ink = pixels[i] !== 0;
   return { url: out.toDataURL("image/png"), ink, cssWidth: baseRect.width, cssHeight: baseRect.height };
+}
+
+/** See `SheetSession.cutState`. */
+function rendererCutState(turn: number): {
+  ratio: number;
+  backdropPx: number;
+  pageHeightPx: number;
+  marksTopPx: number | null;
+} {
+  const wrapper = document.querySelector<HTMLElement>("#sheetViewerWrapper");
+  const half = document.querySelector<HTMLCanvasElement>(`#sheetViewerWrapper canvas[data-page="${turn + 0.5}"]`);
+  const next = document.querySelector<HTMLCanvasElement>(`#sheetViewerWrapper canvas[data-page="${turn + 1}"]`);
+  const backdrop = document.querySelector<HTMLElement>(`#sheetViewerWrapper div[data-page-backdrop="${turn + 0.5}"]`);
+  if (!wrapper || !half || !next || !backdrop) throw new Error(`no half step ${turn + 0.5}`);
+  const pageHeightPx = parseFloat(next.style.height);
+  // Chromium serializes `inset(0 0 30% 0)` in its shortest form, e.g. `inset(0px 0px 30%)`.
+  const clip = getComputedStyle(half).clipPath;
+  let ratio = 1;
+  if (clip !== "none") {
+    const values = /^inset\(([^)]*)\)$/.exec(clip)?.[1].split(/\s+/);
+    const bottom = values ? (values[2] ?? values[0]) : undefined;
+    if (!bottom) throw new Error(`unexpected clip-path ${clip}`);
+    ratio = bottom.endsWith("%") ? 1 - parseFloat(bottom) / 100 : 1 - parseFloat(bottom) / pageHeightPx;
+  }
+  const mark = document.querySelector<HTMLElement>("#sheetViewerWrapper .splitIndicator .indicatorLeft");
+  return {
+    ratio,
+    backdropPx: parseFloat(backdrop.style.height),
+    pageHeightPx,
+    marksTopPx: mark ? mark.getBoundingClientRect().top - wrapper.getBoundingClientRect().top : null,
+  };
 }
 
 // --- node side ---
@@ -605,6 +669,11 @@ export async function openSheet(
 
     const currentPage = () => page.evaluate(rendererCurrentPage);
     const editButton = page.locator("header .v-btn").filter({ has: page.locator(".mdi-pencil, .mdi-close") });
+    const dividerButton = page
+      .locator("header .v-btn")
+      .filter({ has: page.locator(".mdi-arrow-split-horizontal, .mdi-check") });
+    const dividerLine = page.locator("#sheetViewerWrapper .dividerLine");
+    const dividerControl = (control: "prev" | "next" | "reset" | "label") => page.getByTestId(`divider-${control}`);
 
     const session: SheetSession = {
       async gotoPage(target) {
@@ -772,6 +841,53 @@ export async function openSheet(
           return false;
         }, pageNumber),
       markupLayerCount: () => page.locator("#sheetViewerWrapper canvas.overlayCanvas").count(),
+      cutState: (turn) => page.evaluate(rendererCutState, turn),
+      currentPage,
+      async clickDividerButton() {
+        await dividerButton.click();
+        await refreshRequests();
+      },
+      async toggleDividerMode() {
+        const wasOn = (await dividerLine.count()) > 0;
+        await dividerButton.click();
+        await dividerLine.first().waitFor({ state: wasOn ? "detached" : "attached" });
+        await refreshRequests();
+      },
+      dividerButtonEnabled: () => dividerButton.isEnabled(),
+      dividerModeOn: async () => (await dividerLine.count()) > 0,
+      async dragDivider(dy, grabOffset = 0) {
+        const box = await dividerLine.boundingBox();
+        if (!box) throw new Error("no divider line shown");
+        const x = box.x + box.width / 2;
+        const y = box.y + box.height / 2 + grabOffset;
+        if (Math.abs(grabOffset) >= box.height / 2) throw new Error(`grab offset ${grabOffset} misses the line`);
+        const steps = dy === 0 ? 0 : 10;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        for (let i = 1; i <= steps; i++) await page.mouse.move(x, y + (dy * i) / steps);
+        await page.mouse.up();
+        await refreshRequests();
+      },
+      dividerLabel: async () => ((await dividerControl("label").textContent()) ?? "").trim(),
+      async clickDividerControl(control) {
+        await dividerControl(control).click();
+        await refreshRequests();
+      },
+      dividerControlEnabled: (control) => dividerControl(control).isEnabled(),
+      async pressKey(key) {
+        await page.keyboard.press(key);
+        await refreshRequests();
+      },
+      async clickAt(xShare, yShare) {
+        const size = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        await page.mouse.click(size.width * xShare, size.height * yShare);
+        await refreshRequests();
+      },
+      async dismissSnackbar() {
+        const snackbar = page.locator(".v-snackbar .v-snackbar__wrapper");
+        await snackbar.getByRole("button", { name: "OK" }).click();
+        await page.waitForFunction(() => !document.querySelector(".v-snackbar .v-snackbar__content"));
+      },
       fontStatus: () =>
         page.evaluate(async () => {
           const weights = [100, 300, 400, 500, 700, 900];

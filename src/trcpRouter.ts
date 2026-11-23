@@ -37,8 +37,12 @@ import {
     getAppVersion,
     loadFilesAndFolder,
     loadFilesAndFolderInputSchema,
+    loadPageDividers,
     loadSetLists,
     openFolderDialog,
+    pageDividersInputSchema,
+    savePageDivider,
+    savePageDividerInputSchema,
     saveSetLists,
     saveSetListsInputSchema,
     searchForSheet,
@@ -117,6 +121,14 @@ export const trcpRouter = createRouter({
   saveSetLists: publicProcedure
     .input(saveSetListsInputSchema)
     .mutation(({ input }) => saveSetLists(input)),
+
+  loadPageDividers: publicProcedure
+    .input(pageDividersInputSchema)
+    .query(({ input }) => loadPageDividers(input)),
+
+  savePageDivider: publicProcedure
+    .input(savePageDividerInputSchema)
+    .mutation(({ input }) => savePageDivider(input)),
 
   loadMarkup: publicProcedure.input(pdfPathSchema).query(({ input }) => loadMarkupFromFile(input)),
 

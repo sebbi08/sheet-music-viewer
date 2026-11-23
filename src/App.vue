@@ -1,7 +1,8 @@
 <template>
 
   <v-app>
-    <v-app-bar density="compact" app dark v-bind:color="store.editMode ? 'red' : 'primary'">
+    <v-app-bar density="compact" app dark
+      v-bind:color="store.editMode ? 'red' : store.dividerMode ? 'teal' : 'primary'">
       <template v-slot:prepend>
         <v-btn v-if="showBackButton" icon @click="onNavBack">
           <v-icon>mdi-arrow-left</v-icon>
@@ -19,8 +20,14 @@
             hide-details="auto" label="" width="100%" variant="underlined"></v-text-field>
         </div>
 
+        <!-- Divider mode (spec 2026-11-23); not the pencil's icons: the e2e driver finds the pencil by them. -->
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon
+          @click="store.toggleDividerMode()" :disabled="!store.dividerModeAvailable || store.editMode">
+          <v-icon>{{ store.dividerMode ? "mdi-check" : "mdi-arrow-split-horizontal" }}</v-icon>
+        </v-btn>
+
         <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon @click="onSwitchEditMode"
-          :disabled="store.markupEditDisabled && !store.editMode">
+          :disabled="(store.markupEditDisabled && !store.editMode) || store.dividerMode">
           <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
         </v-btn>
 
@@ -265,6 +272,9 @@ function onNavBack() {
   }
   if (store.editMode) {
     store.toggleEditMode();
+  }
+  if (store.dividerMode) {
+    store.toggleDividerMode();
   }
 
   if (history.length === 1) {

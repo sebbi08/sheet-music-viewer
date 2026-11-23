@@ -48,6 +48,10 @@ const useStore = defineStore("app", {
      * PDF. Set by the mounted SheetViewer only.
      */
     markupEditDisabled: false,
+    /** The divider mode of the open sheet (spec 2026-11-23): drag the divider of a page turn. */
+    dividerMode: false,
+    /** Set by the mounted SheetViewer: all pages rendered and at least 2 pages. */
+    dividerModeAvailable: false,
     setListsWrapper: noSetLists(),
     /**
      * The folder the set lists in `setListsWrapper` were loaded from ("" = none loaded). Set lists are saved
@@ -82,6 +86,9 @@ const useStore = defineStore("app", {
     },
     toggleEditMode: function () {
       this.editMode = !this.editMode;
+    },
+    toggleDividerMode: function () {
+      this.dividerMode = !this.dividerMode;
     },
     toggleSetListDeletionMode: function () {
       this.setListDeletionMode = !this.setListDeletionMode;

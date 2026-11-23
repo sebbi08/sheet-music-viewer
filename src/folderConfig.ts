@@ -1,6 +1,7 @@
 /**
  * Settings stored in the sheet folder (main; spec 2026-11-22 "folder config"): `.config.json` holds the set
- * lists and the mark that the folder's markup is migrated, so every PC that syncs the folder sees the same.
+ * lists, the mark that the folder's markup is migrated and per sheet the page dividers (`sheets`, spec
+ * 2026-11-23), so every PC that syncs the folder sees the same.
  * A file that cannot be read, is not JSON or breaks the schema is `unreadable` and never overwritten, and so
  * is a sheet folder that does not exist (drive asleep, unplugged); only a missing file counts as empty.
  * Writes change only the given parts on the state read fresh from disk, keep every other field (also ones a
@@ -29,6 +30,9 @@ export const folderConfigSchema = z
     version: z.literal(1),
     setLists: setListsWrapperSchema.optional(),
     markupMigrated: z.object({ at: z.string() }).loose().optional(),
+    sheets: z
+      .record(z.string(), z.object({ pageDividers: z.record(z.string(), z.number()).optional() }).loose())
+      .optional(),
   })
   .loose();
 export type FolderConfig = z.infer<typeof folderConfigSchema>;
@@ -64,7 +68,12 @@ export class FolderConfigChangedError extends Error {
   }
 }
 
-export type FolderConfigPatch = { setLists?: SetListsWrapper; markupMigrated?: { at: string } };
+export type FolderConfigPatch = {
+  setLists?: SetListsWrapper;
+  markupMigrated?: { at: string };
+  /** Sets (`ratio` number) or removes (`ratio` null) one divider; `sheet` is a sheetKey, `page` the page left. */
+  pageDivider?: { sheet: string; page: number; ratio: number | null };
+};
 
 export interface FolderConfigUpdateOptions {
   /**
@@ -263,6 +272,13 @@ async function readLegacy(folder: string): Promise<DiskState> {
   return { kind: "legacy", raw, config: parsed.data };
 }
 
+/** PDF path relative to `folder` with "/"; null if it is not below `folder`. */
+export function sheetKey(folder: string, pdfPath: string, pathApi: typeof path.posix = path): string | null {
+  const rel = pathApi.relative(pathApi.resolve(folder), pathApi.resolve(pdfPath));
+  if (rel === "" || rel === ".." || rel.startsWith(".." + pathApi.sep) || pathApi.isAbsolute(rel)) return null;
+  return rel.split(pathApi.sep).join("/");
+}
+
 /** Reads the config; takes over `.set-lists.json` when `.config.json` is missing. Never throws. */
 export function loadFolderConfig(folder: string): Promise<FolderConfigRead> {
   return serialized(folder, async (): Promise<FolderConfigRead> => {
@@ -286,6 +302,26 @@ export function loadFolderConfig(folder: string): Promise<FolderConfigRead> {
 // ---------------------------------------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------------------------------------
+
+/**
+ * Sets or removes one divider in `merged.sheets`. Levels are copied, never changed in place (they belong to
+ * the state read from disk); empty `pageDividers`, a sheet without other fields and an empty `sheets` go.
+ */
+function applyPageDivider(merged: JsonObject, { sheet, page, ratio }: NonNullable<FolderConfigPatch["pageDivider"]>) {
+  const sheets: JsonObject = isObject(merged.sheets) ? { ...merged.sheets } : {};
+  const { pageDividers: oldDividers, ...otherFields } = isObject(sheets[sheet]) ? sheets[sheet] : ({} as JsonObject);
+  const dividers: JsonObject = isObject(oldDividers) ? { ...oldDividers } : {};
+  if (ratio === null) delete dividers[String(page)];
+  else dividers[String(page)] = ratio;
+
+  const entry: JsonObject = { ...otherFields };
+  if (Object.keys(dividers).length > 0) entry.pageDividers = dividers;
+  if (Object.keys(entry).length > 0) sheets[sheet] = entry;
+  else delete sheets[sheet];
+
+  if (Object.keys(sheets).length > 0) merged.sheets = sheets;
+  else delete merged.sheets;
+}
 
 /**
  * Sets the given parts (others and unknown fields kept); reads fresh, writes atomically, skips unchanged
@@ -314,6 +350,7 @@ export function updateFolderConfig(
       const previous = isObject(base.markupMigrated) ? base.markupMigrated : {};
       merged.markupMigrated = { ...previous, ...patch.markupMigrated };
     }
+    if (patch.pageDivider !== undefined) applyPageDivider(merged, patch.pageDivider);
     const valid = folderConfigSchema.safeParse(merged);
     if (!valid.success) throw new Error(`Invalid ${CONFIG_FILE} content: ${schemaMessage(valid.error)}`);
 
