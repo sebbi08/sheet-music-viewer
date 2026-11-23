@@ -272,6 +272,13 @@ async function readLegacy(folder: string): Promise<DiskState> {
   return { kind: "legacy", raw, config: parsed.data };
 }
 
+/** PDF path relative to `folder` with "/"; null if it is not below `folder`. */
+export function sheetKey(folder: string, pdfPath: string, pathApi: typeof path.posix = path): string | null {
+  const rel = pathApi.relative(pathApi.resolve(folder), pathApi.resolve(pdfPath));
+  if (rel === "" || rel === ".." || rel.startsWith(".." + pathApi.sep) || pathApi.isAbsolute(rel)) return null;
+  return rel.split(pathApi.sep).join("/");
+}
+
 /** Reads the config; takes over `.set-lists.json` when `.config.json` is missing. Never throws. */
 export function loadFolderConfig(folder: string): Promise<FolderConfigRead> {
   return serialized(folder, async (): Promise<FolderConfigRead> => {

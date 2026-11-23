@@ -8,6 +8,7 @@ import {
   LEGACY_SET_LISTS_FILE,
   loadFolderConfig,
   migrateSetListsToV2,
+  sheetKey,
   updateFolderConfig,
 } from "../src/folderConfig";
 import { setLockRetryDelays } from "../src/pdfMarkup/lockRetry";
@@ -534,5 +535,14 @@ describe("migrateSetListsToV2", () => {
     });
     const v2 = JSON.stringify(setListsB);
     expect(migrateSetListsToV2(v2)).toBe(v2);
+  });
+});
+
+describe("sheetKey", () => {
+  test("sheetKey uses / and rejects a path outside the folder", () => {
+    expect(sheetKey("/n", "/n/A/b.pdf")).toBe("A/b.pdf");
+    expect(sheetKey("C:\\n", "C:\\n\\A\\b.pdf", path.win32)).toBe("A/b.pdf");
+    expect(sheetKey("/n", "/x/b.pdf")).toBeNull();
+    expect(sheetKey("/n", "/n")).toBeNull();
   });
 });
