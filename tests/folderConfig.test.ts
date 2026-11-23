@@ -308,6 +308,96 @@ describe("updateFolderConfig", () => {
   });
 });
 
+describe("page dividers", () => {
+  const set = (sheet: string, page: number, ratio: number | null) =>
+    updateFolderConfig(dir, { pageDivider: { sheet, page, ratio } });
+
+  test("setting a divider keeps set lists, the mark, unknown fields and other sheets", async () => {
+    const input = {
+      version: 1,
+      setLists: setListsA,
+      markupMigrated: mark,
+      other: 1,
+      sheets: { "b.pdf": { pageDividers: { "1": 0.3 } } },
+    };
+    writeConfig(input);
+    await set("A/a.pdf", 2, 0.62);
+    expect(readConfig()).toEqual({ ...input, sheets: { ...input.sheets, "A/a.pdf": { pageDividers: { "2": 0.62 } } } });
+  });
+
+  test("setting one divider keeps a divider someone else wrote for another page", async () => {
+    writeConfig({ version: 1, sheets: { "a.pdf": { pageDividers: { "4": 0.4 }, note: "x" } } });
+    await set("a.pdf", 2, 0.7);
+    expect(readConfig()).toEqual({
+      version: 1,
+      sheets: { "a.pdf": { pageDividers: { "2": 0.7, "4": 0.4 }, note: "x" } },
+    });
+  });
+
+  test("removing the last divider removes empty levels but keeps unknown fields of the sheet", async () => {
+    writeConfig({ version: 1, sheets: { "a.pdf": { pageDividers: { "2": 0.7 } } } });
+    await set("a.pdf", 2, null);
+    expect(readConfig()).toEqual({ version: 1 });
+
+    writeConfig({ version: 1, sheets: { "a.pdf": { pageDividers: { "2": 0.7 }, note: "x" } } });
+    await set("a.pdf", 2, null);
+    expect(readConfig()).toEqual({ version: 1, sheets: { "a.pdf": { note: "x" } } });
+  });
+
+  test("removing a divider that is not there writes nothing", async () => {
+    writeConfig({ version: 1, sheets: { "a.pdf": { pageDividers: { "4": 0.4 } } } });
+    const before = fs.statSync(configPath());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await set("a.pdf", 2, null);
+    await set("other.pdf", 1, null);
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before.mtimeMs);
+  });
+
+  test("removing a divider without a file creates no file", async () => {
+    await set("a.pdf", 2, null);
+    expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  test("setting the same value writes nothing", async () => {
+    writeConfig({ version: 1, sheets: { "a.pdf": { pageDividers: { "2": 0.7 } } } });
+    const before = fs.statSync(configPath());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await set("a.pdf", 2, 0.7);
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before.mtimeMs);
+  });
+
+  test("out-of-range values and odd keys are kept and do not make the file unreadable", async () => {
+    writeConfig({ version: 1, sheets: { "a.pdf": { pageDividers: { "2.5": 0.3, "99": 1.7 } } } });
+    expect(await loadFolderConfig(dir)).toMatchObject({ kind: "ok" });
+    await set("a.pdf", 1, 0.5);
+    expect(readConfig().sheets["a.pdf"].pageDividers).toEqual({ "1": 0.5, "2.5": 0.3, "99": 1.7 });
+  });
+
+  test.each([
+    ["sheets is a number", { version: 1, sheets: 7 }],
+    ["a sheet is a number", { version: 1, sheets: { "a.pdf": 7 } }],
+    ["a ratio is a string", { version: 1, sheets: { "a.pdf": { pageDividers: { "2": "x" } } } }],
+  ])("a sheets part with a wrong structure is unreadable and never overwritten: %s", async (_name, content) => {
+    writeConfig(content);
+    const bytes = fs.readFileSync(configPath(), "utf8");
+    expect(await loadFolderConfig(dir)).toMatchObject({ kind: "unreadable", file: CONFIG_FILE });
+    const error = await set("a.pdf", 1, 0.5).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FolderConfigUnreadableError);
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(bytes);
+  });
+
+  test("setting a divider in a folder with only .set-lists.json takes it over first", async () => {
+    fs.writeFileSync(legacyPath(), JSON.stringify(setListsA));
+    await set("a.pdf", 3, 0.4);
+    expect(readConfig()).toEqual({
+      version: 1,
+      setLists: setListsA,
+      sheets: { "a.pdf": { pageDividers: { "3": 0.4 } } },
+    });
+    expect(fs.existsSync(legacyPath())).toBe(false);
+  });
+});
+
 describe("takeover of .set-lists.json", () => {
   const v1Text = JSON.stringify([
     {
