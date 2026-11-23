@@ -78,6 +78,12 @@ export interface SheetSession {
   pageRendered(page: number): Promise<boolean>;
   /** Number of markup overlay canvases in the view (0: no markup shown on any page). */
   markupLayerCount(): Promise<number>;
+  /**
+   * The cut of the half step `turn + 0.5` as drawn: ratio from the clip-path of its page canvas (1 without
+   * one), backdrop height in CSS px, page height in CSS px, and the red marks' top (null when hidden), in
+   * CSS px from the top of the sheet area. The marks belong to the page shown now, not to `turn`.
+   */
+  cutState(turn: number): Promise<{ ratio: number; backdropPx: number; pageHeightPx: number; marksTopPx: number | null }>;
   /** Computed font of the app bar title and whether Roboto (all weights the UI uses) is loaded. */
   fontStatus(): Promise<{ appBarFamily: string; robotoLoaded: boolean }>;
   /** What the migration gate reported before the sheet opened; null unless started with `bulkMigration: true`. */
@@ -225,6 +231,37 @@ function rendererComposite(
   let ink = false;
   for (let i = 3; i < pixels.length && !ink; i += 4) ink = pixels[i] !== 0;
   return { url: out.toDataURL("image/png"), ink, cssWidth: baseRect.width, cssHeight: baseRect.height };
+}
+
+/** See `SheetSession.cutState`. */
+function rendererCutState(turn: number): {
+  ratio: number;
+  backdropPx: number;
+  pageHeightPx: number;
+  marksTopPx: number | null;
+} {
+  const wrapper = document.querySelector<HTMLElement>("#sheetViewerWrapper");
+  const half = document.querySelector<HTMLCanvasElement>(`#sheetViewerWrapper canvas[data-page="${turn + 0.5}"]`);
+  const next = document.querySelector<HTMLCanvasElement>(`#sheetViewerWrapper canvas[data-page="${turn + 1}"]`);
+  const backdrop = document.querySelector<HTMLElement>(`#sheetViewerWrapper div[data-page-backdrop="${turn + 0.5}"]`);
+  if (!wrapper || !half || !next || !backdrop) throw new Error(`no half step ${turn + 0.5}`);
+  const pageHeightPx = parseFloat(next.style.height);
+  // Chromium serializes `inset(0 0 30% 0)` in its shortest form, e.g. `inset(0px 0px 30%)`.
+  const clip = getComputedStyle(half).clipPath;
+  let ratio = 1;
+  if (clip !== "none") {
+    const values = /^inset\(([^)]*)\)$/.exec(clip)?.[1].split(/\s+/);
+    const bottom = values ? (values[2] ?? values[0]) : undefined;
+    if (!bottom) throw new Error(`unexpected clip-path ${clip}`);
+    ratio = bottom.endsWith("%") ? 1 - parseFloat(bottom) / 100 : 1 - parseFloat(bottom) / pageHeightPx;
+  }
+  const mark = document.querySelector<HTMLElement>("#sheetViewerWrapper .splitIndicator .indicatorLeft");
+  return {
+    ratio,
+    backdropPx: parseFloat(backdrop.style.height),
+    pageHeightPx,
+    marksTopPx: mark ? mark.getBoundingClientRect().top - wrapper.getBoundingClientRect().top : null,
+  };
 }
 
 // --- node side ---
@@ -772,6 +809,7 @@ export async function openSheet(
           return false;
         }, pageNumber),
       markupLayerCount: () => page.locator("#sheetViewerWrapper canvas.overlayCanvas").count(),
+      cutState: (turn) => page.evaluate(rendererCutState, turn),
       fontStatus: () =>
         page.evaluate(async () => {
           const weights = [100, 300, 400, 500, 700, 900];

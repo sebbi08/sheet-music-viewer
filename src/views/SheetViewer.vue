@@ -9,10 +9,7 @@
       }}%
     </v-progress-circular>
     <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
-    <div class="splitIndicator" v-if="currentPage !== pageNumbers" v-bind:style="{
-      width: getCurrentWidth() + 'px',
-      height: getCurrentHeight() + 'px',
-    }">
+    <div class="splitIndicator" v-if="currentPage !== pageNumbers" v-bind:style="getSplitIndicatorStyle()">
       <div class="indicatorLeft"></div>
       <div class="indicatorRight"></div>
     </div>
@@ -165,6 +162,7 @@ import { writeBlockText } from "../markup/writeBlockTexts";
 import { type LoadMarkupResult, type MarkupPayload, type Rect, type WriteBlock } from "../models/markup";
 import { OCG_NAME } from "../models/markupConstants";
 import { type EditState } from "../models/types";
+import { dividerFor, dividersLoadFailedText, type PageDividers } from "../pageDivider";
 import router from "../router";
 import useStore from "../store";
 import { useMarkupSaves } from "../store/markupSaves";
@@ -172,6 +170,7 @@ import { useNotices } from "../store/notices";
 import { client } from "../trcpClient";
 
 type MarkupEntry = { rect: Rect | null; payload: MarkupPayload };
+type LoadPageDividersResult = Awaited<ReturnType<typeof client.loadPageDividers.query>>;
 type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptionalContentConfig"]>>;
 
 const LOAD_FAILED =
@@ -204,6 +203,10 @@ const sheetFileName = sheetPath.split(/[\\/]/).pop() ?? sheetPath;
 /** Why markup cannot be saved into this PDF, found anew on every open (null: it can). */
 const writeBlock = ref<WriteBlock | null>(null);
 const writeBlockDialog = ref(false);
+/** Page dividers of this sheet (page left of a turn -> ratio), as loaded / changed in this session. */
+const dividers = ref<PageDividers>({});
+/** Why the dividers could not be loaded (text for the notice); null = loaded. */
+const dividersError = ref<string | null>(null);
 /** Set when the sheet is left: a load still running for it must not change the app any more. */
 let unmounted = false;
 /**
@@ -308,6 +311,9 @@ onMounted(async () => {
 
   if (loaded) applyLoadedMarkup(loaded);
 
+  await loadDividers();
+  if (unmounted) return;
+
   await renderPdf();
 
 });
@@ -339,6 +345,24 @@ function applyLoadedMarkup(loaded: LoadMarkupResult): void {
     else markupPages.delete(page);
   }
   if (pending.size > 0) void markupSaves.queue.save(sheetPath);
+}
+
+/**
+ * Loads the sheet's page dividers once per open. If that fails, every cut stays in the middle; there is no
+ * notice on open (the set lists and the migration gate report an unreadable `.config.json`).
+ */
+async function loadDividers(): Promise<void> {
+  const result: LoadPageDividersResult = await client.loadPageDividers
+    .query({ folder: store.sheetMusicFolder, pdfPath: sheetPath })
+    .catch((e: unknown) => ({ kind: "unreadable", file: ".config.json", message: e instanceof Error ? e.message : String(e) }));
+  if (result.kind === "ok") {
+    dividers.value = result.dividers;
+    dividersError.value = null;
+  } else {
+    console.warn("Could not load the page dividers", result);
+    dividers.value = {};
+    dividersError.value = dividersLoadFailedText(result.file, result.message, result.newerVersion === true);
+  }
 }
 
 /** Rect (PDF user space) -> normalized viewport rectangle at scale 1; null stays null. */
@@ -438,6 +462,22 @@ function getCurrentWidth(): number {
 
 function getCurrentHeight(): number {
   return pageSizes[currentPage.value + 1]?.height ?? 0;
+}
+
+/**
+ * The red marks are centred vertically in the split indicator, so it is placed with its middle at the
+ * divider of the next turn (a share of the next page's height). Without a divider it covers the next page
+ * as before; in a half step it has no size, as before.
+ */
+function getSplitIndicatorStyle(): { width: string; height: string; top?: string } {
+  const pageHeight = getCurrentHeight();
+  const ratio = dividerFor(dividers.value, currentPage.value, pageNumbers.value);
+  const top = Math.max(0, 2 * ratio - 1) * pageHeight;
+  return {
+    width: getCurrentWidth() + "px",
+    height: 2 * Math.min(ratio, 1 - ratio) * pageHeight + "px",
+    ...(top > 0 ? { top: top + "px" } : {}),
+  };
 }
 
 function getImgUrl(icon: string): string {
@@ -922,19 +962,20 @@ async function populateOverlayCanvas() {
       'canvas[data-page="' + (pageNumber - 0.5) + '"]'
     ) as HTMLCanvasElement;
 
-    await createOverlay(canvas, entry, viewport, false);
+    await createOverlay(canvas, entry, viewport);
     if (halfPageCanvas) {
-      await createOverlay(halfPageCanvas, entry, viewport, true);
+      await createOverlay(halfPageCanvas, entry, viewport);
     }
     setOverlayVisible();
   }
+  applyAllCuts();
 }
 
+/** Markup overlay of a page canvas; the one of a half step is cut by `applyCut`. */
 async function createOverlay(
   canvas: HTMLCanvasElement,
   entry: MarkupEntry,
   viewport: pdfJs.PageViewport,
-  isHalfPage: boolean
 ): Promise<void> {
   const zIndex = canvas.style.zIndex;
   const width = parseFloat(canvas.style.width);
@@ -960,13 +1001,36 @@ async function createOverlay(
 
 
   overlayFabric.renderAll();
-  if (isHalfPage) {
-    const height = overlayFabric.getHeight() / 2;
-    const width = overlayFabric.getWidth();
-    overlayFabric.getContext().clearRect(0, height, width, height);
-  }
 
   overlayFabrics.push(overlayFabric);
+}
+
+/**
+ * Cuts the half step `halfPage` (= n + 0.5: the top of page n+1 over page n) at the divider of the turn
+ * n -> n+1: the page copy and its markup overlay are clipped below it, and the backdrop reaches 5 px
+ * further down (the strip between the two pages).
+ */
+function applyCut(halfPage: number): void {
+  const $wrapper = document.getElementById(sheetViewerWrapperId);
+  if (!$wrapper) return;
+  const ratio = dividerFor(dividers.value, halfPage - 0.5, pageNumbers.value);
+  const clipPath = `inset(0 0 ${(1 - ratio) * 100}% 0)`;
+  const halfPageCanvas = $wrapper.querySelector<HTMLCanvasElement>(`canvas[data-page="${halfPage}"]`);
+  const overlayCanvas = $wrapper.querySelector<HTMLCanvasElement>(`canvas[data-page-overlay="${halfPage}"]`);
+  if (halfPageCanvas) halfPageCanvas.style.clipPath = clipPath;
+  if (overlayCanvas) overlayCanvas.style.clipPath = clipPath;
+
+  const backdrop = $wrapper.querySelector<HTMLDivElement>(`div[data-page-backdrop="${halfPage}"]`);
+  const pageHeight = parseFloat(halfPageCanvas?.style.height ?? "");
+  if (backdrop && Number.isFinite(pageHeight)) {
+    backdrop.style.height = ratio * pageHeight + 5 + "px";
+  }
+}
+
+function applyAllCuts(): void {
+  for (let page = 2; page <= pageNumbers.value; page++) {
+    applyCut(page - 0.5);
+  }
 }
 
 async function renderPdf(): Promise<void> {
@@ -1123,22 +1187,11 @@ function copyPageToHalfPageAndBackdrop(
       width = window.outerWidth;
     }
     backdrop.style.width = width + "px";
-    backdrop.style.height =
-      parseFloat(halfPageCanvas.style.height) / 2 + 5 + "px";
   }
+  // The copy stays whole; the cut is a clip-path, so it can follow the divider.
+  applyCut(pageNumber - 0.5);
 
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      if (!halfPageContext) {
-        resolve(pageNumber);
-        return;
-      }
-      const height = originalCanvas.height / 2;
-      const width = originalCanvas.width;
-      halfPageContext.clearRect(0, height, width, height);
-      resolve(pageNumber);
-    }, 500);
-  });
+  return Promise.resolve(pageNumber);
 }
 
 </script>
