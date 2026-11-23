@@ -29,13 +29,23 @@ const PLACEMENT_KEYS = ["left", "top", "angle", "scaleX", "scaleY", "skewX", "sk
 /** Pens and touches share the tracker's ids: a pen's pointer id becomes negative (touch ids are not). */
 const penId = (pointerId: number) => -1 - pointerId;
 
+let endingFabricTouch = false;
+
+/**
+ * True while fabric handles the touchend that ends its finger's input for a gesture or a cancelled touch.
+ * That touchend is no tap: fabric would call the mouse-up action of a control under the finger (delete,
+ * clone, edit text), so those actions check this and do nothing.
+ */
+export const isEndingFabricTouch = (): boolean => endingFabricTouch;
+
 /**
  * Two fingers zoom and pan the edit canvas (spec 2026-11-23-edit-zoom „Bedienung“): touch and pen input on
  * the canvas goes to the gesture tracker first. fabric listens to touch events (`enablePointerEvents` is
  * off), on its upper canvas and, while a finger is down, on the document, both in the bubble phase; a touch
  * event the gesture takes is stopped in the capture phase at the canvas container, so fabric never sees it.
  * When a gesture starts, fabric's input of the first finger is ended with a touchend of our own and, if the
- * finger was young, undone. Returns the function that disconnects everything again.
+ * finger was young, undone; a cancelled finger is ended the same way. The controls' mouse-up actions do not
+ * run for that touchend (`isEndingFabricTouch`). Returns the function that disconnects everything again.
  */
 export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouchInputOptions): () => void {
   const tracker = createGestureTracker(view, size);
@@ -50,9 +60,14 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
     if (!ending) return null;
     const touch = new Touch({ identifier: ending.id, target: upper, clientX: ending.clientX, clientY: ending.clientY });
     // Not trusted, so onTouch below lets it through; fabric's touchend listener on the document handles it.
-    upper.dispatchEvent(
-      new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [touch] }),
-    );
+    endingFabricTouch = true;
+    try {
+      upper.dispatchEvent(
+        new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [touch] }),
+      );
+    } finally {
+      endingFabricTouch = false;
+    }
     fabricTouch = null;
     return ending;
   }
@@ -92,6 +107,11 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
 
   function onTouch(event: TouchEvent): void {
     if (!event.isTrusted) return; // the touchend of endFabricTouch, meant for fabric
+    // fabric listens to no touchcancel: a cancelled finger would leave it in the middle of its input.
+    const following = fabricTouch?.id;
+    if (event.type === "touchcancel" && Array.from(event.changedTouches).some((t) => t.identifier === following)) {
+      endFabricTouch();
+    }
     const rect = upper.getBoundingClientRect();
     let stop = false;
     let nextView: ZoomView | null = null;
@@ -106,6 +126,8 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
       if (action.kind === "start") {
         const first = endFabricTouch();
         if (first && action.discardFirst) undo(first);
+      } else if (action.kind === "resume") {
+        // fabric owns neither finger (both were blocked): there is no input to end.
       } else if (action.kind === "view") {
         nextView = action.view;
       }

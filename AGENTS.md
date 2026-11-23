@@ -159,10 +159,12 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 
 - Spec: `docs/superpowers/specs/2026-11-23-edit-zoom-design.md`. In pen mode the edit canvas zooms
   1–20× (`MIN_ZOOM`/`MAX_ZOOM`); view math in `src/markup/editZoom.ts` (`ZoomView` = zoom + offset,
-  `zoomAt`, `panBy`, `pinchView`, `wheelZoomFactor`, `viewCenter`). Zoom only goes through fabric's
-  `viewportTransform`; the save path is unchanged (markup stays in PDF points).
-- Input (`src/views/SheetViewer.vue`): Ctrl+wheel (also a trackpad pinch) zooms around the pointer, the
-  plain wheel pans (Shift: sideways), only in pen mode. Two fingers pinch and pan. The edit-toolbar
+  `zoomAt`, `panBy`, `pinchView`, `wheelZoomFactor`, `viewForWheel`, `viewToApply`, `viewCenter`). Zoom only
+  goes through fabric's `viewportTransform`; the save path is unchanged (markup stays in PDF points). No zoom
+  before the sharp page picture exists (`viewToApply`); back to the whole page always works.
+- Input (`src/views/SheetViewer.vue`, mapping in `viewForWheel`): Ctrl+wheel (also a trackpad pinch) zooms
+  around the pointer, the plain wheel pans, Shift+wheel pans sideways only (by deltaX, as Chromium delivers
+  it on Windows, else by deltaY), only in pen mode. Two fingers pinch and pan. The edit-toolbar
   button `mdi-fit-to-page-outline` (`data-testid="zoom-fit"`) shows while zoomed and resets to the whole
   page. Zoom also resets on leaving edit mode and on resize.
 - Gesture rules (`src/markup/editGestures.ts`, pure tracker; `src/markup/editTouchInput.ts` connects
@@ -170,7 +172,11 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   the pen never starts one and a pen stroke is never discarded; touches that land while the pen is down
   are ignored (blocked); the mouse never counts as a finger. When the second finger lands, the first
   finger's input is discarded (stroke or drag undone) if it is younger than 300 ms
-  (`DISCARD_WINDOW_MS`), otherwise it is ended and kept.
+  (`DISCARD_WINDOW_MS`), otherwise it is ended and kept. That end is a synthetic touchend; the controls'
+  mouse-up actions (delete, clone, edit text) ignore it (`isEndingFabricTouch`). A cancelled finger
+  (`touchcancel`) ends fabric's input the same way. When one finger of a gesture lifts, the other stays
+  blocked; a finger that lands beside it (no other finger, the pen neither down nor down meanwhile)
+  resumes the pinch with it (`resume`, no fabric input to end).
 - Sharp page: `src/markup/zoomPageRenderer.ts` draws the visible page area as a picture below
   `.canvas-container`, laid out with the same mapping as the saved markup (the edit canvas size). It
   renders about 200 ms after the last view change; a newer view cancels an older render.

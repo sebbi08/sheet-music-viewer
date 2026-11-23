@@ -183,15 +183,13 @@ import {
   setDefaultPropsOnFabricObject,
 } from "../fabricEnhancements";
 import {
-  clampView,
   FIT_VIEW,
   isZoomed,
-  panBy,
   type Size,
   toViewportTransform,
   viewCenter,
-  wheelZoomFactor,
-  zoomAt,
+  viewForWheel,
+  viewToApply,
   type ZoomView,
 } from "../markup/editZoom";
 import { attachEditTouchInput } from "../markup/editTouchInput";
@@ -395,6 +393,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
+  // A resize just before leaving would otherwise still reset the zoom and load a page picture.
+  debouncedResize.cancel();
   // Leaving the sheet while editing: the edit canvas is not removed, but its listeners on the document are.
   detachEditTouch?.();
   detachEditTouch = undefined;
@@ -1129,7 +1129,8 @@ async function createFabricCanvas(): Promise<void> {
     if (!editFabric) return;
     const activeObject = editFabric.getActiveObject()
     if (!activeObject) return;
-    const [tl, tr, br, bl] = activeObject.getCoords();
+    // On screen: the corner in scene coordinates through the zoom of the edit canvas.
+    const br = fabric.util.transformPoint(activeObject.getCoords()[2], editFabric.viewportTransform);
 
     if (br.x > editFabric.width * 0.75 && br.y > editFabric.height * 0.75) {
       buttonGroupLeft.value = true
@@ -1202,10 +1203,10 @@ const editCanvasSize = (): Size => ({ width: editFabric?.width ?? 0, height: edi
 
 /** Shows the edit canvas and the page under it at `view` (clamped to the page). */
 function applyZoomView(view: ZoomView): void {
-  const next = clampView(view, editCanvasSize());
-  const current = zoomView.value;
-  // E.g. a pan against the edge of the page: nothing to show anew (and no sharp render to restart).
-  if (next.zoom === current.zoom && next.x === current.x && next.y === current.y) return;
+  // Nothing for a pan against the edge of the page (no sharp render to restart), and no zoom before the page
+  // picture exists (getPage pending or failed): the marks would be zoomed over the 1x page.
+  const next = viewToApply(zoomView.value, view, editCanvasSize(), zoomRenderer !== undefined);
+  if (!next) return;
   zoomView.value = next;
   editFabric?.setViewportTransform(toViewportTransform(next));
   if (isZoomed(next)) zoomRenderer?.show(next);
@@ -1247,16 +1248,9 @@ function startZoomRenderer(canvas: fabric.Canvas): void {
 function onEditWheel(event: WheelEvent): void {
   event.preventDefault();
   if (!editFabric || !zoomRenderer || !Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
-  const size = editCanvasSize();
-  if (event.ctrlKey) {
-    const rect = editFabric.upperCanvasEl.getBoundingClientRect();
-    const at = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    applyZoomView(zoomAt(zoomView.value, wheelZoomFactor(event.deltaY), at, size));
-  } else if (event.shiftKey) {
-    applyZoomView(panBy(zoomView.value, -event.deltaY, 0, size));
-  } else {
-    applyZoomView(panBy(zoomView.value, -event.deltaX, -event.deltaY, size));
-  }
+  const rect = editFabric.upperCanvasEl.getBoundingClientRect();
+  const at = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  applyZoomView(viewForWheel(zoomView.value, event, at, editCanvasSize()));
 }
 
 function clearOverlayCanvas(): void {

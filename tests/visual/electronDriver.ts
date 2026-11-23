@@ -73,10 +73,14 @@ export interface SheetSession {
   /**
    * Touch input through the DevTools protocol (`Input.dispatchTouchEvent`), real touch events in the
    * renderer. `points` are all fingers on the screen after the event (CSS px relative to the edit canvas,
-   * `id` per finger): a new id lands, a missing one lifts, a changed position moves. "touchEnd" lifts every
-   * finger (`points` must be empty).
+   * `id` per finger) for "touchStart" and "touchMove": a new id lands, a changed position moves (a missing
+   * one stays down). "touchEnd" lifts the fingers in `points` (CDP releases the listed points), with no
+   * points every finger; "touchCancel" cancels every finger (`points` must be empty).
    */
-  touch(type: "touchStart" | "touchMove" | "touchEnd", points: { x: number; y: number; id: number }[]): Promise<void>;
+  touch(
+    type: "touchStart" | "touchMove" | "touchEnd" | "touchCancel",
+    points: { x: number; y: number; id: number }[],
+  ): Promise<void>;
   /**
    * Two fingers on a horizontal line through `center` (CSS px relative to the edit canvas), `fromDistance`
    * apart, land one right after the other, spread (or pinch) to `toDistance` in `steps` moves and lift.
@@ -91,6 +95,13 @@ export interface SheetSession {
   ctrlWheel(at: { x: number; y: number }, deltaY: number): Promise<void>;
   /** Mouse wheel without modifiers over the centre of the edit canvas. */
   wheel(dx: number, dy: number): Promise<void>;
+  /**
+   * One wheel event with Shift held over the centre of the edit canvas, through the DevTools protocol
+   * (`Input.dispatchMouseEvent` "mouseWheel"): the deltas arrive in the page as given.
+   */
+  shiftWheel(deltaX: number, deltaY: number): Promise<void>;
+  /** Whether the text dialog („Add Text“) is open. */
+  textDialogShown(): Promise<boolean>;
   /** Clicks the edit mode's „ganze Seite“ button. */
   zoomFit(): Promise<void>;
   /** Whether the edit mode's „ganze Seite“ button is shown. */
@@ -911,7 +922,7 @@ export async function openSheet(
         await toggle.waitFor();
       },
       async touch(type, points) {
-        if (type === "touchEnd" && points.length > 0) throw new Error("touchEnd lifts every finger, pass no points");
+        if (type === "touchCancel" && points.length > 0) throw new Error("touchCancel cancels every finger, pass no points");
         // Looked up once per touch sequence: the moves of a gesture follow each other quickly.
         if (type === "touchStart" || !touchBox) touchBox = await editCanvasBox();
         const box = touchBox;
@@ -962,6 +973,19 @@ export async function openSheet(
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.wheel(dx, dy);
       },
+      async shiftWheel(deltaX, deltaY) {
+        const box = await editCanvasBox();
+        cdp ??= await page.context().newCDPSession(page);
+        await cdp.send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x: box.x + box.width / 2,
+          y: box.y + box.height / 2,
+          deltaX,
+          deltaY,
+          modifiers: 8, // Shift
+        });
+      },
+      textDialogShown: () => page.locator(".v-overlay--active .v-card").filter({ hasText: "Add Text" }).isVisible(),
       zoomFit: () => page.getByTestId("zoom-fit").click(),
       zoomFitShown: () => page.getByTestId("zoom-fit").isVisible(),
       zoomPictureShown: () => page.locator("#sheetViewerWrapper .zoomPageCanvas").isVisible(),

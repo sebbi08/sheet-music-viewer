@@ -7,6 +7,8 @@ import {
   pinchView,
   toViewportTransform,
   viewCenter,
+  viewForWheel,
+  viewToApply,
   wheelZoomFactor,
   zoomAt,
 } from "../../src/markup/editZoom";
@@ -86,5 +88,40 @@ describe("edit zoom view math", () => {
     expect(viewCenter({ zoom: 2, x: -300, y: -400 }, size)).toEqual({ x: 300, y: 400 });
     expect(isZoomed(FIT_VIEW)).toBe(false);
     expect(isZoomed({ zoom: 1.5, x: 0, y: 0 })).toBe(true);
+  });
+
+  test("viewForWheel: Ctrl zooms around the pointer, the wheel alone pans", () => {
+    const v = { zoom: 2, x: -300, y: -400 };
+    const at = { x: 250, y: 300 };
+    const wheel = { deltaX: 0, deltaY: -100, ctrlKey: true, shiftKey: false };
+    expect(viewForWheel(v, wheel, at, size)).toEqual(zoomAt(v, wheelZoomFactor(-100), at, size));
+    const plain = { deltaX: 10, deltaY: 20, ctrlKey: false, shiftKey: false };
+    expect(viewForWheel(v, plain, at, size)).toEqual({ zoom: 2, x: -310, y: -420 });
+  });
+
+  test("viewForWheel: Shift pans sideways, from deltaY or from deltaX", () => {
+    const v = { zoom: 2, x: -300, y: -400 };
+    const at = { x: 0, y: 0 };
+    // A wheel that delivers the vertical delta with Shift held ...
+    expect(viewForWheel(v, { deltaX: 0, deltaY: 30, ctrlKey: false, shiftKey: true }, at, size)).toEqual({
+      zoom: 2,
+      x: -330,
+      y: -400,
+    });
+    // ... and Chromium on Windows (and Linux), which turns Shift + wheel into a horizontal wheel.
+    expect(viewForWheel(v, { deltaX: 30, deltaY: 0, ctrlKey: false, shiftKey: true }, at, size)).toEqual({
+      zoom: 2,
+      x: -330,
+      y: -400,
+    });
+  });
+
+  test("viewToApply: the clamped view, nothing if unchanged, no zoom without a page picture", () => {
+    const v = { zoom: 2, x: -300, y: -400 };
+    expect(viewToApply(v, { zoom: 2, x: 100, y: -410 }, size, true)).toEqual({ zoom: 2, x: 0, y: -410 });
+    expect(viewToApply(v, { zoom: 2, x: -300, y: -400 }, size, true)).toBeNull();
+    expect(viewToApply(FIT_VIEW, { zoom: 3, x: -10, y: -10 }, size, false)).toBeNull();
+    // Back to the whole page always works.
+    expect(viewToApply(v, FIT_VIEW, size, false)).toEqual(FIT_VIEW);
   });
 });

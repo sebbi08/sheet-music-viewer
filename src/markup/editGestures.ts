@@ -11,6 +11,8 @@ export type GestureAction =
   | { kind: "block" } // keep the event away from fabric, nothing else happens
   | { kind: "start"; discardFirst: boolean } // a two-finger gesture begins; end the first finger's fabric
   // input and, if discardFirst, undo it (stroke / object drag)
+  | { kind: "resume" } // a finger landed beside the rest of an ended gesture: a gesture begins with both
+  // (fabric owns neither finger, so there is no input to end)
   | { kind: "view"; view: ZoomView } // apply this view
   | { kind: "end" }; // the gesture is over
 
@@ -26,10 +28,12 @@ export interface GestureTracker {
 interface Touch {
   at: Point;
   downMs: number;
-  /** "pass": fabric owns this finger; "block": it is kept away from fabric until it lifts. */
+  /** "pass": fabric owns this finger, or a gesture does; "block": it is kept away from fabric until it lifts. */
   mode: "pass" | "block";
   /** The pen went down while this finger was down: it never becomes part of a gesture. */
   penSeen: boolean;
+  /** The finger that stayed down when the other finger of a gesture lifted. */
+  rest?: boolean;
 }
 
 interface Gesture {
@@ -58,6 +62,15 @@ export function createGestureTracker(currentView: () => ZoomView, size: () => Si
       return PASS;
     }
     const others = [...touches.entries()];
+    const [restId, rest] = others.length === 1 ? others[0] : [];
+    if (pens.size === 0 && !gesture && rest?.rest && !rest.penSeen && restId !== undefined) {
+      // The gesture takes the events of both fingers; fabric saw neither land.
+      rest.rest = false;
+      rest.mode = "pass";
+      touches.set(id, { at, downMs: timeMs, mode: "pass", penSeen: false });
+      gesture = { a: restId, b: id, a0: rest.at, b0: at, start: currentView() };
+      return { kind: "resume" };
+    }
     if (pens.size > 0 || gesture || anyBlocked()) {
       touches.set(id, { at, downMs: timeMs, mode: "block", penSeen: false });
       return BLOCK;
@@ -99,7 +112,7 @@ export function createGestureTracker(currentView: () => ZoomView, size: () => Si
     touches.delete(id);
     if (gesture && (id === gesture.a || id === gesture.b)) {
       const rest = touches.get(id === gesture.a ? gesture.b : gesture.a);
-      if (rest) rest.mode = "block";
+      if (rest) Object.assign(rest, { mode: "block", rest: true });
       gesture = null;
       return { kind: "end" };
     }

@@ -84,3 +84,34 @@ export function viewCenter(view: ZoomView, size: Size): Point {
 }
 
 export const isZoomed = (view: ZoomView): boolean => view.zoom > 1;
+
+/** What a wheel event brings for the view. */
+export interface WheelInput {
+  deltaX: number;
+  deltaY: number;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}
+
+/**
+ * View after one wheel event over the edit canvas at the screen point `at`: Ctrl zooms around `at` (also a
+ * trackpad pinch), the wheel alone pans, Shift pans sideways only: by deltaX, as Chromium delivers Shift +
+ * wheel on Windows (a horizontal wheel, deltaY 0), or else by deltaY.
+ */
+export function viewForWheel(view: ZoomView, wheel: WheelInput, at: Point, size: Size): ZoomView {
+  if (wheel.ctrlKey) return zoomAt(view, wheelZoomFactor(wheel.deltaY), at, size);
+  if (wheel.shiftKey) return panBy(view, -(wheel.deltaX || wheel.deltaY), 0, size);
+  return panBy(view, -wheel.deltaX, -wheel.deltaY, size);
+}
+
+/**
+ * The view to show for `requested` (clamped), or null when there is nothing to do: the clamped view is the
+ * current one, or it is zoomed while there is no sharp page picture to show below it (`canZoom`; the marks
+ * would be zoomed over the 1x page). Back to the whole page always works.
+ */
+export function viewToApply(current: ZoomView, requested: ZoomView, size: Size, canZoom: boolean): ZoomView | null {
+  const next = clampView(requested, size);
+  if (next.zoom === current.zoom && next.x === current.x && next.y === current.y) return null;
+  if (isZoomed(next) && !canZoom) return null;
+  return next;
+}
