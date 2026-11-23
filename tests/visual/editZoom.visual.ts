@@ -3,8 +3,9 @@ import path from "node:path";
 import { PDFDocument, rgb } from "pdf-lib";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import { type Point, viewCenter, wheelZoomFactor } from "../../src/markup/editZoom";
+import { saveMarkupToFile } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
-import { makePdf } from "../pdfMarkup/fixtures";
+import { makePdf, makePng } from "../pdfMarkup/fixtures";
 import { repoRoot } from "./corpus";
 import { type AppUnderTest, currentApp, openSheet, type SheetSession } from "./electronDriver";
 
@@ -140,6 +141,14 @@ test("ctrl+wheel zooms the page, not the app, and the picture becomes sharp", { 
   expect(picture.width, "picture width").toBe(Math.round(picture.cssWidth * before.devicePixelRatio));
   expect(picture.height, "picture height").toBe(Math.round(picture.cssHeight * before.devicePixelRatio));
   expect(picture.zoom, "zoom of the sharp picture").toBe(zoom);
+  // Below the edit canvas (and so below its buttons), not merely below the page canvas.
+  const stacking = await session.zoomPictureStacking({ x: size.width / 2, y: size.height / 2 });
+  expect(stacking.editCanvasOnTop, "edit canvas on top at the centre").toBe(true);
+  expect(
+    stacking.pictureZ < stacking.containerZ ||
+      (stacking.pictureZ === stacking.containerZ && stacking.pictureBeforeContainer),
+    `picture below the edit canvas: ${JSON.stringify(stacking)}`,
+  ).toBe(true);
   expect(session.networkRequests()).toEqual([]);
 });
 
@@ -318,6 +327,66 @@ test("marks stay sharp at 10x", { timeout: 5 * 60_000 }, async () => {
   };
   expect(partial(first - 1, -1), `upper edge: ${alpha.join(",")}`).toBeLessThanOrEqual(3);
   expect(partial(last + 1, 1), `lower edge: ${alpha.join(",")}`).toBeLessThanOrEqual(3);
+  expect(session.networkRequests()).toEqual([]);
+});
+
+test("a symbol group stays sharp at 10x and saves no cache flag", { timeout: 5 * 60_000 }, async () => {
+  // Markup holding a group, like an SVG symbol of the old app, saved in the PDF the way the app saves it
+  // (points). Its child, a disc, is far too large for fabric's object cache at 10x.
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const radius = 150;
+  const group = {
+    type: "Group",
+    originX: "left",
+    originY: "top",
+    left: 150,
+    top: 200,
+    width: 2 * radius,
+    height: 2 * radius,
+    objects: [{ type: "Circle", originX: "center", originY: "center", left: 0, top: 0, radius, fill: "#000000", strokeWidth: 0 }],
+  };
+  const saved = await saveMarkupToFile({
+    path: pdf,
+    pages: [
+      {
+        page: 1,
+        payload: { version: 1, width: PAGE.width, height: PAGE.height, fabric: { version: "7", objects: [group] } },
+        pngBase64: Buffer.from(makePng(300, 300)).toString("base64"),
+      },
+    ],
+  });
+  expect(saved).toEqual({ status: "pdf" });
+
+  const session = await open(folder);
+  await session.toggleEdit();
+  const size = await session.editCanvasSize();
+  // A point of the disc's edge inside its bounding box (an edge on the box's border would stay sharp even
+  // from a cache, as the border of the cache image): 0.6 radius above and 0.8 radius left of its centre.
+  const edgePt = { x: group.left + radius - 0.8 * radius, y: group.top + radius - 0.6 * radius };
+  const edge = { x: (edgePt.x * size.width) / PAGE.width, y: (edgePt.y * size.height) / PAGE.height };
+  await zoomTo(session, 10, edge);
+  await sleep(SHARP_WAIT_MS);
+
+  // One pixel row across the left edge (device px = CSS px, the driver forces 1x).
+  const view = await session.editView();
+  const x = Math.round(edge.x * view.zoom + view.x);
+  const y = Math.round(edge.y * view.zoom + view.y);
+  const span = 40;
+  const pixels = await session.editCanvasPixels(x - span, y, 2 * span, 1);
+  const alpha = Array.from({ length: 2 * span }, (_, i) => pixels[i * 4 + 3]);
+  expect(alpha[0], `left of the edge: ${alpha.join(",")}`).toBeLessThan(0.05 * 255);
+  expect(alpha[2 * span - 1], `right of the edge: ${alpha.join(",")}`).toBeGreaterThanOrEqual(0.95 * 255);
+  const partial = alpha.filter((a) => a >= 0.05 * 255 && a < 0.95 * 255).length;
+  expect(partial, `pixels between background and fill: ${alpha.join(",")}`).toBeLessThanOrEqual(3);
+
+  // A change saves the page: the cache switch of the group and its child is not saved with it.
+  await session.addText("x");
+  await session.toggleEdit();
+  await waitUntil("save of the change", async () => (await savedObjects(pdf)).length === 2);
+  const json = JSON.stringify(await savedObjects(pdf));
+  expect(json, "saved objects").not.toContain("objectCaching");
+  expect(json, "saved group").toContain('"Circle"');
   expect(session.networkRequests()).toEqual([]);
 });
 

@@ -93,6 +93,17 @@ export interface SheetSession {
     width: number,
     height: number,
   ): Promise<{ data: number[]; offsetX: number; offsetY: number }>;
+  /**
+   * How the zoomed page picture is stacked: whether the topmost element at `at` (CSS px relative to the edit
+   * canvas) is the edit canvas's upper canvas, the computed z-indices of the picture and of the edit canvas's
+   * container, and whether the picture comes before that container in the DOM.
+   */
+  zoomPictureStacking(at: { x: number; y: number }): Promise<{
+    editCanvasOnTop: boolean;
+    pictureZ: number;
+    containerZ: number;
+    pictureBeforeContainer: boolean;
+  }>;
   /** Mouse down at the first point, moves through the others, mouse up; CSS px relative to the edit canvas. */
   drawStroke(points: { x: number; y: number }[]): Promise<void>;
   /** RGBA pixels of the edit canvas's lower canvas (device px) in the given rectangle. */
@@ -918,6 +929,20 @@ export async function openSheet(
           },
           { x, y, width, height },
         ),
+      zoomPictureStacking: (at) =>
+        page.evaluate((point) => {
+          const picture = document.querySelector<HTMLCanvasElement>("#sheetViewerWrapper .zoomPageCanvas");
+          const container = document.querySelector<HTMLElement>("#sheetViewerWrapper .canvas-container");
+          const upper = container?.querySelector<HTMLCanvasElement>("canvas.upper-canvas");
+          if (!picture || !container || !upper) throw new Error("no zoomed page picture or edit canvas");
+          const box = upper.getBoundingClientRect();
+          return {
+            editCanvasOnTop: document.elementFromPoint(box.left + point.x, box.top + point.y) === upper,
+            pictureZ: Number(getComputedStyle(picture).zIndex),
+            containerZ: Number(getComputedStyle(container).zIndex),
+            pictureBeforeContainer: (picture.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          };
+        }, at),
       async drawStroke(points) {
         const box = await editCanvasBox();
         const [first, ...rest] = points;

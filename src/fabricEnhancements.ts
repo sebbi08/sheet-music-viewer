@@ -26,6 +26,16 @@ export function enhanceFabricPrototype(): void {
   // enhanceCustomControlsOnPrototype(fabric.Textbox.prototype);
 }
 
+/**
+ * Switches fabric's object cache off for `object` and, in a group, for every object inside it (a group
+ * without a cache lets each child cache itself): a cached object is limited in size and turns blurry when
+ * the edit canvas is zoomed in. `toObject` does not serialize the flag.
+ */
+export function disableObjectCaching(object: FabricObject): void {
+  object.objectCaching = false;
+  if (object instanceof fabric.Group) object.getObjects().forEach(disableObjectCaching);
+}
+
 export function setDefaultPropsOnFabricObject(
   object: FabricObject,
   customHandler: ControlActionHandler,

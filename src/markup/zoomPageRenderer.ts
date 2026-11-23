@@ -35,8 +35,13 @@ interface Picture {
  * SHARP_RENDER_DELAY_MS after the last change pdf.js renders exactly the visible area.
  */
 export function createZoomPageRenderer(opts: {
-  container: HTMLElement;
-  /** The current page canvas: its z-index and the first picture. */
+  /**
+   * The edit canvas's `.canvas-container`: the picture is inserted right before it with its z-index, so it
+   * lies below the edit canvas (same z-index, earlier in the DOM) and so below the buttons, and above the
+   * page canvases (inserted after them, z-index not below theirs while edit mode works at all).
+   */
+  editContainer: HTMLElement;
+  /** The current page canvas: the first picture. */
   pageCanvas: HTMLCanvasElement;
   /** CSS size of the edit canvas (= its canvas points at 1x); the picture has this size. */
   canvasSize: Size;
@@ -44,7 +49,7 @@ export function createZoomPageRenderer(opts: {
   optionalContentConfig?: OptionalContentConfig;
   devicePixelRatio: number;
 }): ZoomPageRenderer {
-  const { container, pageCanvas, page, optionalContentConfig, canvasSize } = opts;
+  const { editContainer, pageCanvas, page, optionalContentConfig, canvasSize } = opts;
   const dpr = opts.devicePixelRatio;
   let picture: HTMLCanvasElement | null = null;
   let sharp: Picture | null = null;
@@ -64,9 +69,9 @@ export function createZoomPageRenderer(opts: {
     // Centred like the edit canvas (class pageCanvas), so it lies exactly under it.
     canvas.style.width = width + "px";
     canvas.style.height = height + "px";
-    canvas.style.zIndex = String((parseInt(pageCanvas.style.zIndex, 10) || 0) + 1);
+    canvas.style.zIndex = getComputedStyle(editContainer).zIndex;
     canvas.dataset.zoom = "";
-    container.appendChild(canvas);
+    editContainer.before(canvas);
     picture = canvas;
     return canvas;
   }

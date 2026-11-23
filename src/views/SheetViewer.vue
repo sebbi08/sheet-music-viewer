@@ -176,7 +176,12 @@ import {
   type Svg,
 } from "../Enums";
 import WriteBlockDialog from "../components/WriteBlockDialog.vue";
-import { enhanceFabricPrototype, removeStretchControls, setDefaultPropsOnFabricObject } from "../fabricEnhancements";
+import {
+  disableObjectCaching,
+  enhanceFabricPrototype,
+  removeStretchControls,
+  setDefaultPropsOnFabricObject,
+} from "../fabricEnhancements";
 import {
   clampView,
   FIT_VIEW,
@@ -1093,8 +1098,7 @@ async function createFabricCanvas(): Promise<void> {
   });
   startInteractiveMode();
   sheetViewerWrapper?.addEventListener("wheel", onEditWheel, { passive: false });
-  startZoomRenderer(editFabric);
-  const handleSelection = () => {
+  startZoomRenderer(editFabric);  const handleSelection = () => {
     if (!editFabric) return;
     if (editFabric.getActiveObjects().length > 1) {
       const groupSelector = editFabric.getActiveObject()
@@ -1133,7 +1137,7 @@ async function createFabricCanvas(): Promise<void> {
 
   editFabric.on("object:added", (event) => {
     // Drawn directly: a cached object is limited in size and turns blurry when zoomed in.
-    event.target.objectCaching = false;
+    disableObjectCaching(event.target);
     setDefaultPropsOnFabricObject(event.target, (event, transform) => {
       text.value = transform.target.get("text");
       textDialog.value = true;
@@ -1206,11 +1210,12 @@ function resetZoom(): void {
 function startZoomRenderer(canvas: fabric.Canvas): void {
   const page = currentPage.value;
   void pdf.getPage(page).then((pdfPage) => {
-    const container = document.querySelector<HTMLElement>(`#${sheetViewerWrapperId} > .canvasWrapper`);
-    const pageCanvas = container?.querySelector<HTMLCanvasElement>(`canvas[data-page="${page}"]`);
-    if (editFabric !== canvas || zoomRenderer || !container || !pageCanvas) return;
+    const pageCanvas = document.querySelector<HTMLCanvasElement>(
+      `#${sheetViewerWrapperId} > .canvasWrapper canvas[data-page="${page}"]`,
+    );
+    if (editFabric !== canvas || zoomRenderer || !pageCanvas) return;
     zoomRenderer = createZoomPageRenderer({
-      container,
+      editContainer: canvas.wrapperEl,
       pageCanvas,
       canvasSize: { width: canvas.width, height: canvas.height },
       page: pdfPage,
