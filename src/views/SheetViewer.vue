@@ -469,14 +469,13 @@ function getCurrentHeight(): number {
  * divider of the next turn (a share of the next page's height). Without a divider it covers the next page
  * as before; in a half step it has no size, as before.
  */
-function getSplitIndicatorStyle(): { width: string; height: string; top?: string } {
+function getSplitIndicatorStyle(): { width: string; height: string; top: string } {
   const pageHeight = getCurrentHeight();
   const ratio = dividerFor(dividers.value, currentPage.value, pageNumbers.value);
-  const top = Math.max(0, 2 * ratio - 1) * pageHeight;
   return {
     width: getCurrentWidth() + "px",
     height: 2 * Math.min(ratio, 1 - ratio) * pageHeight + "px",
-    ...(top > 0 ? { top: top + "px" } : {}),
+    top: Math.max(0, 2 * ratio - 1) * pageHeight + "px",
   };
 }
 
@@ -965,6 +964,8 @@ async function populateOverlayCanvas() {
     await createOverlay(canvas, entry, viewport);
     if (halfPageCanvas) {
       await createOverlay(halfPageCanvas, entry, viewport);
+      // Cut before it can be shown: the final applyAllCuts only runs after every page's overlay.
+      applyCut(pageNumber - 0.5);
     }
     setOverlayVisible();
   }
@@ -1016,9 +1017,11 @@ function applyCut(halfPage: number): void {
   const ratio = dividerFor(dividers.value, halfPage - 0.5, pageNumbers.value);
   const clipPath = `inset(0 0 ${(1 - ratio) * 100}% 0)`;
   const halfPageCanvas = $wrapper.querySelector<HTMLCanvasElement>(`canvas[data-page="${halfPage}"]`);
-  const overlayCanvas = $wrapper.querySelector<HTMLCanvasElement>(`canvas[data-page-overlay="${halfPage}"]`);
   if (halfPageCanvas) halfPageCanvas.style.clipPath = clipPath;
-  if (overlayCanvas) overlayCanvas.style.clipPath = clipPath;
+  // Overlapping overlay runs can leave more than one overlay for a half step for a moment.
+  $wrapper
+    .querySelectorAll<HTMLCanvasElement>(`canvas[data-page-overlay="${halfPage}"]`)
+    .forEach((overlayCanvas) => (overlayCanvas.style.clipPath = clipPath));
 
   const backdrop = $wrapper.querySelector<HTMLDivElement>(`div[data-page-backdrop="${halfPage}"]`);
   const pageHeight = parseFloat(halfPageCanvas?.style.height ?? "");
@@ -1207,6 +1210,7 @@ function copyPageToHalfPageAndBackdrop(
   align-content: center;
   transform: translateX(-50%);
   left: 50%;
+  top: 0;
   z-index: 99;
 
   >div {
