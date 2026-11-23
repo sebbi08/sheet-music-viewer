@@ -4,7 +4,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CONFIG_FILE } from "../src/folderConfig";
 import { setLockRetryDelays } from "../src/pdfMarkup/lockRetry";
-import { loadPageDividers, savePageDivider, savePageDividerInputSchema } from "../src/trcpLib";
+import {
+  loadPageDividers,
+  pageDividersInputSchema,
+  savePageDivider,
+  savePageDividerInputSchema,
+} from "../src/trcpLib";
 
 // trcpLib.ts imports Electron at the top; the divider functions do not use it.
 vi.mock("electron", () => ({ app: { isPackaged: false }, autoUpdater: {}, dialog: {} }));
@@ -60,7 +65,18 @@ describe("page dividers over tRPC", () => {
     expect(fs.readFileSync(configPath(), "utf8")).toBe("{ not json");
   });
 
-  test("the input schema rejects bad ratios, pages and a PDF outside the folder", () => {
+  test("a sheet outside the folder has no dividers and its load reads no file", async () => {
+    fs.writeFileSync(configPath(), "{ not json");
+    const outside = path.join(os.tmpdir(), "x.pdf");
+    expect(pageDividersInputSchema.safeParse({ folder: dir, pdfPath: outside }).success).toBe(true);
+    expect(await loadPageDividers({ folder: dir, pdfPath: outside })).toEqual({ kind: "outside" });
+    expect(await loadPageDividers({ folder: dir, pdfPath: path.join(dir, "..", "x.pdf") })).toEqual({
+      kind: "outside",
+    });
+    expect(fs.readFileSync(configPath(), "utf8")).toBe("{ not json");
+  });
+
+  test("the save input schema rejects bad ratios, pages and a PDF outside the folder", () => {
     const ok = { folder: dir, pdfPath: pdfPath(), page: 1, ratio: 0.5 };
     expect(savePageDividerInputSchema.safeParse(ok).success).toBe(true);
     expect(savePageDividerInputSchema.safeParse({ ...ok, ratio: null }).success).toBe(true);

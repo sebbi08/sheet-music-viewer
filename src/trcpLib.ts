@@ -154,9 +154,8 @@ export async function saveSetLists(input: {
   }
 }
 
-export const pageDividersInputSchema = z
-  .object({ folder: absoluteFolderSchema, pdfPath: pdfPathSchema })
-  .refine(({ folder, pdfPath }) => isInsideFolder(folder, pdfPath), { message: "outside the sheet folder" });
+/** A sheet outside the folder is no input error: it has no dividers (`kind: "outside"`). */
+export const pageDividersInputSchema = z.object({ folder: absoluteFolderSchema, pdfPath: pdfPathSchema });
 
 export const savePageDividerInputSchema = z
   .object({
@@ -171,7 +170,9 @@ export const savePageDividerInputSchema = z
 
 export type LoadPageDividersResult =
   | { kind: "ok"; dividers: PageDividers }
-  | { kind: "unreadable"; file: string; message: string; newerVersion?: true };
+  | { kind: "unreadable"; file: string; message: string; newerVersion?: true }
+  /** The sheet is not below the sheet folder: no dividers, no divider mode (the file is not read). */
+  | { kind: "outside" };
 
 /**
  * The page dividers of one sheet from the folder's `.config.json` (spec 2026-11-23); values as stored, only
@@ -179,10 +180,11 @@ export type LoadPageDividersResult =
  */
 export async function loadPageDividers(input: z.infer<typeof pageDividersInputSchema>): Promise<LoadPageDividersResult> {
   try {
+    const key = sheetKey(input.folder, input.pdfPath);
+    if (key === null) return { kind: "outside" };
     const read = await loadFolderConfig(input.folder);
     if (read.kind === "unreadable") return read;
-    const key = sheetKey(input.folder, input.pdfPath);
-    const stored = (key !== null && read.kind === "ok" ? read.config.sheets?.[key]?.pageDividers : undefined) ?? {};
+    const stored = (read.kind === "ok" ? read.config.sheets?.[key]?.pageDividers : undefined) ?? {};
     const dividers: PageDividers = {};
     for (const [page, ratio] of Object.entries(stored)) {
       if (/^[1-9]\d*$/.test(page)) dividers[Number(page)] = ratio;

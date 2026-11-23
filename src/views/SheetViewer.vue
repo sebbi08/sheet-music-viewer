@@ -29,7 +29,8 @@
     <!-- Divider mode (spec 2026-11-23): the line of the turn shown, to drag, and its controls. -->
     <div v-if="dividerTurn !== null && pagesLoaded === pageNumbers" class="dividerLine" :data-turn="dividerTurn"
       :style="getDividerLineStyle(dividerTurn)" @pointerdown="onDividerPointerDown" @pointermove="onDividerPointerMove"
-      @pointerup="onDividerPointerUp" @pointercancel="onDividerPointerCancel">
+      @pointerup="onDividerPointerUp" @pointercancel="onDividerPointerCancel"
+      @lostpointercapture="onDividerPointerCancel">
       <div class="dividerLineMark"></div>
     </div>
     <div v-if="dividerTurn !== null" class="fabContainer dividerControls" :style="{ zIndex: dividerZIndex() + 1 }">
@@ -233,6 +234,8 @@ const writeBlockDialog = ref(false);
 const dividers = ref<PageDividers>({});
 /** Why the dividers could not be loaded (text for the notice); null = loaded. */
 const dividersError = ref<string | null>(null);
+/** The sheet is not below the sheet folder: it has no dividers and no divider mode. */
+const dividersOutside = ref(false);
 /** In divider mode: the turn shown (the page left, n -> n+1); null outside the mode. */
 const dividerTurn = ref<number | null>(null);
 /** Height of the area that grabs the divider line (the line sits in its middle). */
@@ -402,6 +405,10 @@ async function loadDividers(): Promise<void> {
   if (result.kind === "ok") {
     dividers.value = result.dividers;
     dividersError.value = null;
+  } else if (result.kind === "outside") {
+    dividers.value = {};
+    dividersError.value = null;
+    dividersOutside.value = true;
   } else {
     console.warn("Could not load the page dividers", result);
     dividers.value = {};
@@ -481,6 +488,8 @@ function onClick(event: MouseEvent): void {
 }
 
 function onResize(): void {
+  // The re-render removes the divider line, and with it the capture of a drag.
+  cancelDividerDrag();
   renderPdf();
 }
 
@@ -508,9 +517,10 @@ watch(editMode, async (editMode) => {
   }
 })
 
-// The app bar's divider button can be used once every page is rendered, if there is a page turn at all.
-watch([pageNumbers, pagesLoaded], ([pages, loaded]) => {
-  store.dividerModeAvailable = pages >= 2 && loaded === pages;
+// The app bar's divider button can be used once every page is rendered, if there is a page turn at all
+// and the sheet lies in the sheet folder.
+watch([pageNumbers, pagesLoaded, dividersOutside], ([pages, loaded, outside]) => {
+  store.dividerModeAvailable = pages >= 2 && loaded === pages && !outside;
 }, { immediate: true });
 
 /**
@@ -579,9 +589,11 @@ function setDivider(turn: number, ratio: number | undefined): void {
 
 function onDividerPointerDown(event: PointerEvent): void {
   const turn = dividerTurn.value;
-  if (turn === null || dividerDrag || !event.isPrimary || event.button !== 0) return;
+  if (turn === null || !event.isPrimary || event.button !== 0) return;
   const pageHeight = pageSizes[turn + 1]?.height ?? 0;
   if (!(pageHeight > 0)) return;
+  // A drag whose end never arrived (capture lost unseen) must not block the line: it is dropped.
+  cancelDividerDrag();
   event.preventDefault();
   (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   dividerDrag = {
