@@ -5,6 +5,7 @@ import installExtension, {
 import log from "electron-log/main";
 import startup from "electron-squirrel-startup";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import path from "path";
 import { createIPCHandler } from "electron-trpc/main";
 import { updateElectronApp } from "update-electron-app";
@@ -119,8 +120,8 @@ if (startup) {
       const decodedUrl = decodeURIComponent(
         Buffer.from(fileURl || "", "base64").toString(),
       );
-      const filePath = decodedUrl.replace(/\\/g, "/");
-      return net.fetch(`file:///${filePath}`);
+      // pathToFileURL escapes what a URL would misread in a file name (`#` = fragment, `%`, `?`, spaces).
+      return net.fetch(pathToFileURL(decodedUrl).href);
     });
   }
 

@@ -212,6 +212,22 @@ test("two legacy files pass the gate; the second start shows nothing", { timeout
   expect(snapshot(folder)).toEqual(after);
 });
 
+test("a file whose name holds # and % passes the gate", { timeout: 5 * 60_000 }, async () => {
+  // A `#` in a file URL starts the fragment, a `%` an escape: the PDF must still be read.
+  const folder = newFolder();
+  const profile = newProfile();
+  const pdf = addPdf(folder, "#Bob-Omb 100% Score.pdf");
+
+  const launched = await start(folder, profile);
+  const outcome = await settleBulkMigration(launched.page);
+  await launched.close();
+  expect(outcome.lines.join("\n"), "gate outcome").not.toMatch(/Problem/);
+  expect(outcome.status).toBe("passed");
+  expect(outcome.migrated).toBe(1);
+  expect(await embeddedPages(pdf)).toEqual([1]);
+  expect(legacyFilesIn(folder)).toEqual([]);
+});
+
 test("a damaged .data among healthy files: full list, folder untouched, Schließen ends the app", { timeout: 5 * 60_000 }, async () => {
   const folder = newFolder();
   const profile = newProfile();

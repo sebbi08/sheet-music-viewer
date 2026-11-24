@@ -166,6 +166,18 @@ test.skipIf(!canMakeReadOnly)(
   },
 );
 
+test("a sheet whose name holds # and % opens, renders and can be edited", { timeout: 5 * 60_000 }, async () => {
+  // A `#` in a file URL starts the fragment, a `%` an escape: the PDF must still be read.
+  const folder = newFolder();
+  const name = "#Bob-Omb 100% Score.pdf";
+  fs.writeFileSync(path.join(folder, name), pdfBytes);
+
+  const session = await open(folder, name);
+  expect(await session.pageRendered(1), "page 1 rendered").toBe(true);
+  expect(await session.editButtonEnabled(), "edit button").toBe(true);
+  expect(session.networkRequests()).toEqual([]);
+});
+
 test("an encrypted PDF: dialog with the encrypted text, the page is rendered", { timeout: 5 * 60_000 }, async () => {
   const folder = newFolder();
   fs.writeFileSync(path.join(folder, "a.pdf"), makeEncryptedPdf());
