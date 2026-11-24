@@ -170,7 +170,9 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - Gesture rules (`src/markup/editGestures.ts`, pure tracker; `src/markup/editTouchInput.ts` connects
   touch and pen events on `.canvas-container`, capture phase, to it): two touch pointers make a gesture;
   the pen never starts one and a pen stroke is never discarded; touches that land while the pen is down
-  are ignored (blocked); the mouse never counts as a finger. When the second finger lands, the first
+  are ignored (blocked); the mouse never counts as a finger. Chromium on Windows delivers a pen on the
+  page as pen pointer events plus touch events (no `touchType`): the touch that starts within 2 px and
+  100 ms of a pen's pointerdown is the pen's, goes to fabric untouched and is never a finger. When the second finger lands, the first
   finger's input is discarded (stroke or drag undone) if it is younger than 300 ms
   (`DISCARD_WINDOW_MS`), otherwise it is ended and kept. That end is a synthetic touchend; the controls'
   mouse-up actions (delete, clone, edit text) ignore it (`isEndingFabricTouch`). A cancelled finger

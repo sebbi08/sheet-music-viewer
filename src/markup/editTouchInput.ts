@@ -29,6 +29,13 @@ const PLACEMENT_KEYS = ["left", "top", "angle", "scaleX", "scaleY", "skewX", "sk
 /** Pens and touches share the tracker's ids: a pen's pointer id becomes negative (touch ids are not). */
 const penId = (pointerId: number) => -1 - pointerId;
 
+/**
+ * How far (CSS px) and how late (ms) a touchstart may come after a pen's pointerdown to be that pen's touch.
+ * Chromium dispatches both for the same contact, right after each other and at the same point.
+ */
+const PEN_TOUCH_DISTANCE = 2;
+const PEN_TOUCH_DELAY_MS = 100;
+
 let endingFabricTouch = false;
 
 /**
@@ -53,13 +60,32 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
   const upper = canvas.upperCanvasEl;
   let fabricTouch: FabricTouch | null = null;
   const pensDown = new Set<number>();
+  /**
+   * Chromium on Windows delivers a pen on the page as pen pointer events plus touch events (its touches carry
+   * no `touchType`); fabric draws from those touch events. The touch that starts where a pen just went down
+   * is that pen's: it goes to fabric untouched and is never a finger of the tracker.
+   */
+  let penLanding: { clientX: number; clientY: number; timeStamp: number } | null = null;
+  const penTouches = new Set<number>();
+  const isPenTouch = (event: TouchEvent, t: Touch): boolean => {
+    if (penTouches.has(t.identifier)) return true;
+    if (event.type !== "touchstart" || !penLanding) return false;
+    const near =
+      Math.abs(t.clientX - penLanding.clientX) <= PEN_TOUCH_DISTANCE &&
+      Math.abs(t.clientY - penLanding.clientY) <= PEN_TOUCH_DISTANCE &&
+      event.timeStamp - penLanding.timeStamp <= PEN_TOUCH_DELAY_MS;
+    if (!near) return false;
+    penLanding = null;
+    penTouches.add(t.identifier);
+    return true;
+  };
 
   /** Ends fabric's input of its finger, as if the finger lifted where it is now. */
   function endFabricTouch(): FabricTouch | null {
     const ending = fabricTouch;
     if (!ending) return null;
     const touch = new Touch({ identifier: ending.id, target: upper, clientX: ending.clientX, clientY: ending.clientY });
-    // Not trusted, so onTouch below lets it through; fabric's touchend listener on the document handles it.
+    // onTouch below lets it through (endingFabricTouch); fabric's touchend listener on the document handles it.
     endingFabricTouch = true;
     try {
       upper.dispatchEvent(
@@ -96,6 +122,7 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
   /** Keeps track of the finger fabric follows, for touch events that reach fabric. */
   function follow(event: TouchEvent): void {
     for (const t of Array.from(event.changedTouches)) {
+      if (penTouches.has(t.identifier)) continue; // a pen stroke is never ended or undone for a gesture
       if (event.type === "touchstart") {
         fabricTouch ??= { id: t.identifier, clientX: t.clientX, clientY: t.clientY };
       } else if (fabricTouch?.id === t.identifier) {
@@ -106,7 +133,7 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
   }
 
   function onTouch(event: TouchEvent): void {
-    if (!event.isTrusted) return; // the touchend of endFabricTouch, meant for fabric
+    if (endingFabricTouch) return; // the touchend of endFabricTouch, meant for fabric
     // fabric listens to no touchcancel: a cancelled finger would leave it in the middle of its input.
     const following = fabricTouch?.id;
     if (event.type === "touchcancel" && Array.from(event.changedTouches).some((t) => t.identifier === following)) {
@@ -114,8 +141,14 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
     }
     const rect = upper.getBoundingClientRect();
     let stop = false;
+    let pen = false;
     let nextView: ZoomView | null = null;
     for (const t of Array.from(event.changedTouches)) {
+      if (isPenTouch(event, t)) {
+        pen = true;
+        if (event.type === "touchend" || event.type === "touchcancel") penTouches.delete(t.identifier);
+        continue;
+      }
       const at = { x: t.clientX - rect.left, y: t.clientY - rect.top };
       let action: GestureAction;
       if (event.type === "touchstart") action = tracker.down(t.identifier, "touch", at, event.timeStamp);
@@ -133,7 +166,8 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
       }
     }
     if (nextView) applyView(nextView);
-    if (stop || tracker.blocking()) {
+    // An event that carries the pen's touch always reaches fabric: the pen beats any finger in it.
+    if (!pen && (stop || tracker.blocking())) {
       endFabricTouch();
       event.stopPropagation();
       event.preventDefault();
@@ -142,15 +176,18 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
     }
   }
 
-  // A pen reaches fabric as mouse events; the tracker only needs to know when it is down.
+  // A pen reaches fabric as mouse events or (Windows) as touch events; the tracker only needs to know when it
+  // is down.
   function onPenDown(event: PointerEvent): void {
     if (event.pointerType !== "pen") return;
     const rect = upper.getBoundingClientRect();
     pensDown.add(event.pointerId);
+    penLanding = { clientX: event.clientX, clientY: event.clientY, timeStamp: event.timeStamp };
     tracker.down(penId(event.pointerId), "pen", { x: event.clientX - rect.left, y: event.clientY - rect.top }, event.timeStamp);
   }
   function onPenUp(event: PointerEvent): void {
     if (event.pointerType !== "pen" || !pensDown.delete(event.pointerId)) return;
+    penLanding = null;
     tracker.up(penId(event.pointerId), event.timeStamp);
   }
   /** A hovering pen (no button pressed) is up, even if its pointerup never arrived. */
@@ -176,5 +213,6 @@ export function attachEditTouchInput({ canvas, view, size, applyView }: EditTouc
     offPath();
     offTransform();
     fabricTouch = null;
+    penTouches.clear();
   };
 }

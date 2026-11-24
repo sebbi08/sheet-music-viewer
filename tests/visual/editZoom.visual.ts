@@ -619,6 +619,59 @@ test("a single finger still draws", { timeout: 5 * 60_000 }, async () => {
   expect(session.networkRequests()).toEqual([]);
 });
 
+test("a pen that arrives as touch events draws", { timeout: 5 * 60_000 }, async () => {
+  // Chromium on Windows delivers a pen on the page as pen pointer events, each followed by a touch event at
+  // the same point; fabric draws from the touch events. They are the pen's, not a finger's.
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  await session.startDrawing();
+
+  await session.stylusTouch("down", { x: 200, y: 300 });
+  for (let i = 1; i <= 10; i++) await session.stylusTouch("move", { x: 200 + i * 15, y: 300 + i * 10 });
+  await session.stylusTouch("up", { x: 350, y: 400 });
+  expect(await session.editZoom(), "no zoom").toBe(1);
+
+  await session.toggleEdit();
+  await waitUntil("save of the stroke", async () => (await savedObjects(pdf)).length > 0);
+  await sleep(1000);
+  const objects = await savedObjects(pdf);
+  expect(objects, "saved objects").toHaveLength(1);
+  expect(objects[0].type, "saved object").toMatch(/path/i);
+});
+
+test("a resting hand neither zooms nor stops a pen that arrives as touch events", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const pdf = path.join(folder, "a.pdf");
+  const session = await open(folder);
+  await session.toggleEdit();
+  await session.startDrawing();
+
+  await session.stylusTouch("down", { x: 200, y: 300 });
+  await session.stylusTouch("move", { x: 215, y: 310 });
+  // The hand lands and moves like a pinch while the pen writes on.
+  const palm = [
+    { x: 400, y: 500, id: 1 },
+    { x: 480, y: 560, id: 2 },
+  ];
+  await session.touch("touchStart", palm);
+  for (let i = 2; i <= 10; i++) {
+    await session.touch("touchMove", moved(palm, i * 10, i * 8));
+    await session.stylusTouch("move", { x: 200 + i * 15, y: 300 + i * 10 });
+  }
+  await session.stylusTouch("up", { x: 350, y: 400 });
+  await session.touch("touchEnd", []);
+  expect(await session.editZoom(), "no zoom").toBe(1);
+
+  await session.toggleEdit();
+  await waitUntil("save of the stroke", async () => (await savedObjects(pdf)).length > 0);
+  await sleep(1000);
+  const objects = await savedObjects(pdf);
+  expect(objects, "saved objects").toHaveLength(1);
+  expect(objects[0].type, "saved object").toMatch(/path/i);
+});
+
 test("a pinch that starts on an icon of the selected text neither edits, clones nor deletes it", { timeout: 5 * 60_000 }, async () => {
   const folder = newFolder();
   const pdf = path.join(folder, "a.pdf");
