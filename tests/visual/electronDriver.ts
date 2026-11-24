@@ -91,6 +91,12 @@ export interface SheetSession {
    * events of a pen plus mouse events, as Chromium delivers a pen. CSS px relative to the edit canvas.
    */
   pen(type: "down" | "move" | "up", at: { x: number; y: number }): Promise<void>;
+  /**
+   * Pen input as Chromium delivers it on Windows: a pen pointer event, then a touch event at the same point
+   * (Chromium's touches carry no `touchType`), both dispatched in the page (not trusted). CSS px relative to
+   * the edit canvas.
+   */
+  stylusTouch(type: "down" | "move" | "up", at: { x: number; y: number }): Promise<void>;
   /** Mouse wheel with Ctrl held (like a trackpad pinch) at `at`, CSS px relative to the edit canvas. */
   ctrlWheel(at: { x: number; y: number }, deltaY: number): Promise<void>;
   /** Mouse wheel without modifiers over the centre of the edit canvas. */
@@ -957,6 +963,26 @@ export async function openSheet(
           clickCount: type === "move" ? 0 : 1,
           pointerType: "pen",
         });
+      },
+      async stylusTouch(type, at) {
+        const box = await editCanvasBox();
+        await page.evaluate(
+          ({ type, x, y }) => {
+            const upper = document.querySelector("#sheetViewerWrapper .canvas-container canvas.upper-canvas");
+            if (!upper) throw new Error("no edit canvas shown");
+            const id = 7;
+            const pointer = { pointerId: id, pointerType: "pen", clientX: x, clientY: y, bubbles: true, cancelable: true };
+            const pointerType = { down: "pointerdown", move: "pointermove", up: "pointerup" }[type];
+            upper.dispatchEvent(new PointerEvent(pointerType, { ...pointer, buttons: type === "up" ? 0 : 1 }));
+            const touch = new Touch({ identifier: id, target: upper, clientX: x, clientY: y });
+            const touchEventType = { down: "touchstart", move: "touchmove", up: "touchend" }[type];
+            const touches = type === "up" ? [] : [touch];
+            upper.dispatchEvent(
+              new TouchEvent(touchEventType, { bubbles: true, cancelable: true, touches, targetTouches: touches, changedTouches: [touch] }),
+            );
+          },
+          { type, x: box.x + at.x, y: box.y + at.y },
+        );
       },
       async ctrlWheel(at, deltaY) {
         const box = await editCanvasBox();
