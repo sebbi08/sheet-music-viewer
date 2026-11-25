@@ -6,6 +6,7 @@ import { CONFIG_FILE } from "../src/folderConfig";
 import { clearFingerprintCache, fingerprintFile, fingerprintOf } from "../src/pdfFingerprint";
 import { setLockRetryDelays } from "../src/pdfMarkup/lockRetry";
 import {
+  diskSpelling,
   findMoveSource,
   loadFavoriteKeys,
   loadFavorites,
@@ -308,6 +309,97 @@ describe("loadSheetSettings: an entry follows a moved PDF on open", () => {
       kind: "unreadable",
       file: CONFIG_FILE,
     });
+  });
+});
+
+describe("a path spelled in another case than on disk", () => {
+  /** Lets `readdir` of the folder `dirKey` list `edit(names)`; every other folder is listed for real. */
+  const listAs = (dirKey: string, edit: (names: string[]) => string[]) => {
+    const readdir = fs.promises.readdir;
+    vi.spyOn(fs.promises, "readdir").mockImplementation((async (p: fs.PathLike, ...rest: unknown[]) => {
+      const names = (await (readdir as (...args: unknown[]) => Promise<string[]>)(p, ...rest)) as string[];
+      return p === full(dirKey) ? edit(names) : names;
+    }) as typeof fs.promises.readdir);
+  };
+
+  /**
+   * Like a case-insensitive file system (simulated): `Pop/Abba Gold.pdf` is on disk, `pop/abba gold.pdf` reaches
+   * the same file (a folder link and a hard link) but is not listed.
+   */
+  const caseInsensitiveSetup = () => {
+    writePdf("Pop/Abba Gold.pdf", pdfA);
+    fs.linkSync(full("Pop/Abba Gold.pdf"), full("Pop/abba gold.pdf"));
+    fs.symlinkSync(full("Pop"), full("pop"), "dir");
+    const readdir = fs.promises.readdir;
+    vi.spyOn(fs.promises, "readdir").mockImplementation((async (p: fs.PathLike, ...rest: unknown[]) => {
+      const names = (await (readdir as (...args: unknown[]) => Promise<string[]>)(p, ...rest)) as string[];
+      if (p === dir) return names.filter((n) => n !== "pop");
+      return p === full("Pop") ? names.filter((n) => n !== "abba gold.pdf") : names;
+    }) as typeof fs.promises.readdir);
+  };
+
+  test("diskSpelling takes the spelling on disk (simulated)", async () => {
+    caseInsensitiveSetup();
+    expect(await diskSpelling(dir, "pop/abba gold.pdf")).toBe("Pop/Abba Gold.pdf");
+    expect(await diskSpelling(dir, "Pop/abba gold.pdf")).toBe("Pop/Abba Gold.pdf");
+  });
+
+  test("open and save under another spelling use the entry of the disk spelling (simulated)", async () => {
+    caseInsensitiveSetup();
+    const entry = { favorite: true, pageDividers: { "1": 0.3 }, fingerprint: fingerprintOf(pdfA) };
+    writeConfig({ "Pop/Abba Gold.pdf": entry });
+    const before = ageConfig();
+    const pdfPath = full("pop/abba gold.pdf");
+
+    expect(await loadSheetSettings({ folder: dir, pdfPath })).toEqual({
+      kind: "ok",
+      dividers: { 1: 0.3 },
+      favorite: true,
+    });
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before);
+
+    expect(await saveSheetSetting({ folder: dir, pdfPath, change: { favorite: false } })).toEqual({ ok: true });
+    expect(readSheets()).toEqual({
+      "Pop/Abba Gold.pdf": { pageDividers: { "1": 0.3 }, fingerprint: fingerprintOf(pdfA) },
+    });
+    expect(await saveSheetSetting({ folder: dir, pdfPath, change: { favorite: true } })).toEqual({ ok: true });
+    expect(readSheets()).toEqual({ "Pop/Abba Gold.pdf": entry });
+  });
+
+  test.skipIf(!caseInsensitiveFs)("open and save under another spelling use the disk spelling's entry", async () => {
+    writePdf("Pop/Abba Gold.pdf", pdfA);
+    const entry = { favorite: true, fingerprint: fingerprintOf(pdfA) };
+    writeConfig({ "Pop/Abba Gold.pdf": entry });
+    const pdfPath = full("pop/abba gold.pdf");
+
+    expect(await loadSheetSettings({ folder: dir, pdfPath })).toEqual({ kind: "ok", dividers: {}, favorite: true });
+    expect(await saveSheetSetting({ folder: dir, pdfPath, change: { favorite: true } })).toEqual({ ok: true });
+    expect(readSheets()).toEqual({ "Pop/Abba Gold.pdf": entry });
+  });
+
+  test("an exact spelling stays, even when another spelling is listed too", async () => {
+    writePdf("A/a.pdf", pdfA);
+    listAs("A", (names) => [...names, "A.pdf"]);
+    expect(await diskSpelling(dir, "A/a.pdf")).toBe("A/a.pdf");
+  });
+
+  test("ambiguous or no match keeps the key as given", async () => {
+    writePdf("A/Abc.pdf", pdfA);
+    listAs("A", () => ["abc.pdf", "ABC.pdf"]);
+    expect(await diskSpelling(dir, "A/Abc.pdf")).toBe("A/Abc.pdf");
+    vi.restoreAllMocks();
+    listAs("A", () => []);
+    expect(await diskSpelling(dir, "A/Abc.pdf")).toBe("A/Abc.pdf");
+    vi.restoreAllMocks();
+    expect(await diskSpelling(dir, "Missing/x.pdf")).toBe("Missing/x.pdf");
+  });
+
+  test.skipIf(caseInsensitiveFs)("another file that differs only in case is never taken", async () => {
+    // Case-sensitive: `A/a.pdf` does not exist, `A/A.pdf` is another name, so nothing is renamed.
+    writePdf("A/A.pdf", pdfA);
+    writeConfig({ "A/A.pdf": { favorite: true } });
+    expect(await diskSpelling(dir, "A/a.pdf")).toBe("A/a.pdf");
+    expect(await loadSheetSettings({ folder: dir, pdfPath: full("A/a.pdf") })).toMatchObject({ favorite: false });
   });
 });
 

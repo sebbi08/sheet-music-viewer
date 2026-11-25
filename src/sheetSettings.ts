@@ -131,6 +131,36 @@ async function isCaseOnlyRename(folder: string, old: string, target: string): Pr
 }
 
 /**
+ * `key` spelled as the sheet folder lists it (spec "Umzug eines Eintrags": on Windows a set list may hold an
+ * older spelling of a PDF whose entry already followed a case-only rename). Each part below `folder` takes
+ * the name its folder lists exactly so, else the single name that differs only in case; the result is taken
+ * only when both spellings `stat` to the same file. No match, several matches or any error keep `key`, so on
+ * a case-sensitive file system another file is never taken. Never throws.
+ */
+export async function diskSpelling(folder: string, key: string): Promise<string> {
+  try {
+    const found: string[] = [];
+    for (const part of key.split("/")) {
+      const names = await fs.promises.readdir(fileOf(folder, found.join("/")));
+      if (names.includes(part)) {
+        found.push(part);
+        continue;
+      }
+      const lower = part.toLowerCase();
+      const matches = names.filter((name) => name.toLowerCase() === lower);
+      if (matches.length !== 1) return key;
+      found.push(matches[0]);
+    }
+    const spelled = found.join("/");
+    if (spelled === key) return key;
+    const [a, b] = await Promise.all([fileOf(folder, key), fileOf(folder, spelled)].map((f) => fs.promises.stat(f)));
+    return a.dev === b.dev && a.ino === b.ino ? spelled : key;
+  } catch {
+    return key;
+  }
+}
+
+/**
  * The key of the entry that moves to `target` under the rules of spec "Umzug eines Eintrags", or null:
  * `target` has an entry of its own → null; the sheet folder is not a reachable folder → null; exactly one
  * entry is `target` renamed only in case → that key; otherwise the orphans (entries with a fingerprint whose
@@ -211,14 +241,15 @@ async function moveOnOpen(
 }
 
 /**
- * Favorite and page dividers of one sheet. A sheet without an entry of its own takes the entry of its moved
- * or renamed PDF (written at once; only then is the PDF read, and only when there are orphans). An unreadable
- * file is reported, never treated as empty. Never throws.
+ * Favorite and page dividers of one sheet (its key spelled as on disk, `diskSpelling`). A sheet without an
+ * entry of its own takes the entry of its moved or renamed PDF (written at once; only then is the PDF read,
+ * and only when there are orphans). An unreadable file is reported, never treated as empty. Never throws.
  */
 export async function loadSheetSettings(input: { folder: string; pdfPath: string }): Promise<LoadSheetSettingsResult> {
   try {
-    const key = sheetKey(input.folder, input.pdfPath);
-    if (key === null) return { kind: "outside" };
+    const given = sheetKey(input.folder, input.pdfPath);
+    if (given === null) return { kind: "outside" };
+    const key = await diskSpelling(input.folder, given);
     const read = await loadFolderConfig(input.folder);
     if (read.kind === "unreadable") return read;
     const sheets = (read.kind === "ok" ? read.config.sheets : undefined) ?? {};
@@ -239,9 +270,9 @@ export async function loadSheetSettings(input: { folder: string; pdfPath: string
 export type SheetSettingChange = { favorite: boolean } | { page: number; ratio: number | null };
 
 /**
- * Saves one change of a sheet's settings with the PDF's current fingerprint (an unreadable PDF is saved
- * without one; a stored one stays). When the sheet has no entry yet, the entry of its moved PDF is taken over
- * first in the same write (spec case 0). Never throws.
+ * Saves one change of a sheet's settings (under its key spelled as on disk, `diskSpelling`) with the PDF's
+ * current fingerprint (an unreadable PDF is saved without one; a stored one stays). When the sheet has no
+ * entry yet, the entry of its moved PDF is taken over first in the same write (spec case 0). Never throws.
  */
 export async function saveSheetSetting(input: {
   folder: string;
@@ -249,8 +280,9 @@ export async function saveSheetSetting(input: {
   change: SheetSettingChange;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    const key = sheetKey(input.folder, input.pdfPath);
-    if (key === null) return { ok: false, message: "Das Blatt liegt nicht im Notenordner." };
+    const given = sheetKey(input.folder, input.pdfPath);
+    if (given === null) return { ok: false, message: "Das Blatt liegt nicht im Notenordner." };
+    const key = await diskSpelling(input.folder, given);
     let fingerprint: Fingerprint | null = null;
     try {
       fingerprint = await fingerprintFile(input.pdfPath);
