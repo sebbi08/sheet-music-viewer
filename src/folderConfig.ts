@@ -395,6 +395,10 @@ function dropEmptyEntry(merged: JsonObject, sheet: string) {
  * content. A folder with only `.set-lists.json` is taken over in the same write. Throws
  * FolderConfigUnreadableError for an unreadable file, FolderConfigChangedError when `expectedSetLists`
  * does not match, and I/O errors as they are.
+ * `patch` may be a function: it runs inside the serialized step on the freshly read config (`null` when the
+ * file is missing) and returns the patch, or `null` to write nothing; a throw rejects without writing.
+ * Apply order of one write: `sheet.moveFrom`, `pageDivider`, `sheet.favorite`, `sheet.fingerprint`, then an
+ * entry touched by this write that holds nothing but a fingerprint is removed (and an empty `sheets`).
  */
 export function updateFolderConfig(
   folder: string,

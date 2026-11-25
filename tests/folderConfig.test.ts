@@ -669,4 +669,31 @@ describe("sheet entries", () => {
     writeConfig({ version: 1, sheets: { "A.pdf": { favorite: "yes" } } });
     expect((await loadFolderConfig(dir)).kind).toBe("unreadable");
   });
+  test("removing the last divider drops an entry that only has a fingerprint left", async () => {
+    writeConfig({ version: 1, sheets: { "A.pdf": { pageDividers: { "1": 0.3 }, fingerprint: fp } } });
+    await updateFolderConfig(dir, { pageDivider: { sheet: "A.pdf", page: 1, ratio: null } });
+    expect(readConfig().sheets).toBeUndefined();
+  });
+
+  test("one write can move, favorite and fingerprint", async () => {
+    const fp2 = { sha256: "b".repeat(64), length: 99 };
+    writeConfig({ version: 1, sheets: { "Old.pdf": { pageDividers: { "1": 0.3 }, fingerprint: fp } } });
+    await updateFolderConfig(dir, {
+      sheet: { key: "New.pdf", moveFrom: "Old.pdf", favorite: true, fingerprint: fp2 },
+    });
+    expect(readConfig().sheets).toEqual({
+      "New.pdf": { pageDividers: { "1": 0.3 }, favorite: true, fingerprint: fp2 },
+    });
+  });
+
+  test("a throwing patch function rejects and a later write succeeds", async () => {
+    await expect(
+      updateFolderConfig(dir, () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: true } });
+    expect(readConfig().sheets).toEqual({ "A.pdf": { favorite: true } });
+  });
+
 });
