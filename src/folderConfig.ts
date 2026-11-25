@@ -369,7 +369,10 @@ function applyMove(merged: JsonObject, key: string, moveFrom: string) {
   setSheetEntry(merged, key, entry);
 }
 
-/** Sets or removes `favorite`, then sets `fingerprint` on an existing entry (copies, never mutates). */
+/**
+ * Sets or removes `favorite`, then sets `fingerprint` on an existing entry (copies, never mutates). A stored
+ * fingerprint with the same sha256 and length is kept as it is, so fields a newer version wrote into it stay.
+ */
 function applyFavoriteAndFingerprint(
   merged: JsonObject,
   { key, favorite, fingerprint }: NonNullable<FolderConfigPatch["sheet"]>,
@@ -380,7 +383,10 @@ function applyFavoriteAndFingerprint(
     setSheetEntry(merged, key, rest);
   }
   const entry = sheetEntry(merged, key);
-  if (fingerprint !== undefined && entry !== undefined) setSheetEntry(merged, key, { ...entry, fingerprint });
+  if (fingerprint === undefined || entry === undefined) return;
+  const stored = entry.fingerprint;
+  if (isObject(stored) && stored.sha256 === fingerprint.sha256 && stored.length === fingerprint.length) return;
+  setSheetEntry(merged, key, { ...entry, fingerprint });
 }
 
 /** Removes the entry of `sheet` when it holds nothing but a fingerprint (or nothing at all). */

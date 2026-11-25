@@ -686,6 +686,33 @@ describe("sheet entries", () => {
     });
   });
 
+  test("an unchanged fingerprint keeps its stored object with unknown fields and writes nothing", async () => {
+    const stored = { ...fp, future: { algo: "x" } };
+    writeConfig({ version: 1, sheets: { "A.pdf": { favorite: true, fingerprint: stored } } });
+    const text = fs.readFileSync(configPath(), "utf8");
+    const before = fs.statSync(configPath()).mtimeMs;
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: true, fingerprint: fp } });
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(text);
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before);
+    await updateFolderConfig(dir, {
+      pageDivider: { sheet: "A.pdf", page: 1, ratio: 0.3 },
+      sheet: { key: "A.pdf", fingerprint: fp },
+    });
+    expect(readConfig().sheets).toEqual({
+      "A.pdf": { favorite: true, pageDividers: { "1": 0.3 }, fingerprint: stored },
+    });
+  });
+
+  test("a changed fingerprint replaces the stored object", async () => {
+    const fp2 = { sha256: "b".repeat(64), length: 1234 };
+    writeConfig({ version: 1, sheets: { "A.pdf": { favorite: true, fingerprint: { ...fp, future: 1 } } } });
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: true, fingerprint: fp2 } });
+    expect(readConfig().sheets).toEqual({ "A.pdf": { favorite: true, fingerprint: fp2 } });
+    const fp3 = { sha256: fp2.sha256, length: 99 };
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: true, fingerprint: fp3 } });
+    expect(readConfig().sheets).toEqual({ "A.pdf": { favorite: true, fingerprint: fp3 } });
+  });
+
   test("a throwing patch function rejects and a later write succeeds", async () => {
     await expect(
       updateFolderConfig(dir, () => {
