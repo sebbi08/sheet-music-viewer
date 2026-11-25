@@ -95,7 +95,7 @@
     "semantic-release": "26.0.1",
     "simple-git-hooks": "^2.13.1",
     "ts-node": "10.9.2",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "unplugin-vue-components": "32.1.0",
     "vite": "8.3.8",
     "vite-plugin-static-copy": "^4.1.1",
