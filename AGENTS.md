@@ -122,7 +122,9 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 
 - **`.config.json`** in the sheet folder (`src/folderConfig.ts`, spec:
   `docs/superpowers/specs/2026-11-22-folder-config-design.md`) holds the set lists (`setLists`, formerly
-  `.set-lists.json`), `markupMigrated` and the page dividers (`sheets`, see "Page divider"). On the first
+  `.set-lists.json`), `markupMigrated` and per sheet (`sheets["<sheetKey>"]`) the page dividers
+  (`pageDividers`, see "Page divider"), the favorite (`favorite`) and the PDF's fingerprint (`fingerprint`,
+  see "Favoriten"). On the first
   load of a folder without it, `.set-lists.json` is taken over: `.config.json` is written and read back,
   only then the old file is deleted. Writes change
   one part, atomically and only on a real change; reads are retried while the file is locked. An
@@ -131,7 +133,7 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   based on and writes only while the file still holds them; otherwise the store reloads them and asks to
   repeat the change. A file of a newer app (`version` above 1 or `setLists.version` above 2) is a
   `configNewer` failure in the gate and a set-list notice asking to update the app; unknown fields
-  (also inside set lists and `markupMigrated`) survive every write.
+  (also inside set lists, `markupMigrated` and a sheet's `fingerprint`) survive every write.
 
 ## Page divider
 
@@ -237,11 +239,17 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   Icons `mdi-heart` / `mdi-heart-outline`.
 - Stored in `.config.json` → `sheets["<sheetKey>"].favorite: true` (unmarking removes the field) next to
   `pageDividers`, plus `fingerprint: { sha256, length }`; never in the PDF. Every write of an entry (favorite,
-  divider) stores the PDF's current fingerprint (an unreadable PDF is saved without, a stored one stays); an
-  entry left with only `fingerprint` is removed. Main: `src/sheetSettings.ts` (`loadSheetSettings`,
-  `saveSheetSetting`, `loadFavorites`, `loadFavoriteKeys`, `relinkMissingFavorites`, `findMoveSource`), tRPC in
-  `src/trcpLib.ts`/`src/trcpRouter.ts`; renderer store `src/store/favorites.ts` (optimistic, saves serialized
-  per sheet by `src/favoriteSaves.ts`, the last press counts, a failure reverts and shows a notice).
+  divider) stores the PDF's current fingerprint (an unreadable PDF is saved without, a stored one stays; a
+  stored one with the same sha256 and length is kept as it is, unknown fields included); an entry left with
+  only `fingerprint` is removed. Opening and saving use the key spelled as on disk (`diskSpelling`: each part
+  as listed, else the single name differing only in case, taken only when both spellings reach the same
+  file), so a set list with an older spelling (Windows, case-only rename) finds the entry. Main:
+  `src/sheetSettings.ts` (`loadSheetSettings`, `saveSheetSetting`, `loadFavorites`, `loadFavoriteKeys`,
+  `relinkMissingFavorites`, `findMoveSource`, `diskSpelling`), tRPC in `src/trcpLib.ts`/`src/trcpRouter.ts`;
+  renderer store `src/store/favorites.ts` (optimistic, saves serialized per sheet by `src/favoriteSaves.ts`,
+  the last press counts, a failure reverts and shows a notice; keys and list remember their sheet folder and
+  are dropped before a view renders another folder, `forgetOtherFolder`). Folder-view hearts look up
+  `keySet` with keys built once per listing (`folderCardKey`, search results via `rendererSheetKey`).
 - Fingerprint (`src/pdfFingerprint.ts`, fixed definition): SHA-256 (hex, lowercase) and length of the first
   *n* bytes, *n* from the last `/OriginalLength n … /UpdateStart m` with `%%EOF` before *n* and
   `n ≤ m ≤ length`, else the whole file (saving our markup does not change it); cached per real path by size

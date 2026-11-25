@@ -114,7 +114,8 @@ Ganzes um)*:
   String und `length` Zahl, `.loose()`). Ein falscher Typ macht die Datei `unreadable` wie bei den Teilern.
   Ältere App-Versionen kennen die Felder nicht und erhalten sie beim Schreiben.
 - **Schreiben eines Eintrags** (Favorit setzen/entfernen, Teiler speichern) berechnet den Fingerabdruck der
-  PDF am angegebenen Pfad und speichert ihn mit (auch wenn er sich geändert hat: der Pfad gewinnt). Kann die
+  PDF am angegebenen Pfad und speichert ihn mit (auch wenn er sich geändert hat: der Pfad gewinnt; ist er
+  gleich – `sha256` und `length` –, bleibt das gespeicherte Objekt samt unbekannter Felder stehen). Kann die
   PDF nicht gelesen werden, wird ohne Fingerabdruck geschrieben (ein vorhandener bleibt stehen) und die
   Änderung trotzdem gespeichert *(Entscheidung Claude: Favorisieren soll nicht an einer gesperrten PDF
   scheitern)*. Bestehende Einträge ohne Fingerabdruck bekommen ihn erst beim nächsten Schreiben, nie beim
@@ -160,6 +161,13 @@ Kleinschreibung unterscheiden und der Name aus A im Ordner nicht mehr so aufgef�
 dieselbe PDF über eine Verknüpfung unter zwei Pfaden, hat jeder Pfad seinen eigenen Eintrag, und zwischen
 solchen Pfaden wird nicht umgezogen (gleiche `dev`/`ino`, aber beide Namen aufgeführt) *(Entscheidung Claude:
 wie bei den Teilern; Verknüpfungen innerhalb des Notenordners sind selten)*.
+
+Beim Öffnen und Speichern wird der Schlüssel zuerst auf die Schreibweise auf der Platte gebracht: jeder Teil
+des Pfads unterhalb des Notenordners so, wie sein Ordner ihn aufführt (exakt gleich gewinnt, sonst der
+einzige Name, der sich nur in Groß-/Kleinschreibung unterscheidet), und nur, wenn beide Schreibweisen dieselbe
+Datei erreichen; kein oder mehrere Treffer: der Schlüssel bleibt, wie er ist. So findet ein Blatt aus einer
+Setliste mit älterer Schreibweise (Windows) den schon umgezogenen Eintrag, und ein Druck aufs Herz legt
+keinen zweiten an *(Entscheidung nach dem Abschluss-Review)*.
 
 Der Umzug ist ein Schreiben wie jedes andere (frisch lesen, prüfen, ob die Bedingungen noch gelten, atomar
 schreiben). Der Eintrag bleibt dabei unverändert, nur sein Schlüssel ändert sich.
