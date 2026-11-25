@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { FavoriteSaves } from "../favoriteSaves";
 import { rendererSheetKey } from "../favoriteKey";
 import type { FavoriteSheet, LoadSheetSettingsResult } from "../sheetSettings";
 import { client } from "../trcpClient";
@@ -15,8 +16,34 @@ type Current = {
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** Saves per key run one after another (last press wins). */
-const saveChains = new Map<string, Promise<unknown>>();
+let saves: FavoriteSaves | null = null;
+const savesOf = (): FavoriteSaves => {
+  if (saves !== null) return saves;
+  const split = (id: string) => {
+    const at = id.indexOf("\n");
+    return { folder: id.slice(0, at), key: id.slice(at + 1) };
+  };
+  return (saves = new FavoriteSaves(
+    async (id, favorite) => {
+      const { folder } = split(id);
+      const pdfPath = useFavorites().pendingPaths.get(id)!;
+      const r = await client.setFavorite.mutate({ folder, pdfPath, favorite });
+      return r.ok ? { ok: true } : { ok: false, message: r.message };
+    },
+    (id, favorite, revert) => {
+      const { folder, key } = split(id);
+      const store = useFavorites();
+      if (useStore().sheetMusicFolder !== folder) return;
+      const without = store.keys.filter((k) => k !== key);
+      store.keys = favorite ? [...without, key] : without;
+      if (store.current !== null && rendererSheetKey(folder, store.current.pdfPath) === key)
+        store.current.favorite = favorite;
+      if (!favorite) store.list = store.list.filter((f) => f.key !== key);
+      else if (revert) void store.loadList();
+    },
+    (message) => useNotices().show(favoriteSaveFailedText(message)),
+  ));
+};
 /** The `relinkMissingFavorites` run in flight per folder. */
 const relinking = new Map<string, Promise<number>>();
 
@@ -27,6 +54,8 @@ export const useFavorites = defineStore("favorites", {
     list: [] as FavoriteSheet[],
     listError: null as string | null,
     current: null as Current | null,
+    /** The PDF path of each id with a save in flight (`folder\nkey`). */
+    pendingPaths: new Map<string, string>(),
   }),
   actions: {
     async loadKeys() {
@@ -117,41 +146,8 @@ export const useFavorites = defineStore("favorites", {
       const folder = useStore().sheetMusicFolder;
       const key = rendererSheetKey(folder, pdfPath);
       if (key === null) return;
-      const before = this.isFavorite(pdfPath);
-      const applyKeys = (on: boolean) => {
-        const without = this.keys.filter((k) => k !== key);
-        this.keys = on ? [...without, key] : without;
-      };
-      const applyCurrent = (on: boolean) => {
-        if (this.current?.pdfPath === pdfPath) this.current.favorite = on;
-      };
-      const apply = (on: boolean) => {
-        applyKeys(on);
-        applyCurrent(on);
-        if (!on) this.list = this.list.filter((f) => f.key !== key);
-      };
-      apply(favorite);
-      const chainKey = `${folder}\n${key}`;
-      const task = (saveChains.get(chainKey) ?? Promise.resolve()).then(async () => {
-        let message: string | null = null;
-        try {
-          const r = await client.setFavorite.mutate({ folder, pdfPath, favorite });
-          if (!r.ok) message = r.message;
-        } catch (e) {
-          message = errorMessage(e);
-        }
-        if (message === null || useStore().sheetMusicFolder !== folder) return;
-        // Revert only if no later press changed the state meanwhile.
-        if (this.isFavorite(pdfPath) === favorite) {
-          applyKeys(before);
-          applyCurrent(before);
-          if (before) void this.loadList();
-        }
-        useNotices().show(favoriteSaveFailedText(message));
-      });
-      saveChains.set(chainKey, task);
-      await task;
-      if (saveChains.get(chainKey) === task) saveChains.delete(chainKey);
+      this.pendingPaths.set(`${folder}\n${key}`, pdfPath);
+      await savesOf().set(`${folder}\n${key}`, favorite, this.isFavorite(pdfPath));
     },
   },
 });
