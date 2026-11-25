@@ -275,8 +275,9 @@ herunter). Der Nutzer soll solche Favoriten sehen und entfernen können.
 - Unter den Favoriten-Karten (auch wenn es keine gibt; dann ohne den Hinweis „Noch keine Favoriten“) eine
   Zeile „1 Favorit nicht gefunden“ bzw. „N Favoriten nicht gefunden“, zunächst zugeklappt. „Anzeigen“ klappt
   die Liste auf (Name ohne `.pdf` – alter Ordner, sortiert wie die Karten), „Ausblenden“ zu.
-- „Entfernen“ entmarkiert den Favoriten über das bestehende Umschalten (`favorite` fällt weg; Teiler und
-  Fingerabdruck bleiben, folgen also weiter einer zurückkehrenden PDF). Die Zeile verschwindet sofort;
+- „Entfernen“ entmarkiert den Favoriten über das bestehende Umschalten (`favorite` fällt weg; Teiler
+  bleiben mit dem Fingerabdruck und folgen weiter einer zurückkehrenden PDF; ein Eintrag mit nur noch dem
+  Fingerabdruck fällt wie bisher weg). Die Zeile verschwindet sofort;
   scheitert das Speichern, kommt sie zurück mit Meldung. „Alle entfernen“ tut das für jeden Eintrag der Liste.
 - Ein nicht entfernter, nicht gefundener Favorit wird wie bisher einmal je App-Lauf gesucht.
 - Umsetzung *(Entscheidung Claude)*: `loadFavorites` liefert statt der Anzahl `missing` die Liste `notFound`
