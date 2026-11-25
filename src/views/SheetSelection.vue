@@ -5,6 +5,11 @@
     </div>
     <div class="container">
       <v-card v-for="item in searchOrFolder" :key="item.name + item.path" @click="selectItem(item)">
+        <!-- Favorite (spec 2026-11-25): toggles without opening the sheet; none while the marks are unknown. -->
+        <v-btn v-if="item.isFile && showHearts" class="favoriteToggle" data-testid="favorite-toggle" icon
+          variant="text" size="small" :color="isFavorite(item) ? 'red' : undefined" @click.stop="toggleFavorite(item)">
+          <v-icon>{{ isFavorite(item) ? "mdi-heart" : "mdi-heart-outline" }}</v-icon>
+        </v-btn>
         <v-icon x-large>{{ item.isFile ? "mdi-file" : "mdi-folder" }}</v-icon>
         <h2 v-if="!item.isSearch" class="itemName">
           {{ fileNameWithoutExtension(item.name) }}
@@ -30,10 +35,15 @@ import { RouteNames } from '../Enums';
 import type { SheetFile } from '../models/types';
 import router from '../router';
 import useStore from '../store';
+import { useFavorites } from '../store/favorites';
 import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";
 
 const store = useStore();
+const favorites = useFavorites();
 const loadedRelative = ref<string | null>("");
+/** Hearts show once the marks were read for this view and could be read. */
+const keysLoaded = ref(false);
+const showHearts = computed(() => keysLoaded.value && favorites.keysError === null);
 
 
 
@@ -80,9 +90,36 @@ watch(filesAndFolder, (newVal) => {
 
 
 
-watch(router.currentRoute, () => {
+watch(router.currentRoute, (route) => {
   loadPath();
+  if (route.name === RouteNames.SheetSelection) void loadKeys();
 })
+
+// Search results may show sheets of other folders: read the marks again (only `.config.json`, no PDF).
+watch(() => store.searchResults, () => {
+  void loadKeys();
+})
+
+async function loadKeys(): Promise<void> {
+  await favorites.loadKeys();
+  keysLoaded.value = true;
+}
+
+/** The absolute path of a PDF card, as the viewer gets it. */
+function pdfPathOf(item: SheetFile): string {
+  const path = item.isSearch
+    ? item.path + window.path.sep + item.name
+    : store.sheetMusicFolder + folderPath.value + window.path.sep + item.name;
+  return path.replace(window.path.sep + window.path.sep, window.path.sep);
+}
+
+const isFavorite = (item: SheetFile) => favorites.isFavorite(pdfPathOf(item));
+
+function toggleFavorite(item: SheetFile): void {
+  if (!showHearts.value) return;
+  const pdfPath = pdfPathOf(item);
+  void favorites.set(pdfPath, !favorites.isFavorite(pdfPath));
+}
 
 
 
@@ -90,15 +127,7 @@ watch(router.currentRoute, () => {
 
 function selectItem(item: SheetFile): void {
   if (item.isFile) {
-    const basePath = store.sheetMusicFolder;
-    let path = basePath + folderPath.value + window.path.sep + item.name;
-    if (item.isSearch) {
-      path = item.path + window.path.sep + item.name;
-    }
-    router.push({
-      name: RouteNames.SheetViewer,
-      params: { path: path.replace(window.path.sep + window.path.sep, window.path.sep) },
-    });
+    router.push({ name: RouteNames.SheetViewer, params: { path: pdfPathOf(item) } });
   } else {
     const path = folderPath.value + item.name + window.path.sep
     router.push({
@@ -126,6 +155,7 @@ onMounted(() => {
     searchFiles(searchTerm.value);
   }
   loadPath();
+  void loadKeys();
 })
 
 </script>
@@ -139,6 +169,7 @@ onMounted(() => {
   flex-wrap: wrap;
 
   .v-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -159,6 +190,12 @@ onMounted(() => {
       width: calc(100% - 32px);
     }
   }
+}
+
+.favoriteToggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
 }
 
 .itemName {

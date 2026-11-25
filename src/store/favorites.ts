@@ -147,7 +147,13 @@ export const useFavorites = defineStore("favorites", {
       const key = rendererSheetKey(folder, pdfPath);
       if (key === null) return;
       this.pendingPaths.set(`${folder}\n${key}`, pdfPath);
-      await savesOf().set(`${folder}\n${key}`, favorite, this.isFavorite(pdfPath));
+      // The state shown before the press: the open sheet's own (it may have moved, or the keys are not
+      // loaded), else the folder view's.
+      const shown =
+        this.current !== null && rendererSheetKey(folder, this.current.pdfPath) === key
+          ? this.current.favorite
+          : this.isFavorite(pdfPath);
+      await savesOf().set(`${folder}\n${key}`, favorite, shown);
     },
   },
 });

@@ -200,13 +200,14 @@ import {
   roundDivider,
 } from "../pageDivider";
 import router from "../router";
+import type { LoadSheetSettingsResult } from "../sheetSettings";
 import useStore from "../store";
+import { useFavorites } from "../store/favorites";
 import { useMarkupSaves } from "../store/markupSaves";
 import { useNotices } from "../store/notices";
 import { client } from "../trcpClient";
 
 type MarkupEntry = { rect: Rect | null; payload: MarkupPayload };
-type LoadSheetSettingsResult = Awaited<ReturnType<typeof client.loadSheetSettings.query>>;
 type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptionalContentConfig"]>>;
 
 const LOAD_FAILED =
@@ -302,6 +303,7 @@ let detachEditTouch: (() => void) | undefined;
 const store = useStore();
 const notices = useNotices();
 const markupSaves = useMarkupSaves();
+const favorites = useFavorites();
 const { editMode, dividerMode } = storeToRefs(store);
 const debouncedResize = _.debounce(onResize, 500);
 
@@ -318,6 +320,8 @@ onMounted(async () => {
 
   window.addEventListener("resize", debouncedResize);
   store.markupEditDisabled = false;
+  // The heart stays off until this sheet's mark is loaded.
+  favorites.current = null;
   // Closing the window while editing saves the open edit canvas first.
   markupSaves.setEditCapture(() => saveDrawnData());
 
@@ -396,6 +400,7 @@ onBeforeUnmount(() => {
   store.markupEditDisabled = false;
   store.dividerModeAvailable = false;
   store.dividerMode = false;
+  favorites.current = null;
 })
 
 /**
@@ -417,13 +422,16 @@ function applyLoadedMarkup(loaded: LoadMarkupResult): void {
 }
 
 /**
- * Loads the sheet's page dividers once per open. If that fails, every cut stays in the middle; there is no
- * notice on open (the set lists and the migration gate report an unreadable `.config.json`).
+ * Loads the sheet's page dividers and favorite mark once per open (the app bar's heart shows the mark). If
+ * that fails, every cut stays in the middle; there is no notice on open (the set lists and the migration gate
+ * report an unreadable `.config.json`; the heart reports it when pressed).
  */
 async function loadDividers(): Promise<void> {
   const result: LoadSheetSettingsResult = await client.loadSheetSettings
     .query({ folder: store.sheetMusicFolder, pdfPath: sheetPath })
     .catch((e: unknown) => ({ kind: "unreadable", file: ".config.json", message: e instanceof Error ? e.message : String(e) }));
+  if (unmounted) return;
+  favorites.setCurrent(sheetPath, result);
   if (result.kind === "ok") {
     dividers.value = result.dividers;
     dividersError.value = null;

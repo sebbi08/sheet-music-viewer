@@ -47,6 +47,12 @@
           <v-icon>{{ store.setListDeletionMode ? "mdi-close" : "mdi-delete" }}</v-icon>
         </v-btn>
 
+        <!-- Favorite (spec 2026-11-25); off until the sheet's mark is loaded and for a sheet outside the folder. -->
+        <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon data-testid="favorite-current"
+          :disabled="favoriteCurrent === null || favoriteCurrent.state === 'outside'" @click="onToggleFavorite">
+          <v-icon>{{ favoriteCurrent?.favorite ? "mdi-heart" : "mdi-heart-outline" }}</v-icon>
+        </v-btn>
+
         <v-dialog class="setListDialog" v-if="router.currentRoute.value.name === RouteNames.SheetViewer"
           v-model="addToSetListDialog" max-width="320" persistent>
           <template v-slot:activator="{ props }">
@@ -148,6 +154,7 @@ import type { UpdateData } from "./models/types";
 import router from "./router";
 import useStore from "./store";
 import { useBulkMigration } from "./store/bulkMigration";
+import { useFavorites } from "./store/favorites";
 import { useMarkupSaves } from "./store/markupSaves";
 import { useNotices } from "./store/notices";
 import { client } from "./trcpClient";
@@ -333,6 +340,27 @@ watch(addToSetListDialog, (newValue) => {
     });
   }
 }, { immediate: true });
+
+const favorites = useFavorites();
+/** The open sheet's favorite state, null until it is loaded. */
+const favoriteCurrent = computed(() => {
+  const current = favorites.current;
+  const route = router.currentRoute.value;
+  return current !== null && route.name === RouteNames.SheetViewer && current.pdfPath === route.params.path
+    ? current
+    : null;
+});
+
+/** Marks or unmarks the open sheet; with an unreadable `.config.json` it only shows why it cannot. */
+function onToggleFavorite() {
+  const current = favoriteCurrent.value;
+  if (current === null || current.state === "outside") return;
+  if (current.state === "unreadable") {
+    if (current.error !== null) notices.show(current.error);
+    return;
+  }
+  void favorites.set(current.pdfPath, !current.favorite);
+}
 
 function navToSettings() {
   dialog.value = false;
