@@ -142,17 +142,19 @@ export const useFavorites = defineStore("favorites", {
       return key !== null && this.keys.includes(key);
     },
 
-    async set(pdfPath: string, favorite: boolean) {
+    /** `shownBefore`: the state the pressed control showed, when the caller knows it (a main page card: true). */
+    async set(pdfPath: string, favorite: boolean, shownBefore?: boolean) {
       const folder = useStore().sheetMusicFolder;
       const key = rendererSheetKey(folder, pdfPath);
       if (key === null) return;
       this.pendingPaths.set(`${folder}\n${key}`, pdfPath);
-      // The state shown before the press: the open sheet's own (it may have moved, or the keys are not
-      // loaded), else the folder view's.
+      // The state shown before the press: the caller's, else the open sheet's own (it may have moved, or the
+      // keys are not loaded), else the folder view's.
       const shown =
-        this.current !== null && rendererSheetKey(folder, this.current.pdfPath) === key
+        shownBefore ??
+        (this.current !== null && rendererSheetKey(folder, this.current.pdfPath) === key
           ? this.current.favorite
-          : this.isFavorite(pdfPath);
+          : this.isFavorite(pdfPath));
       await savesOf().set(`${folder}\n${key}`, favorite, shown);
     },
   },

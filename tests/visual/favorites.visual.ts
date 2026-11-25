@@ -10,8 +10,9 @@ import { type AppUnderTest, currentApp, launchApp, type LaunchedApp } from "./el
  * Favorites (spec 2026-11-25) end to end, headless, on synthetic folders below test-results/visual/work/ (no
  * corpus needed): the heart in the viewer's app bar and on the cards of the folder view and the search
  * results, a press on a card's heart never opens the sheet, quick presses are saved in order, opening without
- * a change writes nothing, an unreadable `.config.json` is reported and never written, and a moved favorite
- * follows its PDF on open. The driver's default `SMV_DISABLE_BULK_MIGRATION=1` lets every folder count as
+ * a change writes nothing, an unreadable `.config.json` is reported and never written, a moved favorite
+ * follows its PDF on open, and the main page lists the favorites (sorted, open, unmark, the hint, moved and
+ * renamed favorites found by the background search, missing ones hidden, copies not marked). The driver's default `SMV_DISABLE_BULK_MIGRATION=1` lets every folder count as
  * migrated.
  */
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
@@ -310,4 +311,273 @@ test("a moved favorite: its card shows an empty heart until opened, then it is a
   await showFolder(launched, "/sub/");
   await expect.poll(() => cardHeart(launched, "c"), { timeout: 30_000 }).toBe("mdi-heart");
   expect(fs.readFileSync(path.join(folder, "sub", "c.pdf")).equals(Buffer.from(pdfA)), "PDF bytes unchanged").toBe(true);
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// The main page (spec „Startseite“)
+// ---------------------------------------------------------------------------------------------------------
+
+const NO_FAVORITES_HINT = "Noch keine Favoriten. Markiere Blätter mit dem Herz.";
+
+/** Shows the main page. */
+async function showOverview(launched: LaunchedApp): Promise<void> {
+  await push(launched, { name: "Overview" });
+  await launched.page.locator(".v-card", { hasText: "Folder Selection" }).waitFor();
+}
+
+/** The favorite cards of the main page in their order: name, and the folder below it ("" on the top level). */
+const favoriteCards = (launched: LaunchedApp) =>
+  launched.page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid="favorite-card"]')].map((el) => ({
+      name: (el.querySelector(".favoriteName")?.textContent ?? "").trim(),
+      dir: (el.querySelector(".favoriteDir")?.textContent ?? "").trim(),
+    })),
+  );
+
+/** The favorite card `name` with the folder `dir`. */
+const favoriteCard = (launched: LaunchedApp, name: string, dir = "") =>
+  launched.page
+    .getByTestId("favorite-card")
+    .filter({ has: launched.page.locator(".favoriteName", { hasText: new RegExp(`^\\s*${name}\\s*$`) }) })
+    .filter({ has: launched.page.locator(".favoriteDir", { hasText: new RegExp(`^\\s*${dir}\\s*$`) }) });
+
+const favoritesError = (launched: LaunchedApp) =>
+  launched.page.evaluate(() => (document.querySelector('[data-testid="favorites-error"]')?.textContent ?? "").trim());
+const favoritesHint = (launched: LaunchedApp) =>
+  launched.page.evaluate(() => (document.querySelector('[data-testid="favorites-empty"]')?.textContent ?? "").trim());
+
+/** Writes `bytes` to `relative` below `folder`, creating its folders. */
+function putPdf(folder: string, relative: string, bytes: Uint8Array): void {
+  fs.mkdirSync(path.dirname(path.join(folder, relative)), { recursive: true });
+  fs.writeFileSync(path.join(folder, relative), bytes);
+}
+
+const samePdf = (folder: string, relative: string, bytes: Uint8Array) =>
+  fs.readFileSync(path.join(folder, relative)).equals(Buffer.from(bytes));
+
+test("the main page shows favorites sorted, a click opens the sheet", async () => {
+  const folder = newFolder();
+  putPdf(folder, "sub/a.pdf", pdfA);
+  putPdf(folder, "x/a.pdf", pdfA);
+  putPdf(folder, "C.pdf", pdfB);
+  writeConfig(folder, {
+    version: 1,
+    sheets: {
+      "C.pdf": { favorite: true },
+      "x/a.pdf": { favorite: true },
+      "b.pdf": { favorite: true, fingerprint: fingerprintOf(pdfB) },
+      "sub/a.pdf": { favorite: true },
+      "a.pdf": { pageDividers: { "1": 0.6 } },
+    },
+  });
+  const before = configState(folder);
+  const launched = await start(folder);
+  await showOverview(launched);
+
+  expect(await launched.page.locator(".v-card", { hasText: "Set Lists" }).count(), "set lists card").toBe(1);
+  expect(await launched.page.getByText("Favoriten", { exact: true }).count(), "heading").toBe(1);
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([
+    { name: "a", dir: "sub" },
+    { name: "a", dir: "x" },
+    { name: "b", dir: "" },
+    { name: "C", dir: "" },
+  ]);
+  expect(await launched.page.getByTestId("favorite-card").getByTestId("favorite-toggle").count(), "hearts").toBe(4);
+  expect(await favoritesHint(launched), "no hint").toBe("");
+
+  await favoriteCard(launched, "a", "x").click();
+  await launched.page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached", timeout: 30_000 });
+  const params = await launched.page.evaluate(() => {
+    const vueApp = (document.querySelector("#app") as unknown as {
+      __vue_app__: { config: { globalProperties: { $router: { currentRoute: { value: { name: string; params: unknown } } } } } };
+    }).__vue_app__;
+    const route = vueApp.config.globalProperties.$router.currentRoute.value;
+    return { name: route.name, params: route.params };
+  });
+  expect(params, "route of the click").toEqual({ name: "SheetViewer", params: { path: path.join(folder, "x", "a.pdf") } });
+  await launched.page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: 60_000 });
+  await expect.poll(() => viewerHeart(launched), { timeout: 30_000 }).toBe("mdi-heart");
+  await settle();
+  expect(configState(folder), ".config.json bytes and mtime").toEqual(before);
+  expect(samePdf(folder, "x/a.pdf", pdfA), "PDF bytes unchanged").toBe(true);
+});
+
+test("no favorites: the hint", async () => {
+  const folder = newFolder();
+  const launched = await start(folder);
+  await showOverview(launched);
+  await expect.poll(() => favoritesHint(launched), { timeout: 30_000 }).toBe(NO_FAVORITES_HINT);
+  expect(await launched.page.getByText("Favoriten", { exact: true }).count(), "heading").toBe(1);
+  expect(await launched.page.getByTestId("favorite-card").count(), "favorite cards").toBe(0);
+  expect(await favoritesError(launched), "no error").toBe("");
+  await settle();
+  expect(fs.existsSync(configPath(folder)), ".config.json created").toBe(false);
+
+  // A file with entries but no favorite (only a divider) shows the hint, too.
+  const other = newFolder();
+  writeConfig(other, { version: 1, sheets: { "a.pdf": { pageDividers: { "1": 0.6 } } } });
+  const before = configState(other);
+  const second = await start(other);
+  await showOverview(second);
+  await expect.poll(() => favoritesHint(second), { timeout: 30_000 }).toBe(NO_FAVORITES_HINT);
+  await settle();
+  expect(configState(other), ".config.json bytes and mtime").toEqual(before);
+});
+
+test("unmark on the main page removes the card", async () => {
+  const folder = newFolder();
+  writeConfig(folder, {
+    version: 1,
+    sheets: {
+      "a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) },
+      "b.pdf": { favorite: true, pageDividers: { "1": 0.6 }, fingerprint: fingerprintOf(pdfB) },
+    },
+  });
+  const launched = await start(folder);
+  await showOverview(launched);
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([
+    { name: "a", dir: "" },
+    { name: "b", dir: "" },
+  ]);
+
+  await favoriteCard(launched, "b").getByTestId("favorite-toggle").click();
+  await expect.poll(() => favoriteCards(launched)).toEqual([{ name: "a", dir: "" }]);
+  await expect.poll(() => readConfig(folder)?.sheets?.["b.pdf"]?.favorite, { timeout: 30_000 }).toBeUndefined();
+  await settle();
+  expect(await routeName(launched), "route after the press").toBe("Overview");
+  expect(await launched.page.locator("#sheetViewerWrapper").count(), "viewer shown").toBe(0);
+  expect(readConfig(folder)?.sheets, "entries after the press").toEqual({
+    "a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) },
+    "b.pdf": { pageDividers: { "1": 0.6 }, fingerprint: fingerprintOf(pdfB) },
+  });
+  expect(await snackbarText(launched), "no notice").toBe("");
+
+  // The last one: the hint replaces the cards.
+  await favoriteCard(launched, "a").getByTestId("favorite-toggle").click();
+  await expect.poll(() => favoritesHint(launched)).toBe(NO_FAVORITES_HINT);
+  await expect.poll(() => readConfig(folder)?.sheets?.["a.pdf"], { timeout: 30_000 }).toBeUndefined();
+  expect(samePdf(folder, "a.pdf", pdfA), "a.pdf unchanged").toBe(true);
+  expect(samePdf(folder, "b.pdf", pdfB), "b.pdf unchanged").toBe(true);
+});
+
+test("a moved and a renamed favorite show at their new place; the config has the new keys", async () => {
+  const folder = newFolder();
+  writeConfig(folder, {
+    version: 1,
+    setLists: { version: 2, setLists: [] },
+    sheets: {
+      "a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) },
+      "b.pdf": { favorite: true, pageDividers: { "2": 0.3 }, fingerprint: fingerprintOf(pdfB) },
+    },
+  });
+  // a.pdf moves to another folder, b.pdf is renamed in place; an unrelated PDF lies in between.
+  putPdf(folder, "other/z.pdf", await makePdf({ pages: 1, xref: "table" }));
+  fs.mkdirSync(path.join(folder, "Pop"));
+  fs.renameSync(path.join(folder, "a.pdf"), path.join(folder, "Pop", "a.pdf"));
+  fs.renameSync(path.join(folder, "b.pdf"), path.join(folder, "b neu.pdf"));
+  const launched = await start(folder);
+  await showOverview(launched);
+
+  await expect.poll(() => favoriteCards(launched), { timeout: 60_000 }).toEqual([
+    { name: "a", dir: "Pop" },
+    { name: "b neu", dir: "" },
+  ]);
+  const config = readConfig(folder) as StoredConfig & { setLists?: unknown };
+  expect(config.sheets, "entries at the new keys").toEqual({
+    "Pop/a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) },
+    "b neu.pdf": { favorite: true, pageDividers: { "2": 0.3 }, fingerprint: fingerprintOf(pdfB) },
+  });
+  expect(config.setLists, "set lists").toEqual({ version: 2, setLists: [] });
+  expect(config.version, "version").toBe(1);
+  expect(samePdf(folder, "Pop/a.pdf", pdfA), "Pop/a.pdf unchanged").toBe(true);
+  expect(samePdf(folder, "b neu.pdf", pdfB), "b neu.pdf unchanged").toBe(true);
+
+  // The moved card opens the sheet at its new place.
+  await favoriteCard(launched, "a", "Pop").click();
+  await launched.page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached", timeout: 30_000 });
+  await expect.poll(() => viewerHeart(launched), { timeout: 30_000 }).toBe("mdi-heart");
+});
+
+test("a missing favorite is hidden, its mark stays; back in place it shows again", async () => {
+  const folder = newFolder();
+  writeConfig(folder, {
+    version: 1,
+    sheets: {
+      "a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) },
+      "b.pdf": { favorite: true, fingerprint: fingerprintOf(pdfB) },
+    },
+  });
+  fs.rmSync(path.join(folder, "a.pdf"));
+  const before = configState(folder);
+  const launched = await start(folder);
+  await showOverview(launched);
+
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([{ name: "b", dir: "" }]);
+  // Gives the background search time to run (it finds nothing).
+  await settle();
+  expect(await favoriteCards(launched), "cards after the search").toEqual([{ name: "b", dir: "" }]);
+  expect(configState(folder), ".config.json while a.pdf is missing").toEqual(before);
+
+  fs.writeFileSync(path.join(folder, "a.pdf"), pdfA);
+  await showFolder(launched, "/");
+  await showOverview(launched);
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([
+    { name: "a", dir: "" },
+    { name: "b", dir: "" },
+  ]);
+  await settle();
+  expect(configState(folder), ".config.json after a.pdf is back").toEqual(before);
+});
+
+test("a copy of a favorite is no favorite", async () => {
+  const folder = newFolder();
+  writeConfig(folder, { version: 1, sheets: { "a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) } } });
+  putPdf(folder, "sub/a.pdf", pdfA);
+  putPdf(folder, "a Kopie.pdf", pdfA);
+  const before = configState(folder);
+  const launched = await start(folder);
+  await showOverview(launched);
+
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([{ name: "a", dir: "" }]);
+  await settle();
+  expect(await favoriteCards(launched), "cards after a while").toEqual([{ name: "a", dir: "" }]);
+
+  await showFolder(launched, "/");
+  await expect.poll(() => cardHeart(launched, "a Kopie"), { timeout: 30_000 }).toBe("mdi-heart-outline");
+  await showSheet(launched, folder, "a Kopie.pdf");
+  await expect.poll(() => launched.page.getByTestId("favorite-current").isEnabled(), { timeout: 30_000 }).toBe(true);
+  expect(await viewerHeart(launched), "heart of the copy").toBe("mdi-heart-outline");
+  await leaveSheet(launched);
+  await showSheet(launched, folder, "sub/a.pdf");
+  await expect.poll(() => launched.page.getByTestId("favorite-current").isEnabled(), { timeout: 30_000 }).toBe(true);
+  expect(await viewerHeart(launched), "heart of the copy in sub").toBe("mdi-heart-outline");
+  await leaveSheet(launched);
+  await showOverview(launched);
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([{ name: "a", dir: "" }]);
+  await settle();
+  expect(configState(folder), ".config.json bytes and mtime").toEqual(before);
+});
+
+test("unreadable .config.json: the reason instead of favorites, other cards work", async () => {
+  const folder = newFolder();
+  fs.writeFileSync(configPath(folder), "{ broken");
+  const before = configState(folder);
+  const launched = await start(folder);
+  await showOverview(launched);
+
+  await expect.poll(() => favoritesError(launched), { timeout: 30_000 }).toContain(UNREADABLE_PREFIX);
+  expect((await favoritesError(launched)).endsWith(UNREADABLE_SUFFIX), "reason ends with the hint").toBe(true);
+  expect(await launched.page.getByText("Favoriten", { exact: true }).count(), "heading").toBe(1);
+  expect(await launched.page.getByTestId("favorite-card").count(), "favorite cards").toBe(0);
+  expect(await favoritesHint(launched), "no hint").toBe("");
+
+  await launched.page.locator(".v-card", { hasText: "Folder Selection" }).click();
+  await expect.poll(() => routeName(launched)).toBe("SheetSelection");
+  await card(launched, "a").waitFor({ timeout: 30_000 });
+  await showOverview(launched);
+  await launched.page.locator(".v-card", { hasText: "Set Lists" }).click();
+  await expect.poll(() => routeName(launched)).toBe("SetListList");
+  await settle();
+  expect(configState(folder), ".config.json bytes and mtime").toEqual(before);
+  expect(samePdf(folder, "a.pdf", pdfA), "PDF bytes unchanged").toBe(true);
 });
