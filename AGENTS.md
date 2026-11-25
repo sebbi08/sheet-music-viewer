@@ -205,7 +205,9 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   with `[skip ci]`. It fails if there is nothing to release (no feat/fix/breaking commits)
 - The `publish` job then checks out that tag and uploads build artifacts (Windows) to the GitHub
   Release via `@electron-forge/publisher-github`
-- `build.yml` only builds (push to `master`/`renovate/**`, PRs) and never publishes
+- `build.yml` (push to `master`/`renovate/**`, PRs) builds (`build` job) and runs `npm run lint` and
+  `npm test` (`test` job, unit tests only; the `Noten/` cases skip); it never publishes. The visual tests
+  do not run in CI (they need the local corpus and take about half an hour)
 - `test-build.yml` (manual, any branch): Windows test build uploaded as workflow artifacts only
   (installer + portable ZIP); no tag, no GitHub Release, so auto-update and semantic-release ignore it
 - Locally, `npm run semantic-release` runs `semantic-release --no-ci`; needs `GH_TOKEN`
