@@ -43,6 +43,9 @@ import type { FavoriteSheet } from '../sheetSettings';
 import { useFavorites } from '../store/favorites';
 
 const favorites = useFavorites();
+// Before the first render: a list of the previous sheet folder is never shown (its cards would open sheets
+// outside the current folder). Before the watch below, so clearing it does not count as loaded.
+favorites.forgetOtherFolder();
 /** The hint waits for the first load of this visit (the list may still be empty because it was not read yet). */
 const loaded = ref(false);
 

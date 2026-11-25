@@ -13,3 +13,11 @@ export function rendererSheetKey(
   if (rel.startsWith("/") || /^[A-Za-z]:/.test(rel) || rel.startsWith("\\\\")) return null;
   return rel.split(p.sep).join("/");
 }
+
+/**
+ * The sheetKey of a PDF card in the folder view, by string operations only: `folderPath` is the view's path
+ * below the sheet folder (starts and ends with `sep`, `sep` alone on the top level), `name` the file name.
+ */
+export function folderCardKey(folderPath: string, name: string, sep: string = window.path.sep): string {
+  return [...folderPath.split(sep).filter((part) => part !== ""), name].join("/");
+}

@@ -35,6 +35,7 @@ import { RouteNames } from '../Enums';
 import type { SheetFile } from '../models/types';
 import router from '../router';
 import useStore from '../store';
+import { folderCardKey, rendererSheetKey } from '../favoriteKey';
 import { useFavorites } from '../store/favorites';
 import { fileNameWithoutExtension, sortAndFilterFile } from "../utils";
 
@@ -113,12 +114,31 @@ function pdfPathOf(item: SheetFile): string {
   return path.replace(window.path.sep + window.path.sep, window.path.sep);
 }
 
-const isFavorite = (item: SheetFile) => favorites.isFavorite(pdfPathOf(item));
+const cardId = (item: SheetFile) => item.name + item.path;
+
+/** The sheetKey of each PDF card, once per listing (a search result from its path, a folder card by strings). */
+const cardKeys = computed(() => {
+  const keys = new Map<string, string | null>();
+  for (const item of searchOrFolder.value) {
+    if (!item.isFile) continue;
+    keys.set(
+      cardId(item),
+      item.isSearch
+        ? rendererSheetKey(store.sheetMusicFolder, pdfPathOf(item))
+        : folderCardKey(folderPath.value, item.name),
+    );
+  }
+  return keys;
+});
+
+function isFavorite(item: SheetFile): boolean {
+  const key = cardKeys.value.get(cardId(item));
+  return key !== null && key !== undefined && favorites.keySet.has(key);
+}
 
 function toggleFavorite(item: SheetFile): void {
   if (!showHearts.value) return;
-  const pdfPath = pdfPathOf(item);
-  void favorites.set(pdfPath, !favorites.isFavorite(pdfPath));
+  void favorites.set(pdfPathOf(item), !isFavorite(item));
 }
 
 

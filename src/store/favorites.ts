@@ -15,6 +15,7 @@ type Current = {
 };
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i]);
 
 let saves: FavoriteSaves | null = null;
 const savesOf = (): FavoriteSaves => {
@@ -51,25 +52,49 @@ export const useFavorites = defineStore("favorites", {
   state: () => ({
     keys: [] as string[],
     keysError: null as string | null,
+    /** The sheet folder `keys`/`keysError` belong to. */
+    keysFolder: "",
     list: [] as FavoriteSheet[],
     listError: null as string | null,
+    /** The sheet folder `list`/`listError` belong to. */
+    listFolder: "",
     current: null as Current | null,
     /** The PDF path of each id with a save in flight (`folder\nkey`). */
     pendingPaths: new Map<string, string>(),
   }),
+  getters: {
+    /** The favorite keys as a set, for the hearts of the folder view. */
+    keySet: (state) => new Set(state.keys),
+  },
   actions: {
-    async loadKeys() {
+    /**
+     * Drops the keys and the list of another sheet folder than the current one (synchronous: a view calls it
+     * before its first render, so it never shows, nor opens, a favorite of the previous folder).
+     */
+    forgetOtherFolder() {
       const folder = useStore().sheetMusicFolder;
-      if (!folder) {
+      if (this.keysFolder !== folder) {
         this.keys = [];
         this.keysError = null;
-        return;
+        this.keysFolder = folder;
       }
+      if (this.listFolder !== folder) {
+        this.list = [];
+        this.listError = null;
+        this.listFolder = folder;
+      }
+    },
+
+    async loadKeys() {
+      this.forgetOtherFolder();
+      const folder = useStore().sheetMusicFolder;
+      if (!folder) return;
       try {
         const r = await client.loadFavoriteKeys.query(folder);
         if (useStore().sheetMusicFolder !== folder) return;
         if (r.kind === "ok") {
-          this.keys = r.keys;
+          // Unchanged keys keep the array, so nothing renders again.
+          if (!sameKeys(this.keys, r.keys)) this.keys = r.keys;
           this.keysError = null;
         } else {
           this.keys = [];
@@ -83,12 +108,9 @@ export const useFavorites = defineStore("favorites", {
     },
 
     async loadList() {
+      this.forgetOtherFolder();
       const folder = useStore().sheetMusicFolder;
-      if (!folder) {
-        this.list = [];
-        this.listError = null;
-        return;
-      }
+      if (!folder) return;
       const load = async () => {
         try {
           const r = await client.loadFavorites.query(folder);
@@ -139,7 +161,7 @@ export const useFavorites = defineStore("favorites", {
 
     isFavorite(pdfPath: string): boolean {
       const key = rendererSheetKey(useStore().sheetMusicFolder, pdfPath);
-      return key !== null && this.keys.includes(key);
+      return key !== null && this.keySet.has(key);
     },
 
     /** `shownBefore`: the state the pressed control showed, when the caller knows it (a main page card: true). */

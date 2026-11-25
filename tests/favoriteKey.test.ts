@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { rendererSheetKey } from "../src/favoriteKey";
+import { folderCardKey, rendererSheetKey } from "../src/favoriteKey";
 import { sheetKey } from "../src/folderConfig";
 import { favoriteSaveFailedText, favoritesUnreadableText } from "../src/store/favoriteTexts";
 
@@ -27,6 +27,25 @@ describe("rendererSheetKey", () => {
       ["/n", "/n/../a.pdf"],
     ];
     for (const [f, p] of cases) expect(rendererSheetKey(f, p, path.posix)).toBe(sheetKey(f, p, path.posix));
+  });
+});
+
+describe("folderCardKey", () => {
+  // The folder view's route path starts and ends with the separator ("/" on the top level).
+  test("equals sheetKey of the card's PDF (posix and win32)", () => {
+    const cases: [typeof path.posix, string, string, string][] = [
+      [path.posix, "/n", "/", "a.pdf"],
+      [path.posix, "/n", "/Pop/", "Abba Gold.pdf"],
+      [path.posix, "/n/", "/Pop/Sub/", "x y.pdf"],
+      [path.posix, "/n", "/Pop", "a.pdf"],
+      [path.win32, "C:\\Noten", "\\", "a.pdf"],
+      [path.win32, "C:\\Noten", "\\Pop\\Sub\\", "Abba Gold.pdf"],
+      [path.win32, "C:\\Noten\\", "\\Pop\\", "a.pdf"],
+    ];
+    for (const [p, folder, folderPath, name] of cases) {
+      const pdfPath = p.join(folder, folderPath, name);
+      expect(folderCardKey(folderPath, name, p.sep)).toBe(sheetKey(folder, pdfPath, p));
+    }
   });
 });
 
