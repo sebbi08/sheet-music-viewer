@@ -28,6 +28,9 @@ Einstellung soll gespeichert werden, aber **nicht in der PDF**.
   aktuellen Seite höher als der einzige gute Moment auf der nächsten, hilft keine Position; das bleibt so.
 - Einstellungen folgen einer umbenannten oder verschobenen PDF. Sie hängen am Pfad im Notenordner; nach dem
   Umbenennen gilt wieder die Mitte. Verwaiste Einträge werden nicht aufgeräumt.
+  **Aufgehoben** durch `2026-11-25-favorites-design.md` („Umzug eines Eintrags“): Die Einstellungen eines
+  Blatts (Teiler und Favorit) folgen über einen Fingerabdruck der PDF einer verschobenen oder umbenannten PDF.
+  Verwaiste Einträge werden weiterhin nicht aufgeräumt.
 - Anpassung, wenn ein anderes Programm Seiten der PDF einfügt oder entfernt (die Einträge hängen an der
   Seitennummer).
 - Warteschlange, Wiederholung und Rückfrage beim Schließen für nicht gespeicherte Teiler (wie bei den

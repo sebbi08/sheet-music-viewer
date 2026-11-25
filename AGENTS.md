@@ -21,7 +21,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts`,
   `folderConfig.visual.ts` (`.config.json`), `pageDivider.visual.ts` (the movable page divider),
   `editZoom.visual.ts` (zooming in edit mode), `iconHitbox.visual.ts` (the box of a music symbol),
-  `whitePen.visual.ts` (the white pen below other marks) and the read-only folder case of
+  `whitePen.visual.ts` (the white pen below other marks), `favorites.visual.ts` (favorites, see
+  "Favoriten") and the read-only folder case of
   `bulkMigration.visual.ts`;
   see "Markup storage" for what each file checks ("Page divider" for `pageDivider.visual.ts`, "Zoom in
   edit mode" for `editZoom.visual.ts`).
@@ -139,7 +140,7 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   n+1's height** (key = the page on the left, default 0.5, range 0.05–0.95, 3 decimals; logic in
   `src/pageDivider.ts`).
 - Stored in `.config.json` → `sheets["<path relative to the sheet folder, />"].pageDividers["<n>"]`
-  (`sheetKey`/`pageDivider` in `src/folderConfig.ts`; tRPC `loadPageDividers`/`savePageDivider` in
+  (`sheetKey`/`pageDivider` in `src/folderConfig.ts`; tRPC `loadSheetSettings`/`savePageDivider` in
   `src/trcpLib.ts`): only values other than 0.5, empty levels are removed, written only on a real change.
   Never stored in the PDF.
 - The cut is a CSS `clip-path` on the half-step copy of the page and on its markup overlays, plus the
@@ -150,7 +151,7 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - Failures: an unreadable `.config.json` (also one of a newer app) leaves every cut in the middle; the
   button stays enabled, a press keeps the mode off and shows the reason. A failed save shows a notice; the
   value holds until the sheet is closed. A sheet outside the sheet folder has no dividers and no mode
-  (`loadPageDividers` returns `outside`).
+  (`loadSheetSettings` returns `outside`).
 - `tests/visual/pageDivider.visual.ts` (synthetic folders, no corpus needed) checks the cut with and
   without a stored divider (page image, backdrop, red marks, after a resize) and the mode: a drag relative
   to the grab saves 3 decimals and leaves the PDF byte-identical, a press without movement, keys and
@@ -223,6 +224,50 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 - Pen sizes: `PEN_SIZES` in `src/views/SheetViewer.vue` (1, 6, 18 canvas px; the first is the default).
 - `tests/markup/whiteout.test.ts`, `tests/visual/whitePen.visual.ts` (new white stroke across a black one,
   markup saved with white on top; edit mode, view, saved order).
+
+## Favoriten
+
+- Spec: `docs/superpowers/specs/2026-11-25-favorites-design.md`. A sheet is marked as a favorite in the
+  viewer (app-bar heart `data-testid="favorite-current"`, `src/App.vue`) or on its card in the folder view
+  and the search results (`data-testid="favorite-toggle"`, `@click.stop`, `src/views/SheetSelection.vue`);
+  the main page (`src/views/Overview.vue`) lists them below the two cards under „Favoriten“
+  (`data-testid="favorite-card"`, name and folder, sorted by name then folder, German, ignoring case; a click
+  opens the sheet, the heart unmarks and removes the card; none: „Noch keine Favoriten. Markiere Blätter mit
+  dem Herz.“; an unreadable `.config.json`, also one of a newer app: the reason instead, the other cards work).
+  Icons `mdi-heart` / `mdi-heart-outline`.
+- Stored in `.config.json` → `sheets["<sheetKey>"].favorite: true` (unmarking removes the field) next to
+  `pageDividers`, plus `fingerprint: { sha256, length }`; never in the PDF. Every write of an entry (favorite,
+  divider) stores the PDF's current fingerprint (an unreadable PDF is saved without, a stored one stays); an
+  entry left with only `fingerprint` is removed. Main: `src/sheetSettings.ts` (`loadSheetSettings`,
+  `saveSheetSetting`, `loadFavorites`, `loadFavoriteKeys`, `relinkMissingFavorites`, `findMoveSource`), tRPC in
+  `src/trcpLib.ts`/`src/trcpRouter.ts`; renderer store `src/store/favorites.ts` (optimistic, saves serialized
+  per sheet by `src/favoriteSaves.ts`, the last press counts, a failure reverts and shows a notice).
+- Fingerprint (`src/pdfFingerprint.ts`, fixed definition): SHA-256 (hex, lowercase) and length of the first
+  *n* bytes, *n* from the last `/OriginalLength n … /UpdateStart m` with `%%EOF` before *n* and
+  `n ≤ m ≤ length`, else the whole file (saving our markup does not change it); cached per real path by size
+  and mtime.
+- Move rules (all settings of the entry follow, not set lists): an entry is an **orphan** when it has a
+  fingerprint and `stat` reports its PDF missing (`ENOENT`/`ENOTDIR`; any other error, an unreachable sheet
+  folder or a missing PDF behind an offline link counts as unknown, nothing moves). It moves from A to B when
+  A is an orphan, B exists without an entry of its own, B's fingerprint equals A's and no other orphan has it
+  (a copy, whose original is still there, gets nothing); or when A is B renamed only in case (same file, A's
+  spelling no longer listed). The move is a write like any other (rules checked again on the fresh file).
+  When: on every write of an entry without its own entry (first move, then the requested state: the UI sends
+  the wanted state, not a toggle), on opening a sheet without an entry (the PDF is read only when there are
+  orphans), and from the main page for missing favorites (background search `relinkMissingFavorites` over
+  `walkSheetPdfs`: same file name first, then same folder, then the rest; each missing favorite searched
+  completely at most once per app run; a walk that skipped a folder or link, or an unreadable PDF, counts as
+  incomplete and is searched again). The folder view never moves (a moved favorite shows an empty heart until
+  opened or pressed). Opening a sheet, the folder view or the main page without a change never writes
+  `.config.json`; a missing favorite keeps its mark and is hidden on the main page until its PDF is back.
+- Tests: `tests/sheetSettings.test.ts`, `tests/pdfFingerprint.test.ts`, `tests/favoritesIpc.test.ts`,
+  `tests/favoriteSaves.test.ts`, `tests/favoriteKey.test.ts`; `tests/visual/favorites.visual.ts` (synthetic
+  folders, no corpus needed): marking in the viewer and on cards (also search results), a card's heart never
+  opens the sheet, quick presses, opening without a change writes nothing, an unreadable `.config.json`, a
+  moved favorite on open, the main page (sorted cards open the sheet, the hint, unmarking, a moved and a
+  renamed favorite found by the background search with the new keys in the file, a missing favorite hidden and
+  back, a copy is no favorite, the reason for an unreadable file); every case checks the PDFs stay
+  byte-identical.
 
 ## Auto-Update
 
