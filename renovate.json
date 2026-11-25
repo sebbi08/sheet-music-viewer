@@ -35,6 +35,14 @@
       "matchPackageNames": ["/^[^/]+\\.[^/]+\\//", "!docker.io/**"],
       "minimumReleaseAgeBehaviour": "timestamp-optional",
       "automerge": false
+    },
+    {
+      "description": "Replacement-Updates (ein Paket wird durch ein anderes ersetzt, z. B. @tsconfig/node24 → @tsconfig/node26) haben in Renovate kein Release-Datum. Damit sie trotz minimumReleaseAge kommen: ohne Altersprüfung, dafür nie automatisch gemergt.",
+      "matchUpdateTypes": ["replacement"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
     }
-  ]
+  ],
+  "npmrc": "allow-remote=all",
+  "npmrcMerge": true
 }
