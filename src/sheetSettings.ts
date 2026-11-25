@@ -330,7 +330,7 @@ export interface FavoriteSheet {
 }
 
 export type LoadFavoritesResult =
-  | { kind: "ok"; favorites: FavoriteSheet[]; missing: number }
+  | { kind: "ok"; favorites: FavoriteSheet[]; notFound: FavoriteSheet[] }
   | { kind: "unreadable"; file: string; message: string; newerVersion?: true };
 
 const byName = (a: string, b: string) => a.localeCompare(b, "de", { sensitivity: "base" });
@@ -348,35 +348,45 @@ async function readFavorites(
   return { kind: "ok", sheets, keys: Object.keys(sheets).filter((key) => sheets[key].favorite === true) };
 }
 
+/** Favorites searched completely in this process (`folder + "\0" + key`): each one is searched once. */
+const searchedFavorites = new Set<string>();
+
+/** For tests: forgets which favorites were searched. */
+export function resetRelinkMemory(): void {
+  searchedFavorites.clear();
+}
+
 /**
  * The favorites whose PDF exists or might exist (`stat` failed otherwise), sorted by name (German, ignoring
- * case), then by folder; favorites whose PDF is missing are only counted (their mark stays). Never writes,
- * never reads a PDF. Never throws.
+ * case), then by folder. A favorite whose PDF is missing gets no card (its mark stays); it is `notFound` (same
+ * order) when it can never be found (no fingerprint) or was searched completely in this process without a hit.
+ * Never writes, never reads a PDF. Never throws.
  */
 export async function loadFavorites(folder: string): Promise<LoadFavoritesResult> {
   try {
     const read = await readFavorites(folder);
     if (read.kind === "unreadable") return read;
     const favorites: FavoriteSheet[] = [];
-    let missing = 0;
+    const notFound: FavoriteSheet[] = [];
     for (const key of read.keys) {
       const pdfPath = fileOf(folder, key);
       // A key that is no plain path below the folder ("../x.pdf", "a//b.pdf") is no sheet of this folder.
       if (sheetKey(folder, pdfPath) !== key) continue;
-      if ((await pathState(pdfPath, folder)) === "missing") {
-        missing++;
-        continue;
-      }
       const slash = key.lastIndexOf("/");
-      favorites.push({
+      const sheet = {
         key,
         pdfPath,
         name: key.slice(slash + 1).replace(/\.pdf$/i, ""),
         dir: slash < 0 ? "" : key.slice(0, slash),
-      });
+      };
+      if ((await pathState(pdfPath, folder)) !== "missing") favorites.push(sheet);
+      else if (read.sheets[key].fingerprint === undefined || searchedFavorites.has(`${folder}\0${key}`))
+        notFound.push(sheet);
     }
-    favorites.sort((a, b) => byName(a.name, b.name) || byName(a.dir, b.dir));
-    return { kind: "ok", favorites, missing };
+    const order = (a: FavoriteSheet, b: FavoriteSheet) => byName(a.name, b.name) || byName(a.dir, b.dir);
+    favorites.sort(order);
+    notFound.sort(order);
+    return { kind: "ok", favorites, notFound };
   } catch (e) {
     return unexpected(e);
   }
@@ -392,14 +402,6 @@ export async function loadFavoriteKeys(
   } catch (e) {
     return unexpected(e);
   }
-}
-
-/** Favorites searched completely in this process (`folder + "\0" + key`): each one is searched once. */
-const searchedFavorites = new Set<string>();
-
-/** For tests: forgets which favorites were searched. */
-export function resetRelinkMemory(): void {
-  searchedFavorites.clear();
 }
 
 /** `candidates` in search order: same file name (moved), then same folder (renamed), then the rest. */
@@ -419,20 +421,22 @@ function searchOrder(key: string, candidates: { key: string; file: string }[]) {
  * Searches the sheet folder for the PDFs of favorites that are missing (spec case 2): a PDF without an entry
  * of its own with the favorite's fingerprint takes the entry over (in a write that checks the rules again).
  * Each favorite is searched completely at most once per process; a search cut short by an unreadable PDF, a
- * folder or link the walk could not read, or a failed write runs again next time. Never throws.
+ * folder or link the walk could not read, or a failed write runs again next time. `searched`: the favorites
+ * this call searched completely without finding them. Never throws.
  */
-export async function relinkMissingFavorites(folder: string): Promise<{ moved: number }> {
+export async function relinkMissingFavorites(folder: string): Promise<{ moved: number; searched: number }> {
   let moved = 0;
+  let searched = 0;
   try {
     const read = await readFavorites(folder);
-    if (read.kind === "unreadable") return { moved };
+    if (read.kind === "unreadable") return { moved, searched };
     const { sheets } = read;
     const lost: string[] = [];
     for (const key of read.keys.sort()) {
       if (sheets[key].fingerprint === undefined || searchedFavorites.has(`${folder}\0${key}`)) continue;
       if ((await pathState(fileOf(folder, key), folder)) === "missing") lost.push(key);
     }
-    if (lost.length === 0) return { moved };
+    if (lost.length === 0) return { moved, searched };
 
     // A walk that skipped a folder or link may have missed the PDF: nothing counts as searched then.
     const walk = await walkSheetPdfs(folder);
@@ -440,6 +444,7 @@ export async function relinkMissingFavorites(folder: string): Promise<{ moved: n
     for (const key of lost) {
       const wanted = sheets[key].fingerprint!;
       let complete = walk.complete;
+      let found = false;
       for (const candidate of searchOrder(key, candidates)) {
         let fingerprint: Fingerprint;
         try {
@@ -459,6 +464,7 @@ export async function relinkMissingFavorites(folder: string): Promise<{ moved: n
           });
           if (took) {
             moved++;
+            found = true;
             candidates = candidates.filter((c) => c !== candidate);
           }
         } catch (e) {
@@ -467,10 +473,13 @@ export async function relinkMissingFavorites(folder: string): Promise<{ moved: n
         }
         break;
       }
-      if (complete) searchedFavorites.add(`${folder}\0${key}`);
+      if (complete) {
+        searchedFavorites.add(`${folder}\0${key}`);
+        if (!found) searched++;
+      }
     }
   } catch (e) {
     console.warn(`Could not search for missing favorites in ${folder}:`, e);
   }
-  return { moved };
+  return { moved, searched };
 }

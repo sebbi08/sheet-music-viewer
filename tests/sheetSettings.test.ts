@@ -276,10 +276,14 @@ describe("loadSheetSettings: an entry follows a moved PDF on open", () => {
       favorite: false,
     });
     expect(fingerprintMock).not.toHaveBeenCalled();
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 0 });
     expect(fs.readFileSync(configPath(), "utf8")).toBe(before);
-    // Unclear whether it exists: the main page shows the card.
-    expect(await loadFavorites(dir)).toMatchObject({ kind: "ok", favorites: [{ key: "Pop/Linked/a.pdf" }], missing: 0 });
+    // Unclear whether it exists: the main page shows the card, never as not found.
+    expect(await loadFavorites(dir)).toMatchObject({
+      kind: "ok",
+      favorites: [{ key: "Pop/Linked/a.pdf" }],
+      notFound: [],
+    });
   });
 
   test("a missing file below a reachable linked folder still counts as missing", async () => {
@@ -457,7 +461,7 @@ describe("saveSheetSetting", () => {
 });
 
 describe("loadFavorites", () => {
-  test("loadFavorites: sorted, missing ones counted, not shown, mark kept", async () => {
+  test("loadFavorites: sorted; a missing one without fingerprint is not found at once, one with fingerprint only after its search", async () => {
     writePdf("Pop/abba.pdf", pdfA);
     writePdf("Amen.pdf", pdfA);
     writePdf("Konzert/Amen.pdf", pdfB);
@@ -468,6 +472,7 @@ describe("loadFavorites", () => {
       "Pop/Nofav.pdf": { pageDividers: { "1": 0.3 } },
       "Amen.pdf": { favorite: true },
       "Pop/abba.pdf": { favorite: true },
+      "Pop/Old.pdf": { favorite: true },
     });
     const before = fs.readFileSync(configPath(), "utf8");
 
@@ -478,14 +483,22 @@ describe("loadFavorites", () => {
         { key: "Amen.pdf", pdfPath: full("Amen.pdf"), name: "Amen", dir: "" },
         { key: "Konzert/Amen.pdf", pdfPath: full("Konzert/Amen.pdf"), name: "Amen", dir: "Konzert" },
       ],
-      missing: 1,
+      notFound: [{ key: "Pop/Old.pdf", pdfPath: full("Pop/Old.pdf"), name: "Old", dir: "Pop" }],
     });
     expect(fs.readFileSync(configPath(), "utf8")).toBe(before);
     expect(fingerprintMock).not.toHaveBeenCalled();
 
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 1 });
+    const after = await loadFavorites(dir);
+    expect(after.kind === "ok" && after.notFound).toEqual([
+      { key: "Pop/Old.pdf", pdfPath: full("Pop/Old.pdf"), name: "Old", dir: "Pop" },
+      { key: "Zebra.pdf", pdfPath: full("Zebra.pdf"), name: "Zebra", dir: "" },
+    ]);
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(before);
+
     const keys = await loadFavoriteKeys(dir);
     expect(keys.kind === "ok" && [...keys.keys].sort()).toEqual(
-      ["Amen.pdf", "Konzert/Amen.pdf", "Pop/abba.pdf", "Zebra.pdf"].sort(),
+      ["Amen.pdf", "Konzert/Amen.pdf", "Pop/Old.pdf", "Pop/abba.pdf", "Zebra.pdf"].sort(),
     );
   });
 
@@ -496,7 +509,7 @@ describe("loadFavorites", () => {
     expect(await loadFavorites(dir)).toEqual({
       kind: "ok",
       favorites: [{ key: "A/a.pdf", pdfPath: full("A/a.pdf"), name: "a", dir: "A" }],
-      missing: 0,
+      notFound: [],
     });
   });
 
@@ -521,7 +534,7 @@ describe("relinkMissingFavorites", () => {
     movePdf("Pop/amen.pdf", "Konzert/2026/amen.pdf");
     movePdf("X/x.pdf", "Y/x.pdf");
 
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 2 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 2, searched: 0 });
     // Divider entries without a favorite move only on open.
     expect(readSheets()).toEqual({ "Pop/Abba Gold.pdf": abba, "Konzert/2026/amen.pdf": amen, "X/x.pdf": dividerOnly });
     const favorites = await loadFavorites(dir);
@@ -535,11 +548,11 @@ describe("relinkMissingFavorites", () => {
     writePdf("B/other.pdf", pdfB);
     writeConfig({ "A/gone.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
 
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 1 });
     expect(fingerprintMock).toHaveBeenCalled();
     fingerprintMock.mockClear();
 
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 0 });
     expect(fingerprintMock).not.toHaveBeenCalled();
     expect(readSheets()).toEqual({ "A/gone.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
   });
@@ -549,11 +562,27 @@ describe("relinkMissingFavorites", () => {
     writeConfig({ "A/gone.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
     fingerprintMock.mockRejectedValueOnce(errorWithCode("EBUSY"));
 
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 0 });
     expect(fingerprintMock).toHaveBeenCalledTimes(1);
 
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 1 });
     expect(fingerprintMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a search cut short is not listed as not found", async () => {
+    writePdf("B/other.pdf", pdfB);
+    writeConfig({ "A/gone.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
+    fingerprintMock.mockRejectedValueOnce(errorWithCode("EBUSY"));
+
+    await relinkMissingFavorites(dir);
+    expect(await loadFavorites(dir)).toMatchObject({ kind: "ok", favorites: [], notFound: [] });
+
+    await relinkMissingFavorites(dir);
+    expect(await loadFavorites(dir)).toMatchObject({
+      kind: "ok",
+      favorites: [],
+      notFound: [{ key: "A/gone.pdf", name: "gone", dir: "A" }],
+    });
   });
 
   test.skipIf(isRoot)("a walk that skipped an unreadable folder counts as no complete search", async () => {
@@ -562,17 +591,17 @@ describe("relinkMissingFavorites", () => {
     writeConfig({ "A/gone.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
     fs.chmodSync(full("Locked"), 0o000);
     try {
-      expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+      expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 0 });
       expect(fingerprintMock).toHaveBeenCalledTimes(1);
-      expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+      expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 0 });
       expect(fingerprintMock).toHaveBeenCalledTimes(2);
     } finally {
       fs.chmodSync(full("Locked"), 0o755);
     }
     // Once the walk sees everything, the search counts and is not repeated.
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 1 });
     expect(fingerprintMock).toHaveBeenCalledTimes(3);
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 0 });
     expect(fingerprintMock).toHaveBeenCalledTimes(3);
   });
 
@@ -582,7 +611,7 @@ describe("relinkMissingFavorites", () => {
     writePdf("Z/song.pdf", pdfB); // same name, last in the listing
     writeConfig({ "A/song.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
 
-    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0, searched: 1 });
     expect(fingerprintMock.mock.calls.map(([file]) => file)).toEqual([
       full("Z/song.pdf"),
       full("A/other.pdf"),
