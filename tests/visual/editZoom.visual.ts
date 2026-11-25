@@ -193,6 +193,7 @@ test(
       expect(Math.abs(boxA[i] - boxB[i]), `box ${JSON.stringify(boxA)} vs ${JSON.stringify(boxB)}`).toBeLessThanOrEqual(1);
     }
     expect(b.strokeWidth, "stroke width").toBe(a.strokeWidth);
+    expect(a.strokeWidth, "the default pen is the thinnest (PEN_SIZES in SheetViewer.vue)").toBe(1);
     expect(zoomed.networkRequests()).toEqual([]);
   },
 );

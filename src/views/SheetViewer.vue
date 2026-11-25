@@ -81,20 +81,8 @@
             :class="getCurrentBrushClass() + ' draw-size-' + editState.thickness">
           </v-btn>
         </template>
-        <v-btn key="1" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(2)"
-          :class="getCurrentBrushClass() + ' draw-size-2'">
-        </v-btn>
-        <v-btn key="2" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(6)"
-          :class="getCurrentBrushClass() + ' draw-size-6'">
-        </v-btn>
-        <v-btn key="3" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(10)"
-          :class="getCurrentBrushClass() + ' draw-size-10'">
-        </v-btn>
-        <v-btn key="4" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(14)"
-          :class="getCurrentBrushClass() + ' draw-size-14'">
-        </v-btn>
-        <v-btn key="5" icon="mdi-circle" color="grey lighten-1" dark small @click="setThickness(18)"
-          :class="getCurrentBrushClass() + ' draw-size-18'">
+        <v-btn v-for="size in PEN_SIZES" :key="size" icon="mdi-circle" color="grey lighten-1" dark small
+          @click="setThickness(size)" :class="getCurrentBrushClass() + ' draw-size-' + size">
         </v-btn>
       </v-speed-dial>
 
@@ -193,12 +181,14 @@ import {
   type ZoomView,
 } from "../markup/editZoom";
 import { attachEditTouchInput } from "../markup/editTouchInput";
+import { tightenIconBounds } from "../markup/iconBounds";
+import { isWhiteout, whiteoutFirst, whiteoutIndex } from "../markup/whiteout";
 import { displayTransform, payloadFromCanvas, rotatePayload, transformFabricJson } from "../markup/fabricTransform";
 import { loadMarkupFonts } from "../markup/renderPng";
 import { writeBlockText } from "../markup/writeBlockTexts";
 import { createZoomPageRenderer, type ZoomPageRenderer } from "../markup/zoomPageRenderer";
 import { type LoadMarkupResult, type MarkupPayload, type Rect, type WriteBlock } from "../models/markup";
-import { OCG_NAME } from "../models/markupConstants";
+import { MUSIC_FONT_FAMILY, OCG_NAME } from "../models/markupConstants";
 import { type EditState } from "../models/types";
 import {
   clampDivider,
@@ -470,8 +460,9 @@ function fabricJsonForDisplay(
 ) {
   // Turned along if another program rotated the page after the markup was saved.
   const payload = rotatePayload(entry.payload, viewport.rotation);
+  // The white pen below every other mark, also in markup saved before that rule (view and edit mode).
   return transformFabricJson(
-    payload.fabric,
+    { ...payload.fabric, objects: whiteoutFirst(payload.fabric.objects) },
     displayTransform(viewRectOf(entry.rect, viewport), payload, viewport, canvasWidth, canvasHeight),
   );
 }
@@ -792,6 +783,9 @@ function setMarkerMode(): void {
   });
 }
 
+/** Widths of the pen (free hand drawing) in canvas px; the first, thinnest one is the default. */
+const PEN_SIZES = [1, 6, 18] as const;
+
 function setThickness(thickness: number): void {
   setEditMode({
     thickness,
@@ -801,7 +795,7 @@ function setThickness(thickness: number): void {
 function setPencilMode(): void {
   setEditMode({
     pencilMode: true,
-    thickness: 2,
+    thickness: PEN_SIZES[0],
     color: BRUSH_COLORS.BLACK.getColor(),
   });
 }
@@ -908,7 +902,7 @@ function addMdiIcon(icon: Icon) {
   addMusicIcon(icon, "Material Design Icons")
 }
 
-function addMusicIcon(icon: Icon, fontFamily = "noto-icons"): void {
+function addMusicIcon(icon: Icon, fontFamily = MUSIC_FONT_FAMILY): void {
   if (!editFabric) return;
 
   const iconObject = new fabric.FabricText(icon.code, {
@@ -1152,6 +1146,12 @@ async function createFabricCanvas(): Promise<void> {
   editFabric.on("object:added", (event) => {
     // Drawn directly: a cached object is limited in size and turns blurry when zoomed in.
     disableObjectCaching(event.target);
+    // A symbol's box around its glyph instead of fabric's much larger text box; saved unchanged.
+    tightenIconBounds(event.target);
+    // A new stroke of the white pen (or a clone of one) goes below every other mark.
+    if (isWhiteout(event.target) && editFabric) {
+      editFabric.moveObjectTo(event.target, whiteoutIndex(editFabric.getObjects(), event.target));
+    }
     setDefaultPropsOnFabricObject(event.target, (event, transform) => {
       text.value = transform.target.get("text");
       textDialog.value = true;
@@ -1318,6 +1318,8 @@ async function createOverlay(
   canvas.insertAdjacentElement("afterend", overlayCanvas);
 
   const overlayFabric = new fabric.StaticCanvas(overlayCanvas);
+  // Symbols drawn before the music font is loaded would keep the fallback font.
+  await loadMarkupFonts();
   await overlayFabric.loadFromJSON(fabricJsonForDisplay(entry, viewport, overlayFabric.width, overlayFabric.height));
 
 
@@ -1723,20 +1725,13 @@ function copyPageToHalfPageAndBackdrop(
   color: #ffffff !important;
 }
 
-.draw-size-2 {
-  font-size: 2px !important;
+/* The pen sizes' dots; the thinnest is drawn a little larger so that it stays visible. */
+.draw-size-1 {
+  font-size: 3px !important;
 }
 
 .draw-size-6 {
-  font-size: 6px !important;
-}
-
-.draw-size-10 {
-  font-size: 10px !important;
-}
-
-.draw-size-14 {
-  font-size: 14px !important;
+  font-size: 8px !important;
 }
 
 .draw-size-18 {

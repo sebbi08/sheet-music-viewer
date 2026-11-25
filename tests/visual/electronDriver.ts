@@ -70,6 +70,10 @@ export interface SheetSession {
   startDrawing(): Promise<void>;
   /** In edit mode: switches the edit canvas to the hand mode (moving and selecting) if it is drawing. */
   setHandMode(): Promise<void>;
+  /** In edit mode while drawing: picks the colour in the colour menu (white only with the pen). */
+  setPenColor(color: "red" | "green" | "blue" | "black" | "white"): Promise<void>;
+  /** In edit mode while drawing with the pen: picks a width of the size menu (`PEN_SIZES` in SheetViewer.vue). */
+  setPenSize(size: number): Promise<void>;
   /**
    * Touch input through the DevTools protocol (`Input.dispatchTouchEvent`), real touch events in the
    * renderer. `points` are all fingers on the screen after the event (CSS px relative to the edit canvas,
@@ -210,7 +214,7 @@ export interface SheetSession {
 export const WINDOW = { width: 1200, height: 1600 };
 const RESIZE_DEBOUNCE_MS = 600;
 const STABLE_FOR_MS = 1000;
-const MARKUP_GRACE_MS = 6000; // > fontfaceobserver's default 3 s timeout before fabric loads objects
+const MARKUP_GRACE_MS = 6000; // time for the music font and fabric to load the objects
 const WAIT_TIMEOUT_MS = 120_000;
 /** How long `close()` waits for the app to quit before it kills it. */
 const CLOSE_TIMEOUT_MS = 60_000;
@@ -926,6 +930,19 @@ export async function openSheet(
         const toggle = page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-hand-back-right-outline") });
         if ((await toggle.count()) === 0) await page.locator(".fabContainer:not(.dividerControls) > .v-btn").first().click();
         await toggle.waitFor();
+      },
+      async setPenColor(color) {
+        // The activator shows the current colour (square-<colour>) as well: the items are in the open menu.
+        await page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-square-rounded") }).first().click();
+        const item = page.locator(`.v-overlay--active .v-btn.square-${color}`);
+        await item.click();
+        await item.waitFor({ state: "hidden" });
+      },
+      async setPenSize(size) {
+        await page.locator(".fabContainer .v-btn").filter({ has: page.locator(".mdi-circle") }).first().click();
+        const item = page.locator(`.v-overlay--active .v-btn.draw-size-${size}`);
+        await item.click();
+        await item.waitFor({ state: "hidden" });
       },
       async touch(type, points) {
         if (type === "touchCancel" && points.length > 0) throw new Error("touchCancel cancels every finger, pass no points");

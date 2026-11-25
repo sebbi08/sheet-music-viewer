@@ -20,7 +20,9 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   (the gate's flow), `writeBlock.visual.ts` (the check on open), `folderSetup.visual.ts` (choosing a new
   sheet folder shows the current one and the folder dialog opens at it), `singleInstance.visual.ts`,
   `folderConfig.visual.ts` (`.config.json`), `pageDivider.visual.ts` (the movable page divider),
-  `editZoom.visual.ts` (zooming in edit mode) and the read-only folder case of `bulkMigration.visual.ts`;
+  `editZoom.visual.ts` (zooming in edit mode), `iconHitbox.visual.ts` (the box of a music symbol),
+  `whitePen.visual.ts` (the white pen below other marks) and the read-only folder case of
+  `bulkMigration.visual.ts`;
   see "Markup storage" for what each file checks ("Page divider" for `pageDivider.visual.ts`, "Zoom in
   edit mode" for `editZoom.visual.ts`).
 - Never opens anything inside `Noten/`: every run works on a copy (the new app migrates on start).
@@ -187,6 +189,40 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   config is untouched.
 - `tests/visual/editZoom.visual.ts` (synthetic folders, no corpus needed) checks the zoom in edit mode
   (see the file for the cases).
+
+## Symbol boxes on the edit canvas
+
+- Music symbols are `FabricText` with font size 1 scaled ×50. fabric's box around them is far larger than the
+  glyph (line height, the minimum text width of 2 units for combining marks like the accent „>“, and the
+  default `strokeWidth` 1 although there is no stroke): the accent's box was ~150×106 px around a ~21×13 px
+  glyph. `tightenIconBounds` (`src/markup/iconBounds.ts`, called on `object:added` of the edit canvas, so also
+  for symbols saved before) measures the ink on a scratch canvas and gives the symbol a box around it plus
+  `ICON_HIT_PADDING` (8 screen px) for hitting, border, controls and multi-selection. The glyph stays where it
+  was. `toObject` restores fabric's own box (width, height, strokeWidth, left/top), so the saved markup is
+  unchanged (older app versions, the PNG and the read-only overlay are unaffected). User texts (`__isText`)
+  and `IText` are left alone.
+- Unit tests: `tests/markup/iconBounds.test.ts` (fabric's node build, saved JSON identical, same pixels);
+  `tests/visual/iconHitbox.visual.ts` checks the real app (a tap beside the glyph inside fabric's box does not
+  grab it, one on the glyph does, saved box unchanged).
+- Font: symbols use `fontFamily: "noto-icons"` (`MUSIC_FONT_FAMILY` in `src/models/markupConstants.ts`).
+  `loadMarkupFonts` (`src/markup/renderPng.ts`) registers the bundled Noto Music under that name with the
+  FontFace API, so old and new symbols draw with it (edit canvas, read-only overlay, PNG). Before 2026-11-25
+  no font had that name and the system fallback was used (on Windows a different look, e.g. spaced „m f“);
+  the old app still draws them that way, so `compare.visual.ts` can show differences on symbols. The
+  `notoIcons` `@font-face` in `SheetViewer.vue` is only for the symbol dialog. Note names (CIS, F, …) are not
+  in Noto Music and still use the default font.
+
+## White pen
+
+- The white pen (pen mode only, stroke `rgba(255,255,255,1)`) covers printed notes and always lies **below
+  every other mark** (`src/markup/whiteout.ts`, pure): `whiteoutFirst` orders the objects when markup is
+  shown or loaded for editing (`fabricJsonForDisplay`) and when the PNG is rendered (`renderMarkupPng`), so
+  markup saved with white on top shows it below as well; a new white stroke (or clone) on the edit canvas is
+  moved right above the other white ones (`whiteoutIndex`, `object:added`). Saving writes that order. White
+  can no longer cover the user's own marks (delete those instead).
+- Pen sizes: `PEN_SIZES` in `src/views/SheetViewer.vue` (1, 6, 18 canvas px; the first is the default).
+- `tests/markup/whiteout.test.ts`, `tests/visual/whitePen.visual.ts` (new white stroke across a black one,
+  markup saved with white on top; edit mode, view, saved order).
 
 ## Auto-Update
 

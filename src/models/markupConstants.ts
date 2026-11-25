@@ -13,3 +13,8 @@ export const OCG_NAME = "Sheet Music Viewer – Markierungen";
 export const MARKUP_FORMAT_VERSION = 1;
 export const MARKUP_DPI = 300;
 export const MAX_PNG_SIDE_PX = 4096;
+/**
+ * Font family of the music symbols (`FabricText`). The app registers the bundled Noto Music under this name
+ * (`loadMarkupFonts`); symbols saved before carry the same name, so they draw with it, too.
+ */
+export const MUSIC_FONT_FAMILY = "noto-icons";

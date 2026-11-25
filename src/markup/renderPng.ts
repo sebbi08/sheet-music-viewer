@@ -1,18 +1,28 @@
 import * as fabric from "fabric";
-import * as fontfaceobserver from "fontfaceobserver";
 import type { MarkupPayload } from "../models/markup";
+import { MUSIC_FONT_FAMILY } from "../models/markupConstants";
+import notoMusicUrl from "../assets/musicIcons/NotoMusic-Regular.ttf?url";
 import { pngLayout } from "./fabricTransform";
+import { whiteoutFirst } from "./whiteout";
+
+let musicFont: Promise<void> | undefined;
 
 /**
- * Waits until the music font used by symbols is loaded. Never rejects: after fontfaceobserver's timeout
- * (3 s) fabric draws with a fallback font instead of waiting forever.
+ * Registers the bundled Noto Music as `MUSIC_FONT_FAMILY` (once) and waits until it is loaded, so fabric
+ * draws the symbols with it and not with whatever font the system would fall back to. Never rejects: if
+ * the font cannot be loaded, fabric draws with a fallback font and the next call tries again.
  */
-export async function loadMarkupFonts(): Promise<void> {
-  try {
-    await new fontfaceobserver.default("notoIcons").load();
-  } catch (e) {
-    console.warn("The music font did not load in time; drawing with a fallback font", e);
-  }
+export function loadMarkupFonts(): Promise<void> {
+  musicFont ??= (async () => {
+    try {
+      const face = new FontFace(MUSIC_FONT_FAMILY, `url(${JSON.stringify(notoMusicUrl)})`);
+      document.fonts.add(await face.load());
+    } catch (e) {
+      musicFont = undefined;
+      console.warn("The music font could not be loaded; drawing with a fallback font", e);
+    }
+  })();
+  return musicFont;
 }
 
 /** Renders a payload to a transparent PNG (Base64 without `data:` prefix). DOM only. */
@@ -30,7 +40,8 @@ export async function renderMarkupPng(payload: MarkupPayload): Promise<string> {
     enableRetinaScaling: false,
   });
   try {
-    await canvas.loadFromJSON(payload.fabric);
+    // The white pen below every other mark, also in markup saved before that rule.
+    await canvas.loadFromJSON({ ...payload.fabric, objects: whiteoutFirst(payload.fabric.objects) });
     canvas.setViewportTransform([scaleX, 0, 0, scaleY, 0, 0]);
     canvas.renderAll();
     const url = canvas.getElement().toDataURL("image/png");
