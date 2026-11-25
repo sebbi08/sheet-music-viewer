@@ -20,6 +20,7 @@ import {
   setListsWrapperSchema,
   type SetListV1,
 } from "./models/types";
+import type { Fingerprint } from "./pdfFingerprint";
 import { retryWhileLocked } from "./pdfMarkup/lockRetry";
 
 export const CONFIG_FILE = ".config.json";
@@ -31,11 +32,21 @@ export const folderConfigSchema = z
     setLists: setListsWrapperSchema.optional(),
     markupMigrated: z.object({ at: z.string() }).loose().optional(),
     sheets: z
-      .record(z.string(), z.object({ pageDividers: z.record(z.string(), z.number()).optional() }).loose())
+      .record(
+        z.string(),
+        z
+          .object({
+            pageDividers: z.record(z.string(), z.number()).optional(),
+            favorite: z.boolean().optional(),
+            fingerprint: z.object({ sha256: z.string(), length: z.number() }).loose().optional(),
+          })
+          .loose(),
+      )
       .optional(),
   })
   .loose();
 export type FolderConfig = z.infer<typeof folderConfigSchema>;
+export type SheetEntry = NonNullable<FolderConfig["sheets"]>[string];
 
 export type FolderConfigRead =
   | { kind: "missing" }
@@ -73,6 +84,18 @@ export type FolderConfigPatch = {
   markupMigrated?: { at: string };
   /** Sets (`ratio` number) or removes (`ratio` null) one divider; `sheet` is a sheetKey, `page` the page left. */
   pageDivider?: { sheet: string; page: number; ratio: number | null };
+  /**
+   * Changes one sheet entry (`key` is a sheetKey). Applied in this order: `moveFrom` renames that entry to
+   * `key` (only if it exists and `key` has none), then `pageDivider`, then `favorite` (true sets, false
+   * removes the field), then `fingerprint` (only on an entry that exists by then). An entry left with
+   * nothing but a fingerprint is removed.
+   */
+  sheet?: {
+    key: string;
+    moveFrom?: string;
+    favorite?: boolean;
+    fingerprint?: Fingerprint;
+  };
 };
 
 export interface FolderConfigUpdateOptions {
@@ -323,6 +346,50 @@ function applyPageDivider(merged: JsonObject, { sheet, page, ratio }: NonNullabl
   else delete merged.sheets;
 }
 
+/** The entry of `sheet` in `merged.sheets`, or undefined. */
+const sheetEntry = (merged: JsonObject, sheet: string): JsonObject | undefined => {
+  const entry = isObject(merged.sheets) ? merged.sheets[sheet] : undefined;
+  return isObject(entry) ? entry : undefined;
+};
+
+/** Replaces (`entry`) or removes (`undefined`) one sheet entry; an empty `sheets` goes. Copies, never mutates. */
+function setSheetEntry(merged: JsonObject, sheet: string, entry: JsonObject | undefined) {
+  const sheets: JsonObject = isObject(merged.sheets) ? { ...merged.sheets } : {};
+  if (entry === undefined) delete sheets[sheet];
+  else sheets[sheet] = entry;
+  if (Object.keys(sheets).length > 0) merged.sheets = sheets;
+  else delete merged.sheets;
+}
+
+/** Renames the entry `moveFrom` to `key` unchanged; ignored unless `moveFrom` exists and `key` has none. */
+function applyMove(merged: JsonObject, key: string, moveFrom: string) {
+  const entry = sheetEntry(merged, moveFrom);
+  if (entry === undefined || key === moveFrom || sheetEntry(merged, key) !== undefined) return;
+  setSheetEntry(merged, moveFrom, undefined);
+  setSheetEntry(merged, key, entry);
+}
+
+/** Sets or removes `favorite`, then sets `fingerprint` on an existing entry (copies, never mutates). */
+function applyFavoriteAndFingerprint(
+  merged: JsonObject,
+  { key, favorite, fingerprint }: NonNullable<FolderConfigPatch["sheet"]>,
+) {
+  if (favorite === true) setSheetEntry(merged, key, { ...sheetEntry(merged, key), favorite: true });
+  else if (favorite === false && sheetEntry(merged, key) !== undefined) {
+    const { favorite: _removed, ...rest } = sheetEntry(merged, key)!;
+    setSheetEntry(merged, key, rest);
+  }
+  const entry = sheetEntry(merged, key);
+  if (fingerprint !== undefined && entry !== undefined) setSheetEntry(merged, key, { ...entry, fingerprint });
+}
+
+/** Removes the entry of `sheet` when it holds nothing but a fingerprint (or nothing at all). */
+function dropEmptyEntry(merged: JsonObject, sheet: string) {
+  const entry = sheetEntry(merged, sheet);
+  if (entry !== undefined && Object.keys(entry).every((k) => k === "fingerprint"))
+    setSheetEntry(merged, sheet, undefined);
+}
+
 /**
  * Sets the given parts (others and unknown fields kept); reads fresh, writes atomically, skips unchanged
  * content. A folder with only `.set-lists.json` is taken over in the same write. Throws
@@ -331,7 +398,9 @@ function applyPageDivider(merged: JsonObject, { sheet, page, ratio }: NonNullabl
  */
 export function updateFolderConfig(
   folder: string,
-  patch: FolderConfigPatch,
+  patch:
+    | FolderConfigPatch
+    | ((current: FolderConfig | null) => Promise<FolderConfigPatch | null> | FolderConfigPatch | null),
   options: FolderConfigUpdateOptions = {},
 ): Promise<void> {
   return serialized(folder, async () => {
@@ -342,15 +411,23 @@ export function updateFolderConfig(
       if (canonicalJson(onDisk) !== canonicalJson(options.expectedSetLists)) throw new FolderConfigChangedError();
     }
 
+    // A patch function runs here, on the state just read; null means nothing to write.
+    const resolved = typeof patch === "function" ? await patch(state.kind === "missing" ? null : state.config) : patch;
+    if (resolved === null) return;
+
     const base: JsonObject = state.kind === "missing" ? { version: 1 } : state.raw;
     const merged: JsonObject = { ...base };
-    if (patch.setLists !== undefined) merged.setLists = patch.setLists;
-    if (patch.markupMigrated !== undefined) {
+    if (resolved.setLists !== undefined) merged.setLists = resolved.setLists;
+    if (resolved.markupMigrated !== undefined) {
       // Merged into an existing mark, so fields a newer version wrote into it stay.
       const previous = isObject(base.markupMigrated) ? base.markupMigrated : {};
-      merged.markupMigrated = { ...previous, ...patch.markupMigrated };
+      merged.markupMigrated = { ...previous, ...resolved.markupMigrated };
     }
-    if (patch.pageDivider !== undefined) applyPageDivider(merged, patch.pageDivider);
+    if (resolved.sheet?.moveFrom !== undefined) applyMove(merged, resolved.sheet.key, resolved.sheet.moveFrom);
+    if (resolved.pageDivider !== undefined) applyPageDivider(merged, resolved.pageDivider);
+    if (resolved.sheet !== undefined) applyFavoriteAndFingerprint(merged, resolved.sheet);
+    if (resolved.sheet !== undefined) dropEmptyEntry(merged, resolved.sheet.key);
+    if (resolved.pageDivider !== undefined) dropEmptyEntry(merged, resolved.pageDivider.sheet);
     const valid = folderConfigSchema.safeParse(merged);
     if (!valid.success) throw new Error(`Invalid ${CONFIG_FILE} content: ${schemaMessage(valid.error)}`);
 

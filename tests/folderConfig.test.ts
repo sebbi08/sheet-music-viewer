@@ -546,3 +546,127 @@ describe("sheetKey", () => {
     expect(sheetKey("/n", "/n")).toBeNull();
   });
 });
+
+describe("sheet entries", () => {
+  const fp = { sha256: "a".repeat(64), length: 1234 };
+
+  test("favorite true is stored and false removes the field", async () => {
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: true } });
+    expect(readConfig().sheets).toEqual({ "A.pdf": { favorite: true } });
+    await updateFolderConfig(dir, {
+      pageDivider: { sheet: "A.pdf", page: 1, ratio: 0.3 },
+    });
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: false } });
+    expect(readConfig().sheets).toEqual({
+      "A.pdf": { pageDividers: { "1": 0.3 } },
+    });
+    await updateFolderConfig(dir, {
+      pageDivider: { sheet: "A.pdf", page: 1, ratio: null },
+    });
+    expect(readConfig().sheets).toBeUndefined();
+  });
+
+  test("an entry left with only a fingerprint is removed, one with an unknown field stays", async () => {
+    writeConfig({
+      version: 1,
+      sheets: {
+        "A.pdf": { favorite: true, fingerprint: fp },
+        "B.pdf": { favorite: true, fingerprint: fp, extra: 1 },
+      },
+    });
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", favorite: false } });
+    await updateFolderConfig(dir, { sheet: { key: "B.pdf", favorite: false } });
+    expect(readConfig().sheets).toEqual({
+      "B.pdf": { fingerprint: fp, extra: 1 },
+    });
+  });
+
+  test("a fingerprint is stored only next to a setting", async () => {
+    writeConfig({ version: 1 });
+    const before = fs.statSync(configPath()).mtimeMs;
+    const text = fs.readFileSync(configPath(), "utf8");
+    await updateFolderConfig(dir, { sheet: { key: "A.pdf", fingerprint: fp } });
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(text);
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before);
+    await updateFolderConfig(dir, {
+      sheet: { key: "A.pdf", favorite: true, fingerprint: fp },
+    });
+    expect(readConfig().sheets).toEqual({
+      "A.pdf": { favorite: true, fingerprint: fp },
+    });
+  });
+
+  test("moveFrom moves the whole entry", async () => {
+    const entry = {
+      favorite: true,
+      pageDividers: { "1": 0.4 },
+      fingerprint: fp,
+      future: { a: 1 },
+    };
+    writeConfig({
+      version: 1,
+      sheets: { "Old/A.pdf": entry, "C.pdf": { favorite: true } },
+    });
+    await updateFolderConfig(dir, {
+      sheet: { key: "New/A.pdf", moveFrom: "Old/A.pdf" },
+    });
+    expect(readConfig().sheets).toEqual({
+      "New/A.pdf": entry,
+      "C.pdf": { favorite: true },
+    });
+  });
+
+  test("moveFrom is ignored when the target has an entry", async () => {
+    const sheets = {
+      "Old.pdf": { favorite: true },
+      "New.pdf": { pageDividers: { "1": 0.4 } },
+    };
+    writeConfig({ version: 1, sheets });
+    await updateFolderConfig(dir, {
+      sheet: { key: "New.pdf", moveFrom: "Old.pdf" },
+    });
+    expect(readConfig().sheets).toEqual(sheets);
+  });
+
+  test("a patch function sees the fresh state; null writes nothing", async () => {
+    writeConfig({ version: 1, markupMigrated: mark });
+    const seen: unknown[] = [];
+    await updateFolderConfig(dir, (current) => {
+      seen.push(current?.markupMigrated);
+      return null;
+    });
+    expect(seen).toEqual([mark]);
+    const before = fs.statSync(configPath()).mtimeMs;
+    await updateFolderConfig(dir, async () => null);
+    expect(fs.statSync(configPath()).mtimeMs).toBe(before);
+    await updateFolderConfig(dir, (current) => ({
+      sheet: { key: "A.pdf", favorite: current?.sheets === undefined },
+    }));
+    expect(readConfig().sheets).toEqual({ "A.pdf": { favorite: true } });
+  });
+
+  test("a patch function gets null for a missing file", async () => {
+    let seen: unknown = "unset";
+    await updateFolderConfig(dir, (current) => {
+      seen = current;
+      return null;
+    });
+    expect(seen).toBeNull();
+    expect(fs.existsSync(configPath())).toBe(false);
+  });
+
+  test("a favorite write keeps another sheet's favorite written meanwhile", async () => {
+    await updateFolderConfig(dir, { sheet: { key: "Y.pdf", favorite: true } });
+    writeConfig({
+      ...readConfig(),
+      sheets: { ...readConfig().sheets, "X.pdf": { favorite: true } },
+    });
+    await updateFolderConfig(dir, { sheet: { key: "Z.pdf", favorite: true } });
+    expect(Object.keys(readConfig().sheets).sort()).toEqual(["X.pdf", "Y.pdf", "Z.pdf"]);
+  });
+
+  test("favorite of the wrong type makes the file unreadable", async () => {
+    writeConfig({ version: 1, sheets: { "A.pdf": { favorite: "yes" } } });
+    expect((await loadFolderConfig(dir)).kind).toBe("unreadable");
+  });
+});
