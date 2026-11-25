@@ -213,7 +213,8 @@ Favoriten
 - Sortiert nach Name (deutsche Sortierung, ohne Groß-/Kleinschreibung), bei gleichem Namen nach Ordner.
 - Ohne Favoriten: ein kurzer Hinweis „Noch keine Favoriten. Markiere Blätter mit dem Herz.“ *(Entscheidung
   Claude: zeigt, wo es die Funktion gibt)*.
-- Favoriten, deren PDF fehlt, werden nicht gezeigt (die Markierung bleibt gespeichert). Ist unklar, ob es
+- Favoriten, deren PDF fehlt, bekommen keine Karte (die Markierung bleibt gespeichert); nach der Suche stehen
+  sie in der Zeile „nicht gefunden“ (siehe „Nachtrag: nicht gefundene Favoriten“). Ist unklar, ob es
   sie gibt (`stat` meldet einen anderen Fehler als „nicht vorhanden“), wird die Karte gezeigt; das Öffnen
   meldet dann den Fehler wie heute *(Entscheidung Claude)*.
 - Unter dem Namen steht der Ordner relativ zum Notenordner; für die oberste Ebene steht dort nichts.
@@ -252,6 +253,35 @@ Favoriten
 
 AGENTS.md: Abschnitt „Favoriten“ (Speicherort, Fingerabdruck, Umzugsregeln, Tests);
 `2026-11-23-page-divider-design.md`: Nicht-Ziel „folgen einer verschobenen PDF“ als aufgehoben markieren.
+
+### Nachtrag: nicht gefundene Favoriten (2026-11-25, freigegeben)
+
+Warum: ein Favorit, dessen PDF für immer gelöscht ist, blieb gespeichert, und die Hintergrundsuche las bei
+jedem App-Start alle PDFs mindestens dieser Größe (bei Nextcloud „Dateien bei Bedarf“ lädt das den Ordner
+herunter). Der Nutzer soll solche Favoriten sehen und entfernen können.
+
+```
+⚠ 2 Favoriten nicht gefunden                 [Anzeigen]
+    Gloria – Chor/Alt                        [Entfernen]
+    Panis angelicus – Weihnachten            [Entfernen]
+                                             [Alle entfernen]
+```
+
+- **Nicht gefunden** ist ein Favorit, dessen PDF fehlt (`stat`: nicht vorhanden; hinter einer nicht
+  erreichbaren Verknüpfung: unklar, zählt nicht) und der entweder keinen Fingerabdruck hat (er kann nie
+  gefunden werden) oder in diesem App-Lauf vollständig gesucht und nicht gefunden wurde. Ein Favorit, dessen
+  Suche noch läuft oder unvollständig war, steht nicht in der Zeile; so erscheint ein verschobener Favorit, der
+  gleich gefunden wird, nie als „nicht gefunden“.
+- Unter den Favoriten-Karten (auch wenn es keine gibt; dann ohne den Hinweis „Noch keine Favoriten“) eine
+  Zeile „1 Favorit nicht gefunden“ bzw. „N Favoriten nicht gefunden“, zunächst zugeklappt. „Anzeigen“ klappt
+  die Liste auf (Name ohne `.pdf` – alter Ordner, sortiert wie die Karten), „Ausblenden“ zu.
+- „Entfernen“ entmarkiert den Favoriten über das bestehende Umschalten (`favorite` fällt weg; Teiler und
+  Fingerabdruck bleiben, folgen also weiter einer zurückkehrenden PDF). Die Zeile verschwindet sofort;
+  scheitert das Speichern, kommt sie zurück mit Meldung. „Alle entfernen“ tut das für jeden Eintrag der Liste.
+- Ein nicht entfernter, nicht gefundener Favorit wird wie bisher einmal je App-Lauf gesucht.
+- Umsetzung *(Entscheidung Claude)*: `loadFavorites` liefert statt der Anzahl `missing` die Liste `notFound`
+  (`FavoriteSheet[]`); `relinkMissingFavorites` meldet zusätzlich, wie viele Favoriten es vollständig ohne
+  Treffer gesucht hat, und die Startseite lädt danach neu.
 
 ## Tests
 
