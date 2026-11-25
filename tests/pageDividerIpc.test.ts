@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { CONFIG_FILE } from "../src/folderConfig";
 import { setLockRetryDelays } from "../src/pdfMarkup/lockRetry";
 import {
-  loadPageDividers,
-  pageDividersInputSchema,
+  loadSheetSettings,
+  sheetInputSchema,
   savePageDivider,
   savePageDividerInputSchema,
 } from "../src/trcpLib";
@@ -31,12 +31,12 @@ afterEach(() => {
 
 describe("page dividers over tRPC", () => {
   test("no file -> ok with no dividers", async () => {
-    expect(await loadPageDividers({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: {} });
+    expect(await loadSheetSettings({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: {}, favorite: false });
   });
 
   test("a saved divider is loaded again and stored under the sheet key", async () => {
     expect(await savePageDivider({ folder: dir, pdfPath: pdfPath(), page: 2, ratio: 0.62 })).toEqual({ ok: true });
-    expect(await loadPageDividers({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: { 2: 0.62 } });
+    expect(await loadSheetSettings({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: { 2: 0.62 }, favorite: false });
     const config = JSON.parse(fs.readFileSync(configPath(), "utf8"));
     expect(config.sheets["A/a.pdf"]).toBeDefined();
   });
@@ -46,18 +46,18 @@ describe("page dividers over tRPC", () => {
       configPath(),
       JSON.stringify({ version: 1, sheets: { "A/a.pdf": { pageDividers: { "2.5": 0.4, "0": 0.4, x: 0.4, "3": 0.7 } } } }),
     );
-    expect(await loadPageDividers({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: { 3: 0.7 } });
+    expect(await loadSheetSettings({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: { 3: 0.7 }, favorite: false });
   });
 
   test("ratio null removes a divider", async () => {
     await savePageDivider({ folder: dir, pdfPath: pdfPath(), page: 2, ratio: 0.62 });
     expect(await savePageDivider({ folder: dir, pdfPath: pdfPath(), page: 2, ratio: null })).toEqual({ ok: true });
-    expect(await loadPageDividers({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: {} });
+    expect(await loadSheetSettings({ folder: dir, pdfPath: pdfPath() })).toEqual({ kind: "ok", dividers: {}, favorite: false });
   });
 
   test("an unreadable file is reported, saving does not overwrite it", async () => {
     fs.writeFileSync(configPath(), "{ not json");
-    const loaded = await loadPageDividers({ folder: dir, pdfPath: pdfPath() });
+    const loaded = await loadSheetSettings({ folder: dir, pdfPath: pdfPath() });
     expect(loaded).toMatchObject({ kind: "unreadable", file: ".config.json" });
     const saved = await savePageDivider({ folder: dir, pdfPath: pdfPath(), page: 1, ratio: 0.4 });
     expect(saved.ok).toBe(false);
@@ -68,9 +68,9 @@ describe("page dividers over tRPC", () => {
   test("a sheet outside the folder has no dividers and its load reads no file", async () => {
     fs.writeFileSync(configPath(), "{ not json");
     const outside = path.join(os.tmpdir(), "x.pdf");
-    expect(pageDividersInputSchema.safeParse({ folder: dir, pdfPath: outside }).success).toBe(true);
-    expect(await loadPageDividers({ folder: dir, pdfPath: outside })).toEqual({ kind: "outside" });
-    expect(await loadPageDividers({ folder: dir, pdfPath: path.join(dir, "..", "x.pdf") })).toEqual({
+    expect(sheetInputSchema.safeParse({ folder: dir, pdfPath: outside }).success).toBe(true);
+    expect(await loadSheetSettings({ folder: dir, pdfPath: outside })).toEqual({ kind: "outside" });
+    expect(await loadSheetSettings({ folder: dir, pdfPath: path.join(dir, "..", "x.pdf") })).toEqual({
       kind: "outside",
     });
     expect(fs.readFileSync(configPath(), "utf8")).toBe("{ not json");

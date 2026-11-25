@@ -37,10 +37,15 @@ import {
     getAppVersion,
     loadFilesAndFolder,
     loadFilesAndFolderInputSchema,
-    loadPageDividers,
+    loadFavoriteKeys,
+    loadFavorites,
+    loadSheetSettings,
     loadSetLists,
     openFolderDialog,
-    pageDividersInputSchema,
+    relinkMissingFavorites,
+    setFavorite,
+    setFavoriteInputSchema,
+    sheetInputSchema,
     savePageDivider,
     savePageDividerInputSchema,
     saveSetLists,
@@ -122,9 +127,17 @@ export const trcpRouter = createRouter({
     .input(saveSetListsInputSchema)
     .mutation(({ input }) => saveSetLists(input)),
 
-  loadPageDividers: publicProcedure
-    .input(pageDividersInputSchema)
-    .query(({ input }) => loadPageDividers(input)),
+  loadSheetSettings: publicProcedure.input(sheetInputSchema).query(({ input }) => loadSheetSettings(input)),
+
+  setFavorite: publicProcedure.input(setFavoriteInputSchema).mutation(({ input }) => setFavorite(input)),
+
+  loadFavorites: publicProcedure.input(absoluteFolderSchema).query(({ input }) => loadFavorites(input)),
+
+  loadFavoriteKeys: publicProcedure.input(absoluteFolderSchema).query(({ input }) => loadFavoriteKeys(input)),
+
+  relinkMissingFavorites: publicProcedure
+    .input(absoluteFolderSchema)
+    .mutation(({ input }) => relinkMissingFavorites(input)),
 
   savePageDivider: publicProcedure
     .input(savePageDividerInputSchema)

@@ -206,7 +206,7 @@ import { useNotices } from "../store/notices";
 import { client } from "../trcpClient";
 
 type MarkupEntry = { rect: Rect | null; payload: MarkupPayload };
-type LoadPageDividersResult = Awaited<ReturnType<typeof client.loadPageDividers.query>>;
+type LoadSheetSettingsResult = Awaited<ReturnType<typeof client.loadSheetSettings.query>>;
 type OptionalContentConfig = Awaited<ReturnType<pdfJs.PDFDocumentProxy["getOptionalContentConfig"]>>;
 
 const LOAD_FAILED =
@@ -421,7 +421,7 @@ function applyLoadedMarkup(loaded: LoadMarkupResult): void {
  * notice on open (the set lists and the migration gate report an unreadable `.config.json`).
  */
 async function loadDividers(): Promise<void> {
-  const result: LoadPageDividersResult = await client.loadPageDividers
+  const result: LoadSheetSettingsResult = await client.loadSheetSettings
     .query({ folder: store.sheetMusicFolder, pdfPath: sheetPath })
     .catch((e: unknown) => ({ kind: "unreadable", file: ".config.json", message: e instanceof Error ? e.message : String(e) }));
   if (result.kind === "ok") {

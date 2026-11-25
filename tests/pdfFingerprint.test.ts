@@ -32,13 +32,13 @@ afterEach(() => {
 
 describe("fingerprint of a PDF", () => {
   test("a PDF without our markup: the whole file", async () => {
-    const bytes = await makePdf({ pages: 1 });
+    const bytes = await makePdf({ pages: 1, xref: "table" });
     expect(originalLength(bytes)).toBe(bytes.length);
     expect(fingerprintOf(bytes)).toEqual({ sha256: sha256(bytes), length: bytes.length });
   });
 
   test("saving markup keeps the fingerprint", async () => {
-    const before = await makePdf({ pages: 2 });
+    const before = await makePdf({ pages: 2, xref: "table" });
     const pdf = await writeFixture(dir, "a.pdf", before);
     const fingerprint = fingerprintOf(before);
 
@@ -55,7 +55,7 @@ describe("fingerprint of a PDF", () => {
   });
 
   test("an update of another program that keeps our metadata keeps it", async () => {
-    const before = await makePdf({ pages: 1 });
+    const before = await makePdf({ pages: 1, xref: "table" });
     const pdf = await writeFixture(dir, "a.pdf", before);
     await saveMarkupToFile({ path: pdf, pages: [page1()] });
     const saved = fs.readFileSync(pdf);
@@ -65,13 +65,13 @@ describe("fingerprint of a PDF", () => {
   });
 
   test("an invalid OriginalLength is ignored", async () => {
-    const plain = await makePdf({ pages: 1 });
+    const plain = await makePdf({ pages: 1, xref: "table" });
     const bytes = append(plain, "<< /OriginalLength 7 /UpdateStart 9 >>");
     expect(originalLength(bytes)).toBe(bytes.length);
   });
 
   test("the last valid match wins", async () => {
-    const base = await makePdf({ pages: 1 });
+    const base = await makePdf({ pages: 1, xref: "table" });
     const first = append(base, `\n<< /OriginalLength ${base.length} /UpdateStart ${base.length} >>\n%%EOF\n`);
     const second = append(first, `\n<< /OriginalLength ${first.length} /UpdateStart ${first.length} >>\n`);
     expect(originalLength(second)).toBe(first.length);
@@ -80,7 +80,7 @@ describe("fingerprint of a PDF", () => {
   });
 
   test("UpdateStart beyond the file or before OriginalLength is invalid", async () => {
-    const base = await makePdf({ pages: 1 });
+    const base = await makePdf({ pages: 1, xref: "table" });
     expect(originalLength(append(base, `<< /OriginalLength ${base.length} /UpdateStart 99999999 >>`))).toBe(
       base.length + `<< /OriginalLength ${base.length} /UpdateStart 99999999 >>`.length,
     );
@@ -89,13 +89,13 @@ describe("fingerprint of a PDF", () => {
   });
 
   test("different PDFs differ", async () => {
-    const a = fingerprintOf(await makePdf({ pages: 1 }));
-    const b = fingerprintOf(await makePdf({ pages: 2 }));
+    const a = fingerprintOf(await makePdf({ pages: 1, xref: "table" }));
+    const b = fingerprintOf(await makePdf({ pages: 2, xref: "table" }));
     expect(a).not.toEqual(b);
   });
 
   test("fingerprintFile caches by real path, size and mtime", async () => {
-    const one = await makePdf({ pages: 1 });
+    const one = await makePdf({ pages: 1, xref: "table" });
     const pdf = await writeFixture(dir, "a.pdf", one);
     const readFile = vi.spyOn(fs.promises, "readFile");
     const reads = () => readFile.mock.calls.filter(([f]) => String(f) === pdf).length;
@@ -109,7 +109,7 @@ describe("fingerprint of a PDF", () => {
     await fingerprintFile(link);
     expect(reads()).toBe(1);
 
-    const two = await makePdf({ pages: 2 });
+    const two = await makePdf({ pages: 2, xref: "table" });
     await fs.promises.writeFile(pdf, two);
     expect(await fingerprintFile(pdf)).toEqual(fingerprintOf(two));
     expect(reads()).toBe(2);
