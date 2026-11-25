@@ -16,7 +16,7 @@
     <p v-if="favorites.listError !== null" class="favoritesNote" data-testid="favorites-error">
       {{ favorites.listError }}
     </p>
-    <div v-else-if="favorites.list.length > 0" class="container">
+    <div v-if="favorites.listError === null && favorites.list.length > 0" class="container">
       <v-card v-for="favorite in favorites.list" :key="favorite.key" data-testid="favorite-card"
         @click="openFavorite(favorite)">
         <!-- Unmarks without opening the sheet; the card goes at once. -->
@@ -29,7 +29,29 @@
         <h5 class="itemName favoriteDir">{{ favorite.dir }}</h5>
       </v-card>
     </div>
-    <p v-else-if="loaded" class="favoritesNote" data-testid="favorites-empty">
+    <!-- Favorites whose PDF is gone (spec „Nachtrag: nicht gefundene Favoriten“); removing unmarks them. -->
+    <div v-if="favorites.listError === null && favorites.notFound.length > 0" class="favoritesNote notFound"
+      data-testid="favorites-not-found">
+      <div class="notFoundHeader">
+        <v-icon size="small" color="warning">mdi-alert-outline</v-icon>
+        <span class="notFoundText">{{ favoritesNotFoundText(favorites.notFound.length) }}</span>
+        <v-btn variant="text" size="small" data-testid="favorites-not-found-toggle"
+          @click="notFoundOpen = !notFoundOpen">{{ notFoundOpen ? 'Ausblenden' : 'Anzeigen' }}</v-btn>
+      </div>
+      <template v-if="notFoundOpen">
+        <div v-for="favorite in favorites.notFound" :key="favorite.key" class="notFoundEntry"
+          data-testid="favorite-not-found">
+          <span class="notFoundName">{{ favorite.name }}</span>
+          <span v-if="favorite.dir !== ''" class="notFoundDir">– {{ favorite.dir }}</span>
+          <v-btn variant="text" size="small" data-testid="favorite-not-found-remove"
+            @click="unmark(favorite)">Entfernen</v-btn>
+        </div>
+        <v-btn variant="text" size="small" data-testid="favorites-not-found-remove-all"
+          @click="unmarkAllNotFound()">Alle entfernen</v-btn>
+      </template>
+    </div>
+    <p v-if="favorites.listError === null && favorites.list.length === 0 && favorites.notFound.length === 0 && loaded"
+      class="favoritesNote" data-testid="favorites-empty">
       Noch keine Favoriten. Markiere Blätter mit dem Herz.
     </p>
   </div>
@@ -41,6 +63,7 @@ import { RouteNames } from '../Enums';
 import router from '../router';
 import type { FavoriteSheet } from '../sheetSettings';
 import { useFavorites } from '../store/favorites';
+import { favoritesNotFoundText } from '../store/favoriteTexts';
 
 const favorites = useFavorites();
 // Before the first render: a list of the previous sheet folder is never shown (its cards would open sheets
@@ -48,6 +71,8 @@ const favorites = useFavorites();
 favorites.forgetOtherFolder();
 /** The hint waits for the first load of this visit (the list may still be empty because it was not read yet). */
 const loaded = ref(false);
+/** Whether the "nicht gefunden" list is open (collapsed at first). */
+const notFoundOpen = ref(false);
 
 // `loadList` assigns a new list (or an error) after its first read, before the background search ends.
 watch(() => [favorites.list, favorites.listError], () => {
@@ -72,9 +97,13 @@ function openFavorite(favorite: FavoriteSheet): void {
   router.push({ name: RouteNames.SheetViewer, params: { path: favorite.pdfPath } });
 }
 
-/** A card is shown only for a favorite, so the state before the press is "marked". */
+/** A card or "nicht gefunden" entry is shown only for a favorite, so the state before the press is "marked". */
 function unmark(favorite: FavoriteSheet): void {
   void favorites.set(favorite.pdfPath, false, true);
+}
+
+function unmarkAllNotFound(): void {
+  for (const favorite of [...favorites.notFound]) unmark(favorite);
 }
 
 </script>
@@ -119,6 +148,21 @@ function unmark(favorite: FavoriteSheet): void {
 
 .favoritesNote {
   margin: 8px 16px;
+}
+
+.notFound {
+  .notFoundHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .notFoundEntry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-left: 28px;
+  }
 }
 
 .favoriteToggle {

@@ -39,14 +39,17 @@ const savesOf = (): FavoriteSaves => {
       store.keys = favorite ? [...without, key] : without;
       if (store.current !== null && rendererSheetKey(folder, store.current.pdfPath) === key)
         store.current.favorite = favorite;
-      if (!favorite) store.list = store.list.filter((f) => f.key !== key);
+      if (!favorite) {
+        store.list = store.list.filter((f) => f.key !== key);
+        store.notFound = store.notFound.filter((f) => f.key !== key);
+      }
       else if (revert) void store.loadList();
     },
     (message) => useNotices().show(favoriteSaveFailedText(message)),
   ));
 };
 /** The `relinkMissingFavorites` run in flight per folder. */
-const relinking = new Map<string, Promise<number>>();
+const relinking = new Map<string, Promise<{ moved: number; searched: number }>>();
 
 export const useFavorites = defineStore("favorites", {
   state: () => ({
@@ -56,7 +59,9 @@ export const useFavorites = defineStore("favorites", {
     keysFolder: "",
     list: [] as FavoriteSheet[],
     listError: null as string | null,
-    /** The sheet folder `list`/`listError` belong to. */
+    /** Favorites whose PDF was not found (no fingerprint, or searched completely in this run). */
+    notFound: [] as FavoriteSheet[],
+    /** The sheet folder `list`/`listError`/`notFound` belong to. */
     listFolder: "",
     current: null as Current | null,
     /** The PDF path of each id with a save in flight (`folder\nkey`). */
@@ -81,6 +86,7 @@ export const useFavorites = defineStore("favorites", {
       if (this.listFolder !== folder) {
         this.list = [];
         this.listError = null;
+        this.notFound = [];
         this.listFolder = folder;
       }
     },
@@ -117,14 +123,17 @@ export const useFavorites = defineStore("favorites", {
           if (useStore().sheetMusicFolder !== folder) return;
           if (r.kind === "ok") {
             this.list = r.favorites;
+            this.notFound = r.notFound;
             this.listError = null;
           } else {
             this.list = [];
+            this.notFound = [];
             this.listError = favoritesUnreadableText(r.file, r.message, r.newerVersion === true);
           }
         } catch (e) {
           if (useStore().sheetMusicFolder !== folder) return;
           this.list = [];
+          this.notFound = [];
           this.listError = favoritesUnreadableText(".config.json", errorMessage(e), false);
         }
       };
@@ -135,16 +144,16 @@ export const useFavorites = defineStore("favorites", {
       if (run === undefined) {
         run = client.relinkMissingFavorites
           .mutate(folder)
-          .then((r) => r.moved)
           .catch((e) => {
             console.warn("relinkMissingFavorites failed:", e);
-            return 0;
+            return { moved: 0, searched: 0 };
           })
           .finally(() => relinking.delete(folder));
         relinking.set(folder, run);
       }
-      const moved = await run;
-      if (started && moved > 0 && useStore().sheetMusicFolder === folder) await load();
+      const { moved, searched } = await run;
+      // A move changes the cards; a search without a hit adds to the "nicht gefunden" line.
+      if (started && (moved > 0 || searched > 0) && useStore().sheetMusicFolder === folder) await load();
     },
 
     setCurrent(pdfPath: string, result: LoadSheetSettingsResult) {

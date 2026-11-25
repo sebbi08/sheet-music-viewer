@@ -267,14 +267,18 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   completely at most once per app run; a walk that skipped a folder or link, or an unreadable PDF, counts as
   incomplete and is searched again). The folder view never moves (a moved favorite shows an empty heart until
   opened or pressed). Opening a sheet, the folder view or the main page without a change never writes
-  `.config.json`; a missing favorite keeps its mark and is hidden on the main page until its PDF is back.
+  `.config.json`; a missing favorite keeps its mark and gets no card until its PDF is back. Once it is **not
+  found** (no fingerprint, or searched completely in this run without a hit; `loadFavorites` → `notFound`,
+  `relinkMissingFavorites` → `searched`, the main page reloads after such a search) the main page lists it under
+  „N Favoriten nicht gefunden“ (collapsed, „Anzeigen“) with „Entfernen“ / „Alle entfernen“, which unmark it like
+  the heart (dividers stay with the fingerprint); a missing PDF behind an unreachable link is never listed.
 - Tests: `tests/sheetSettings.test.ts`, `tests/pdfFingerprint.test.ts`, `tests/favoritesIpc.test.ts`,
   `tests/favoriteSaves.test.ts`, `tests/favoriteKey.test.ts`; `tests/visual/favorites.visual.ts` (synthetic
   folders, no corpus needed): marking in the viewer and on cards (also search results), a card's heart never
   opens the sheet, quick presses, opening without a change writes nothing, an unreadable `.config.json`, a
   moved favorite on open, the main page (sorted cards open the sheet, the hint, unmarking, a moved and a
   renamed favorite found by the background search with the new keys in the file, a missing favorite hidden and
-  back, a copy is no favorite, the reason for an unreadable file); every case checks the PDFs stay
+  back, favorites not found listed and removed („Entfernen“, „Alle entfernen“), a copy is no favorite, the reason for an unreadable file); every case checks the PDFs stay
   byte-identical.
 
 ## Auto-Update

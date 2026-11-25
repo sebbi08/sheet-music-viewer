@@ -529,6 +529,65 @@ test("a missing favorite is hidden, its mark stays; back in place it shows again
   expect(configState(folder), ".config.json after a.pdf is back").toEqual(before);
 });
 
+/** The text of the main page's "nicht gefunden" line ("" while it is not shown). */
+const notFoundLine = (launched: LaunchedApp) =>
+  launched.page.evaluate(() =>
+    (document.querySelector('[data-testid="favorites-not-found"] .notFoundText')?.textContent ?? "").trim(),
+  );
+/** The entries of the opened "nicht gefunden" list. */
+const notFoundEntries = (launched: LaunchedApp) =>
+  launched.page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid="favorite-not-found"] .notFoundName')].map((el) =>
+      (el.textContent ?? "").trim(),
+    ),
+  );
+
+test("favorites not found are listed after the search; Entfernen and Alle entfernen unmark them", async () => {
+  const folder = newFolder();
+  fs.rmSync(path.join(folder, "a.pdf"));
+  const a = { favorite: true, pageDividers: { "1": 0.3 }, fingerprint: fingerprintOf(pdfA) };
+  const b = { favorite: true, fingerprint: fingerprintOf(pdfB) };
+  writeConfig(folder, {
+    version: 1,
+    sheets: { "a.pdf": a, "b.pdf": b, "c.pdf": { favorite: true }, "d.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) } },
+  });
+  const before = configState(folder);
+  const launched = await start(folder);
+  await showOverview(launched);
+
+  await expect.poll(() => favoriteCards(launched), { timeout: 30_000 }).toEqual([{ name: "b", dir: "" }]);
+  await expect.poll(() => notFoundLine(launched), { timeout: 30_000 }).toBe("3 Favoriten nicht gefunden");
+  expect(await favoritesHint(launched), "no hint").toBe("");
+  expect(await notFoundEntries(launched), "collapsed").toEqual([]);
+  expect(configState(folder), ".config.json after the search").toEqual(before);
+
+  const toggle = launched.page.getByTestId("favorites-not-found-toggle");
+  expect((await toggle.textContent())?.trim()).toBe("Anzeigen");
+  await toggle.click();
+  await expect.poll(() => notFoundEntries(launched)).toEqual(["a", "c", "d"]);
+  expect((await toggle.textContent())?.trim()).toBe("Ausblenden");
+
+  await launched.page
+    .getByTestId("favorite-not-found")
+    .filter({ has: launched.page.locator(".notFoundName", { hasText: /^\s*a\s*$/ }) })
+    .getByTestId("favorite-not-found-remove")
+    .click();
+  await expect.poll(() => notFoundEntries(launched)).toEqual(["c", "d"]);
+  expect(await notFoundLine(launched)).toBe("2 Favoriten nicht gefunden");
+  await expect
+    .poll(() => readConfig(folder)?.sheets?.["a.pdf"], { timeout: 30_000 })
+    .toEqual({ pageDividers: { "1": 0.3 }, fingerprint: fingerprintOf(pdfA) });
+
+  await launched.page.getByTestId("favorites-not-found-remove-all").click();
+  await expect.poll(() => notFoundLine(launched)).toBe("");
+  await expect
+    .poll(() => readConfig(folder)?.sheets, { timeout: 30_000 })
+    .toEqual({ "a.pdf": { pageDividers: { "1": 0.3 }, fingerprint: fingerprintOf(pdfA) }, "b.pdf": b });
+  expect(await favoriteCards(launched), "cards").toEqual([{ name: "b", dir: "" }]);
+  expect(await snackbarText(launched), "no notice").toBe("");
+  expect(samePdf(folder, "b.pdf", pdfB), "b.pdf unchanged").toBe(true);
+});
+
 test("a copy of a favorite is no favorite", async () => {
   const folder = newFolder();
   writeConfig(folder, { version: 1, sheets: { "a.pdf": { favorite: true, fingerprint: fingerprintOf(pdfA) } } });

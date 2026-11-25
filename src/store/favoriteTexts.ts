@@ -9,3 +9,7 @@ export const favoritesUnreadableText = (file: string, message: string, newerVers
   newerVersion
     ? "Die Favoriten stammen von einer neueren Version der App. Bitte die App aktualisieren; Änderungen an Favoriten werden nicht gespeichert."
     : `Die Favoriten konnten nicht geladen werden („${file}“: ${message}). Änderungen an Favoriten werden nicht gespeichert.`;
+
+/** The main page's line for favorites whose PDF was not found. */
+export const favoritesNotFoundText = (count: number) =>
+  count === 1 ? "1 Favorit nicht gefunden" : `${count} Favoriten nicht gefunden`;
