@@ -21,7 +21,7 @@ import {
 } from "./folderConfig";
 import type { PageDividers } from "./pageDivider";
 import { type Fingerprint, fingerprintFile } from "./pdfFingerprint";
-import { listSheetPdfs } from "./sheetFiles";
+import { walkSheetPdfs } from "./sheetFiles";
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const errorCode = (e: unknown) => (e instanceof Error && "code" in e ? e.code : undefined);
@@ -49,15 +49,45 @@ const unexpected = (e: unknown) => ({ kind: "unreadable", file: CONFIG_FILE, mes
 
 export type PathState = "exists" | "missing" | "unknown";
 
-/** Whether `file` exists; "missing" only when `stat` says so (ENOENT/ENOTDIR), any other error is "unknown". */
-export async function pathState(file: string): Promise<PathState> {
+/**
+ * Whether `file` exists; "missing" only when `stat` says so (ENOENT/ENOTDIR), any other error is "unknown".
+ * With `folder` (the sheet folder above `file`), a missing file behind a link or junction between `folder`
+ * and `file` whose target cannot be reached (a drive asleep or unplugged) is "unknown", too.
+ */
+export async function pathState(file: string, folder?: string): Promise<PathState> {
   try {
     await fs.promises.stat(file);
     return "exists";
   } catch (e) {
     const code = errorCode(e);
-    return code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unknown";
+    if (code !== "ENOENT" && code !== "ENOTDIR") return "unknown";
   }
+  return folder !== undefined && (await isBehindOfflineLink(folder, file)) ? "unknown" : "missing";
+}
+
+/**
+ * Whether a path below `folder` on the way to `file` (the file itself included) is a link whose target
+ * `stat` cannot reach. A part that does not exist ends the walk: the file is really missing.
+ */
+async function isBehindOfflineLink(folder: string, file: string): Promise<boolean> {
+  const rel = path.relative(folder, file);
+  if (rel === "" || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return false;
+  let current = folder;
+  for (const part of rel.split(path.sep)) {
+    current = path.join(current, part);
+    try {
+      if (!(await fs.promises.lstat(current)).isSymbolicLink()) continue;
+    } catch (e) {
+      const code = errorCode(e);
+      return code !== "ENOENT" && code !== "ENOTDIR";
+    }
+    try {
+      await fs.promises.stat(current);
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function isReachableFolder(folder: string): Promise<boolean> {
@@ -104,8 +134,8 @@ async function isCaseOnlyRename(folder: string, old: string, target: string): Pr
  * The key of the entry that moves to `target` under the rules of spec "Umzug eines Eintrags", or null:
  * `target` has an entry of its own → null; the sheet folder is not a reachable folder → null; exactly one
  * entry is `target` renamed only in case → that key; otherwise the orphans (entries with a fingerprint whose
- * PDF `stat` reports missing) are compared with `targetFingerprint()`, which is called only when there are
- * orphans: exactly one orphan with an equal fingerprint → its key. Never throws.
+ * PDF `stat` reports missing, not behind an unreachable link) are compared with `targetFingerprint()`, which
+ * is called only when there are orphans: exactly one orphan with an equal fingerprint → its key. Never throws.
  */
 export async function findMoveSource(
   folder: string,
@@ -123,7 +153,7 @@ export async function findMoveSource(
     if (renamed.length === 1) return renamed[0];
 
     const withFingerprint = keys.filter((key) => sheets[key].fingerprint !== undefined);
-    const states = await Promise.all(withFingerprint.map((key) => pathState(fileOf(folder, key))));
+    const states = await Promise.all(withFingerprint.map((key) => pathState(fileOf(folder, key), folder)));
     const orphans = withFingerprint.filter((_key, i) => states[i] === "missing");
     if (orphans.length === 0) return null;
 
@@ -301,7 +331,7 @@ export async function loadFavorites(folder: string): Promise<LoadFavoritesResult
       const pdfPath = fileOf(folder, key);
       // A key that is no plain path below the folder ("../x.pdf", "a//b.pdf") is no sheet of this folder.
       if (sheetKey(folder, pdfPath) !== key) continue;
-      if ((await pathState(pdfPath)) === "missing") {
+      if ((await pathState(pdfPath, folder)) === "missing") {
         missing++;
         continue;
       }
@@ -356,8 +386,8 @@ function searchOrder(key: string, candidates: { key: string; file: string }[]) {
 /**
  * Searches the sheet folder for the PDFs of favorites that are missing (spec case 2): a PDF without an entry
  * of its own with the favorite's fingerprint takes the entry over (in a write that checks the rules again).
- * Each favorite is searched completely at most once per process; a search cut short by an unreadable PDF or a
- * failed write runs again next time. Never throws.
+ * Each favorite is searched completely at most once per process; a search cut short by an unreadable PDF, a
+ * folder or link the walk could not read, or a failed write runs again next time. Never throws.
  */
 export async function relinkMissingFavorites(folder: string): Promise<{ moved: number }> {
   let moved = 0;
@@ -368,14 +398,16 @@ export async function relinkMissingFavorites(folder: string): Promise<{ moved: n
     const lost: string[] = [];
     for (const key of read.keys.sort()) {
       if (sheets[key].fingerprint === undefined || searchedFavorites.has(`${folder}\0${key}`)) continue;
-      if ((await pathState(fileOf(folder, key))) === "missing") lost.push(key);
+      if ((await pathState(fileOf(folder, key), folder)) === "missing") lost.push(key);
     }
     if (lost.length === 0) return { moved };
 
-    let candidates = (await listSheetPdfs(folder)).filter((pdf) => !Object.hasOwn(sheets, pdf.key));
+    // A walk that skipped a folder or link may have missed the PDF: nothing counts as searched then.
+    const walk = await walkSheetPdfs(folder);
+    let candidates = walk.pdfs.filter((pdf) => !Object.hasOwn(sheets, pdf.key));
     for (const key of lost) {
       const wanted = sheets[key].fingerprint!;
-      let complete = true;
+      let complete = walk.complete;
       for (const candidate of searchOrder(key, candidates)) {
         let fingerprint: Fingerprint;
         try {

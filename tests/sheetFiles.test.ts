@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isListedSheetEntry, listSheetPdfs, resolveListedEntry } from "../src/sheetFiles";
+import { isListedSheetEntry, listSheetPdfs, resolveListedEntry, walkSheetPdfs } from "../src/sheetFiles";
 
 describe("isListedSheetEntry", () => {
   it("lists pdfs in any spelling", () => {
@@ -92,5 +92,23 @@ describe("listSheetPdfs", () => {
       { key: "C/D/c.PDF", file: path.join(dir, "C", "D", "c.PDF") },
       { key: "ext/e.pdf", file: path.join(dir, "ext", "e.pdf") },
     ]);
+  });
+
+  it("reports a walk that had to skip a broken link or an unreadable folder", async () => {
+    touch("a.pdf");
+    touch("B", "b.pdf");
+    expect(await walkSheetPdfs(dir)).toMatchObject({ complete: true });
+
+    fs.symlinkSync(path.join(outside, "gone"), path.join(dir, "offline"), "dir");
+    expect(await walkSheetPdfs(dir)).toEqual({
+      pdfs: [
+        { key: "a.pdf", file: path.join(dir, "a.pdf") },
+        { key: "B/b.pdf", file: path.join(dir, "B", "b.pdf") },
+      ],
+      complete: false,
+    });
+    fs.rmSync(path.join(dir, "offline"));
+
+    expect(await walkSheetPdfs(path.join(dir, "missing"))).toEqual({ pdfs: [], complete: false });
   });
 });

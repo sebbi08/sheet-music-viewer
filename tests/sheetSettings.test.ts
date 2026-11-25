@@ -69,6 +69,21 @@ const failStat = (file: string, code: string) => {
       : (original as (...args: unknown[]) => Promise<fs.Stats>)(p, ...rest)) as typeof fs.promises.stat);
 };
 
+/** chmod-based tests do not work as root (root ignores permission bits). */
+const isRoot = process.getuid?.() === 0;
+/** A folder outside the sheet folder (another drive), removed after the test. */
+const outsideDirs: string[] = [];
+const makeOutside = () => {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "smv-sheet-settings-drive-"));
+  outsideDirs.push(outside);
+  return outside;
+};
+/** A link at `key` to the folder `target`. */
+const linkFolder = (key: string, target: string) => {
+  fs.mkdirSync(path.dirname(full(key)), { recursive: true });
+  fs.symlinkSync(target, full(key), "dir");
+};
+
 let pdfA: Uint8Array;
 let pdfB: Uint8Array;
 
@@ -87,6 +102,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   setLockRetryDelays(previousDelays);
   fs.rmSync(dir, { recursive: true, force: true });
+  for (const outside of outsideDirs.splice(0)) fs.rmSync(outside, { recursive: true, force: true });
 });
 
 describe("loadSheetSettings: an entry follows a moved PDF on open", () => {
@@ -241,6 +257,46 @@ describe("loadSheetSettings: an entry follows a moved PDF on open", () => {
       favorite: false,
     });
     expect(fs.readFileSync(configPath(), "utf8")).toBe(before);
+  });
+
+  test("an entry behind a folder link whose drive is offline moves nowhere, not even to an identical copy", async () => {
+    const drive = makeOutside();
+    linkFolder("Pop/Linked", drive);
+    fs.writeFileSync(path.join(drive, "a.pdf"), pdfA);
+    const entry = { favorite: true, pageDividers: { "1": 0.3 }, fingerprint: fingerprintOf(pdfA) };
+    writeConfig({ "Pop/Linked/a.pdf": entry });
+    writePdf("Local/a.pdf", pdfA);
+    fs.rmSync(drive, { recursive: true, force: true }); // the drive sleeps: the link dangles
+    const before = fs.readFileSync(configPath(), "utf8");
+
+    expect(await loadSheetSettings({ folder: dir, pdfPath: full("Local/a.pdf") })).toEqual({
+      kind: "ok",
+      dividers: {},
+      favorite: false,
+    });
+    expect(fingerprintMock).not.toHaveBeenCalled();
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(fs.readFileSync(configPath(), "utf8")).toBe(before);
+    // Unclear whether it exists: the main page shows the card.
+    expect(await loadFavorites(dir)).toMatchObject({ kind: "ok", favorites: [{ key: "Pop/Linked/a.pdf" }], missing: 0 });
+  });
+
+  test("a missing file below a reachable linked folder still counts as missing", async () => {
+    const drive = makeOutside();
+    linkFolder("Linked", drive);
+    writePdf("Linked/a.pdf", pdfA);
+    const entry = { favorite: true, fingerprint: fingerprintOf(pdfA) };
+    writeConfig({ "Linked/a.pdf": entry });
+    fs.mkdirSync(full("Local"));
+    fs.copyFileSync(full("Linked/a.pdf"), full("Local/a.pdf"));
+    fs.rmSync(full("Linked/a.pdf"));
+
+    expect(await loadSheetSettings({ folder: dir, pdfPath: full("Local/a.pdf") })).toEqual({
+      kind: "ok",
+      dividers: {},
+      favorite: true,
+    });
+    expect(readSheets()).toEqual({ "Local/a.pdf": entry });
   });
 
   test("a sheet outside the folder and an unreadable config", async () => {
@@ -406,5 +462,39 @@ describe("relinkMissingFavorites", () => {
 
     expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
     expect(fingerprintMock).toHaveBeenCalledTimes(2);
+  });
+
+  test.skipIf(isRoot)("a walk that skipped an unreadable folder counts as no complete search", async () => {
+    writePdf("B/other.pdf", pdfB);
+    fs.mkdirSync(full("Locked"));
+    writeConfig({ "A/gone.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
+    fs.chmodSync(full("Locked"), 0o000);
+    try {
+      expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+      expect(fingerprintMock).toHaveBeenCalledTimes(1);
+      expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+      expect(fingerprintMock).toHaveBeenCalledTimes(2);
+    } finally {
+      fs.chmodSync(full("Locked"), 0o755);
+    }
+    // Once the walk sees everything, the search counts and is not repeated.
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(fingerprintMock).toHaveBeenCalledTimes(3);
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(fingerprintMock).toHaveBeenCalledTimes(3);
+  });
+
+  test("the search checks a PDF with the same name first, then the same folder, then the rest", async () => {
+    writePdf("B/aaa.pdf", pdfB); // first in the listing
+    writePdf("A/other.pdf", pdfB); // same folder
+    writePdf("Z/song.pdf", pdfB); // same name, last in the listing
+    writeConfig({ "A/song.pdf": { favorite: true, fingerprint: { sha256: "0".repeat(64), length: 10 } } });
+
+    expect(await relinkMissingFavorites(dir)).toEqual({ moved: 0 });
+    expect(fingerprintMock.mock.calls.map(([file]) => file)).toEqual([
+      full("Z/song.pdf"),
+      full("A/other.pdf"),
+      full("B/aaa.pdf"),
+    ]);
   });
 });

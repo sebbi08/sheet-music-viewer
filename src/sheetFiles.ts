@@ -48,6 +48,8 @@ interface PdfWalk {
   folders: Set<string>;
   pdfs: Set<string>;
   result: { key: string; file: string }[];
+  /** False once a folder or a link could not be read: part of the tree was not looked at. */
+  complete: boolean;
 }
 
 async function walkPdfs(dir: string, rel: string, walk: PdfWalk): Promise<void> {
@@ -58,6 +60,7 @@ async function walkPdfs(dir: string, rel: string, walk: PdfWalk): Promise<void> 
   try {
     entries = await fs.promises.readdir(dir, { withFileTypes: true });
   } catch {
+    walk.complete = false;
     return;
   }
   entries.sort((a, b) => a.name.localeCompare(b.name, "de"));
@@ -73,6 +76,8 @@ async function walkPdfs(dir: string, rel: string, walk: PdfWalk): Promise<void> 
         isDirectory = stats.isDirectory();
         isRegularFile = stats.isFile();
       } catch {
+        // A broken link may be a folder on a drive that is offline right now.
+        walk.complete = false;
         continue;
       }
     }
@@ -92,14 +97,23 @@ async function walkPdfs(dir: string, rel: string, walk: PdfWalk): Promise<void> 
  * Every PDF the sheet list shows below `root`, recursively: hidden entries skipped, links (and Windows
  * junctions) followed, every real folder and real PDF once, by the first way in name order (like
  * `scanMigrationCandidates`). `key` is the path relative to `root` with "/" (a sheetKey). Folders and links
- * that cannot be read are skipped silently. Never throws.
+ * that cannot be read are skipped; `complete` is then false (a search over `pdfs` may have missed a file).
+ * Never throws.
  */
-export async function listSheetPdfs(root: string): Promise<{ key: string; file: string }[]> {
-  const walk: PdfWalk = { folders: new Set(), pdfs: new Set(), result: [] };
+export async function walkSheetPdfs(
+  root: string,
+): Promise<{ pdfs: { key: string; file: string }[]; complete: boolean }> {
+  const walk: PdfWalk = { folders: new Set(), pdfs: new Set(), result: [], complete: true };
   try {
     await walkPdfs(root, "", walk);
   } catch {
     // Only what was found so far.
+    walk.complete = false;
   }
-  return walk.result;
+  return { pdfs: walk.result, complete: walk.complete };
+}
+
+/** The PDFs of `walkSheetPdfs`, skipped folders and links ignored silently. Never throws. */
+export async function listSheetPdfs(root: string): Promise<{ key: string; file: string }[]> {
+  return (await walkSheetPdfs(root)).pdfs;
 }
