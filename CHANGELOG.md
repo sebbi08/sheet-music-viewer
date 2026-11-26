@@ -1,3 +1,28 @@
+# [1.17.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.16.0...v1.17.0) (2026-11-26)
+
+
+### Bug Fixes
+
+* favorite revert goes back to the last saved state ([6431823](https://github.com/sebbi08/sheet-music-viewer/commit/6431823a9ea92edf3262f1af6b65b04f334c166c))
+* keep an unchanged stored fingerprint with its unknown fields ([c66a5b0](https://github.com/sebbi08/sheet-music-viewer/commit/c66a5b050889a67d54b7c061cb002f2e933ee871))
+* no favorites of the previous folder, cheaper folder-view hearts ([2f4d349](https://github.com/sebbi08/sheet-music-viewer/commit/2f4d3496e1d11a36d0e6799015e9c0ed676c8f39))
+* no move through an offline link or an incomplete search ([207448f](https://github.com/sebbi08/sheet-music-viewer/commit/207448f0f01b58fa174b95062e00cd9c9a4b4505))
+* use the key spelled as on disk for sheet settings ([85bed6c](https://github.com/sebbi08/sheet-music-viewer/commit/85bed6cdb77f40439227868d439b299cf84274d3))
+
+
+### Features
+
+* favorite, fingerprint and entry moves in .config.json ([a52b9d1](https://github.com/sebbi08/sheet-music-viewer/commit/a52b9d1b7fe77e1450b15b67def3d9466d3d8448))
+* favorites on the main page ([f90a3f7](https://github.com/sebbi08/sheet-music-viewer/commit/f90a3f749bd1793562d842ad1fd4de32d8b8fee6))
+* favorites over tRPC ([09dc6ab](https://github.com/sebbi08/sheet-music-viewer/commit/09dc6ab99d2991c86f6820215a3057676eaf0c2b))
+* favorites store ([627728e](https://github.com/sebbi08/sheet-music-viewer/commit/627728ed9a1972bf098c2629b3e14eba152c0c51))
+* fingerprint of a PDF's original bytes ([36e7aeb](https://github.com/sebbi08/sheet-music-viewer/commit/36e7aebac862f25768c49203ef3a9f92da180730))
+* list and remove favorites that were not found ([467d1a0](https://github.com/sebbi08/sheet-music-viewer/commit/467d1a08283c6b6e4c741c7f515d7633200d7c71))
+* mark favorites in the viewer and the folder view ([afcb8de](https://github.com/sebbi08/sheet-music-viewer/commit/afcb8ded1b10e6d1d73d08d286f50bd583992ce3))
+* report favorites not found after the search ([17dfa7a](https://github.com/sebbi08/sheet-music-viewer/commit/17dfa7aefca6d26e9fa59374d7fc920ccdce41a3))
+* sheet settings follow a moved PDF ([aa5a681](https://github.com/sebbi08/sheet-music-viewer/commit/aa5a6811b4c6164389afd5a74ccd03843835332e))
+* tight symbol boxes, bundled music font, new pen sizes, white pen below other marks ([c38bc0b](https://github.com/sebbi08/sheet-music-viewer/commit/c38bc0b69af451cedcfe04d58c146d4d75870772))
+
 # [1.16.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.15.1...v1.16.0) (2026-11-25)
 
 
