@@ -1,3 +1,20 @@
+# [1.18.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.17.0...v1.18.0) (2026-11-26)
+
+
+### Bug Fixes
+
+* keep the markup of pages not yet redrawn after a resize ([8e32715](https://github.com/sebbi08/sheet-music-viewer/commit/8e3271545275d6a2e037c0e1b390b8dd2f70dda1))
+* log a failed write of the write check cache ([2a0753d](https://github.com/sebbi08/sheet-music-viewer/commit/2a0753d5b8d7adc457352120dabfef004c1f7d2b))
+* remember only deterministic trial build failures; report orphaned stamps on load ([c409935](https://github.com/sebbi08/sheet-music-viewer/commit/c4099353cfceef7ecd209ceca99b3b1acd532020))
+* show a repaired orphan stamp on the open that repairs it ([0d38b14](https://github.com/sebbi08/sheet-music-viewer/commit/0d38b1407cf2abf67fd30af4bee4dc57b3807b45))
+
+
+### Features
+
+* content-keyed cache for the markup write check ([1997c14](https://github.com/sebbi08/sheet-music-viewer/commit/1997c144683247a67fd447b7a34f1f11a6e440d4))
+* load markup without the write check; check on open through a remembered result ([ff5910a](https://github.com/sebbi08/sheet-music-viewer/commit/ff5910a7460f0c08e8b2aa0b901d07b878f9057d))
+* show sheet pages one by one with a progress bar in the app bar ([6240332](https://github.com/sebbi08/sheet-music-viewer/commit/624033204a43386c120105a374dd4e315d1774b8))
+
 # [1.17.0](https://github.com/sebbi08/sheet-music-viewer/compare/v1.16.0...v1.17.0) (2026-11-26)
 
 
