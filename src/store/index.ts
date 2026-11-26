@@ -52,6 +52,11 @@ const useStore = defineStore("app", {
     dividerMode: false,
     /** Set by the mounted SheetViewer: all pages rendered and at least 2 pages. */
     dividerModeAvailable: false,
+    /**
+     * Set by the mounted SheetViewer while the sheet loads: pages rendered of all pages, and whether the check
+     * whether markup can be saved into the PDF still runs. null: nothing loading (or not in the viewer).
+     */
+    sheetLoading: null as { loaded: number; total: number; checking: boolean } | null,
     setListsWrapper: noSetLists(),
     /**
      * The folder the set lists in `setListsWrapper` were loaded from ("" = none loaded). Set lists are saved

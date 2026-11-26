@@ -216,6 +216,8 @@ const RESIZE_DEBOUNCE_MS = 600;
 const STABLE_FOR_MS = 1000;
 const MARKUP_GRACE_MS = 6000; // time for the music font and fabric to load the objects
 const WAIT_TIMEOUT_MS = 120_000;
+/** Set by the viewer once every page with its markup is rendered and the write check returned. */
+export const SHEET_LOADED = '#sheetViewerWrapper[data-sheet-loaded="true"]';
 /** How long `close()` waits for the app to quit before it kills it. */
 const CLOSE_TIMEOUT_MS = 60_000;
 const isWindows = process.platform === "win32";
@@ -726,6 +728,8 @@ export async function openSheet(
 ): Promise<SheetSession> {
   const launched = await launchApp(app, folder, options);
   const { electronApp, page, refreshRequests } = launched;
+  // An app built at a git ref (the baseline) is the old viewer, which has no "loaded" marker.
+  const legacyViewer = path.resolve(app.root) !== path.resolve(repoRoot);
   try {
     // No sheet opens before the gate passed (App.vue's router guard). Without `bulkMigration` the folder
     // counts as migrated (SMV_DISABLE_BULK_MIGRATION), so the gate passes at once.
@@ -754,7 +758,13 @@ export async function openSheet(
         return app.config.globalProperties.$router.push({ name: "SheetViewer", params: { path: p } });
       }, path.resolve(folder, pdfPath));
       await page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached" });
-      await page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: WAIT_TIMEOUT_MS });
+      if (legacyViewer) {
+        // The old app covers the sheet with an overlay until every page is rendered.
+        await page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: WAIT_TIMEOUT_MS });
+      } else {
+        // Every page with its markup, and the write check returned.
+        await page.waitForSelector(SHEET_LOADED, { state: "attached", timeout: WAIT_TIMEOUT_MS });
+      }
       await page.waitForTimeout(RESIZE_DEBOUNCE_MS);
       await refreshRequests();
     };
@@ -887,10 +897,12 @@ export async function openSheet(
           throw new Error("cannot resize while editing");
         }
         // The resize handler renders every page again and then replaces all markup overlays.
-        // Tagging the current overlays tells the new set apart from the old one.
+        // Tagging the current overlays tells the new set apart from the old one; the "loaded" marker is
+        // removed here and set again only by the end of the new render run.
         const overlays = await page.evaluate(() => {
           const all = document.querySelectorAll<HTMLCanvasElement>("#sheetViewerWrapper .overlayCanvas");
           all.forEach((c) => (c.dataset.smvStale = "1"));
+          document.querySelector<HTMLElement>("#sheetViewerWrapper")?.removeAttribute("data-sheet-loaded");
           return all.length;
         });
         await electronApp.evaluate(({ BrowserWindow }, s) => {
@@ -901,11 +913,16 @@ export async function openSheet(
         await waitFor(`window content ${width}x${height}`, hasSize);
         await page.waitForTimeout(RESIZE_DEBOUNCE_MS);
         await waitFor(`sheet rendered again at ${width}x${height}`, () =>
-          page.evaluate((count) => {
-            if (document.querySelector("#sheetViewerWrapper .overlay")) return false;
-            const all = [...document.querySelectorAll<HTMLCanvasElement>("#sheetViewerWrapper .overlayCanvas")];
-            return all.length === count && all.every((c) => c.dataset.smvStale === undefined);
-          }, overlays),
+          page.evaluate(
+            ({ count, legacy, loaded }) => {
+              if (legacy ? document.querySelector("#sheetViewerWrapper .overlay") : !document.querySelector(loaded)) {
+                return false;
+              }
+              const all = [...document.querySelectorAll<HTMLCanvasElement>("#sheetViewerWrapper .overlayCanvas")];
+              return all.length === count && all.every((c) => c.dataset.smvStale === undefined);
+            },
+            { count: overlays, legacy: legacyViewer, loaded: SHEET_LOADED },
+          ),
         );
         await refreshRequests();
       },

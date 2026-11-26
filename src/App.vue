@@ -26,8 +26,9 @@
           <v-icon>{{ store.dividerMode ? "mdi-check" : "mdi-arrow-split-horizontal" }}</v-icon>
         </v-btn>
 
+        <!-- Off while the sheet loads (all pages and the write check); closing an open edit mode always works. -->
         <v-btn v-if="router.currentRoute.value.name === RouteNames.SheetViewer" dark icon @click="onSwitchEditMode"
-          :disabled="(store.markupEditDisabled && !store.editMode) || store.dividerMode">
+          :disabled="((store.markupEditDisabled || store.sheetLoading !== null) && !store.editMode) || store.dividerMode">
           <v-icon>{{ store.editMode ? "mdi-close" : "mdi-pencil" }}</v-icon>
         </v-btn>
 
@@ -97,6 +98,12 @@
           </v-card>
         </v-dialog>
       </template>
+
+      <!-- Loading the sheet: share of rendered pages; indeterminate while only the write check runs. -->
+      <v-progress-linear v-if="store.sheetLoading && router.currentRoute.value.name === RouteNames.SheetViewer"
+        data-testid="sheet-loading" absolute location="bottom" color="white" height="3"
+        :model-value="store.sheetLoading.total > 0 ? (store.sheetLoading.loaded / store.sheetLoading.total) * 100 : 0"
+        :indeterminate="store.sheetLoading.loaded === store.sheetLoading.total" />
     </v-app-bar>
 
     <v-main>

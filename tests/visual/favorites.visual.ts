@@ -4,7 +4,7 @@ import { afterEach, beforeAll, expect, test } from "vitest";
 import { fingerprintOf } from "../../src/pdfFingerprint";
 import { makePdf } from "../pdfMarkup/fixtures";
 import { repoRoot } from "./corpus";
-import { type AppUnderTest, currentApp, launchApp, type LaunchedApp } from "./electronDriver";
+import { type AppUnderTest, currentApp, launchApp, type LaunchedApp, SHEET_LOADED } from "./electronDriver";
 
 /**
  * Favorites (spec 2026-11-25) end to end, headless, on synthetic folders below test-results/visual/work/ (no
@@ -117,7 +117,7 @@ async function showFolder(launched: LaunchedApp, relative: string): Promise<void
 async function showSheet(launched: LaunchedApp, folder: string, pdfPath: string): Promise<void> {
   await push(launched, { name: "SheetViewer", params: { path: path.resolve(folder, pdfPath) } });
   await launched.page.waitForSelector("#sheetViewerWrapper canvas[data-page]", { state: "attached" });
-  await launched.page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: 60_000 });
+  await launched.page.waitForSelector(SHEET_LOADED, { state: "attached", timeout: 60_000 });
 }
 
 /** Leaves the viewer with the app bar's back button. */
@@ -395,7 +395,7 @@ test("the main page shows favorites sorted, a click opens the sheet", async () =
     return { name: route.name, params: route.params };
   });
   expect(params, "route of the click").toEqual({ name: "SheetViewer", params: { path: path.join(folder, "x", "a.pdf") } });
-  await launched.page.waitForSelector("#sheetViewerWrapper .overlay", { state: "detached", timeout: 60_000 });
+  await launched.page.waitForSelector(SHEET_LOADED, { state: "attached", timeout: 60_000 });
   await expect.poll(() => viewerHeart(launched), { timeout: 30_000 }).toBe("mdi-heart");
   await settle();
   expect(configState(folder), ".config.json bytes and mtime").toEqual(before);

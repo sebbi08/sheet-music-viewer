@@ -1,14 +1,5 @@
 <template>
   <div id="sheetViewerWrapper" class="canvasWrapper">
-    <v-progress-circular v-if="pagesLoaded !== pageNumbers" :size="70" :width="7" class="loader" color="primary"
-      indeterminate>
-      {{
-        Number.isInteger((100 / pageNumbers) * pagesLoaded)
-          ? (100 / pageNumbers) * pagesLoaded
-          : ((100 / pageNumbers) * pagesLoaded).toFixed(0)
-      }}%
-    </v-progress-circular>
-    <div v-if="pagesLoaded !== pageNumbers" class="overlay"></div>
     <div class="splitIndicator" v-if="currentPage !== pageNumbers" v-bind:style="getSplitIndicatorStyle()">
       <div class="indicatorLeft"></div>
       <div class="indicatorRight"></div>
@@ -154,7 +145,7 @@ import * as fabric from 'fabric';
 import _ from "lodash";
 import * as pdfJs from "pdfjs-dist";
 import { storeToRefs } from "pinia";
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, shallowReactive, watch } from "vue";
 import {
   BRUSH_COLORS,
   type Icon,
@@ -225,7 +216,6 @@ const allMdiIcons = ref(MDI_ICONS.ALL_ICONS);
 const pageNumbers = ref(0);
 const currentPage = ref(1);
 const pagesLoaded = ref(0);
-let pdfLoadingTask: pdfJs.PDFDocumentLoadingTask | undefined;
 let editFabric: fabric.Canvas | undefined;
 const sheetViewerWrapperId = "sheetViewerWrapper";
 const editCanvasId = "";
@@ -264,6 +254,10 @@ let dividerDrag: {
 let dividerSaves: Promise<void> = Promise.resolve();
 /** Set when the sheet is left: a load still running for it must not change the app any more. */
 let unmounted = false;
+/** Counts render runs (open, resize); a run stops drawing pages once a newer one started. */
+let renderRun = 0;
+/** The page being drawn with its overlays (one at a time): a new run waits for it before it starts drawing. */
+let pageStep: Promise<void> = Promise.resolve();
 /**
  * Markup per 1-based page as shown; `rect` (PDF user space) null = drawn against the whole visible page.
  * Unsaved changes live in the markupSaves store (outside this component), keyed by the PDF path.
@@ -278,7 +272,8 @@ let optionalContentConfig: OptionalContentConfig | undefined;
 const pageViewports = new Map<number, pdfJs.PageViewport>();
 const musicSymbolDialog = ref(false);
 let overlayFabrics: fabric.StaticCanvas[] = [];
-const pageSizes: Array<{ width: number; height: number }> = [];
+/** Displayed size per page; reactive, so the red marks follow each page as it is drawn. */
+const pageSizes = shallowReactive<Array<{ width: number; height: number }>>([]);
 const editState = ref<EditState>({
   thickness: 0,
   drawingMode: false,
@@ -325,27 +320,16 @@ onMounted(async () => {
   // Closing the window while editing saves the open edit canvas first.
   markupSaves.setEditCapture(() => saveDrawnData());
 
-  const loaded: LoadMarkupResult | null = await client.loadMarkup.query(sheetPath).catch((e: unknown) => {
+  // The pencil waits for every page and for the check whether markup can be saved (app bar).
+  store.sheetLoading = { loaded: 0, total: 0, checking: true };
+  currentPage.value = 1;
+
+  // Markup, PDF and dividers load at the same time; the pages are drawn once markup and PDF are there.
+  const markupLoading = client.loadMarkup.query(sheetPath).catch((e: unknown) => {
     console.warn("Could not load the markup", e);
     return null;
   });
-  if (unmounted) return;
-  if (!loaded || loaded.writeBlock) {
-    // The sheet is still shown; editing stays off, so markup that could not be read is never overwritten
-    // and markup that cannot be saved is never drawn in vain.
-    store.markupEditDisabled = true;
-    store.editMode = false;
-  }
-  if (!loaded) {
-    notices.show(LOAD_FAILED);
-  } else if (loaded.writeBlock) {
-    // On every open: the reason may have gone (or come) since the last one.
-    writeBlock.value = loaded.writeBlock;
-    writeBlockDialog.value = true;
-  }
-
-  currentPage.value = 1;
-  pdfLoadingTask = pdfJs.getDocument({
+  const pdfLoadingTask = pdfJs.getDocument({
     url: "local-resource://file.html?url=" + btoa(encodeURIComponent(sheetPath)),
     wasmUrl: new URL("wasm/", pdfJsAssetBaseUrl).toString(),
     cMapUrl: new URL("cmaps/", pdfJsAssetBaseUrl).toString(),
@@ -355,15 +339,50 @@ onMounted(async () => {
     disableStream: true,
     disableAutoFetch: true,
   });
-  pdf = await pdfLoadingTask.promise;
+  const pdfLoading = pdfLoadingTask.promise.catch((e: unknown) => {
+    console.warn("Could not load the PDF", e);
+    return null;
+  });
+  // Dividers that arrive after some pages were drawn: the cuts of those pages follow.
+  void loadDividers().then(() => {
+    if (!unmounted) applyAllCuts();
+  });
+
+  const loaded: LoadMarkupResult | null = await markupLoading;
   if (unmounted) return;
+  if (!loaded || loaded.writeBlock) {
+    // The sheet is still shown; editing stays off, so markup that could not be read is never overwritten
+    // and markup that cannot be saved is never drawn in vain.
+    store.markupEditDisabled = true;
+    store.editMode = false;
+  }
+  if (!loaded) {
+    notices.show(LOAD_FAILED);
+    setChecking(false);
+  } else if (loaded.writeBlock) {
+    // On every open: the reason may have gone (or come) since the last one.
+    writeBlock.value = loaded.writeBlock;
+    writeBlockDialog.value = true;
+    setChecking(false);
+  } else {
+    // In the background (read-only, trial build): the pages do not wait for it, the pencil does.
+    void checkWritable();
+  }
+
+  const loadedPdf = await pdfLoading;
+  if (unmounted) return;
+  if (!loadedPdf) {
+    // Nothing to show; nothing loads any more.
+    store.sheetLoading = null;
+    return;
+  }
 
   // Our stamps duplicate the fabric overlay: hide their optional content group (spec section 4), but only
   // if the markup data could be read; otherwise the stamps are all there is to see of it.
   const blockReason = loaded?.writeBlock?.reason;
   const markupRead = loaded !== null && blockReason !== "encrypted" && blockReason !== "unparseable";
   if (markupRead) {
-    const config = await pdf.getOptionalContentConfig();
+    const config = await loadedPdf.getOptionalContentConfig();
     if (unmounted) return;
     for (const [id, group] of config) {
       if (group?.name === OCG_NAME) {
@@ -375,15 +394,16 @@ onMounted(async () => {
 
   if (loaded) applyLoadedMarkup(loaded);
 
-  await loadDividers();
-  if (unmounted) return;
-
+  // Only now: a resize before this point must not draw the pages with our stamps shown.
+  pdf = loadedPdf;
   await renderPdf();
-
 });
 
 onBeforeUnmount(() => {
   unmounted = true;
+  // No further page is drawn, and a check still running is not looked at any more.
+  renderRun++;
+  store.sheetLoading = null;
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("click", onClick);
   window.removeEventListener("resize", debouncedResize);
@@ -402,6 +422,39 @@ onBeforeUnmount(() => {
   store.dividerMode = false;
   favorites.current = null;
 })
+
+/** The check whether markup can be saved into the PDF runs (or no longer runs). */
+function setChecking(checking: boolean): void {
+  if (store.sheetLoading) store.sheetLoading.checking = checking;
+}
+
+/**
+ * Checks in the background whether markup can be saved into this PDF; a block (e.g. read-only) keeps editing
+ * off and shows the hint, a failed call is treated like markup that could not be loaded. Its result is ignored
+ * once the sheet was left.
+ */
+async function checkWritable(): Promise<void> {
+  let block: WriteBlock | null;
+  try {
+    block = await client.checkMarkupOnOpen.query(sheetPath);
+  } catch (e: unknown) {
+    if (unmounted) return;
+    console.warn("Could not check whether markup can be saved", e);
+    store.markupEditDisabled = true;
+    store.editMode = false;
+    notices.show(LOAD_FAILED);
+    setChecking(false);
+    return;
+  }
+  if (unmounted) return;
+  if (block) {
+    store.markupEditDisabled = true;
+    store.editMode = false;
+    writeBlock.value = block;
+    writeBlockDialog.value = true;
+  }
+  setChecking(false);
+}
 
 /**
  * Shows the markup saved in the PDF (a `.data` file next to it is ignored: the migration gate moved it
@@ -508,9 +561,7 @@ function onClick(event: MouseEvent): void {
   if (store.editMode || dividerTurn.value !== null) {
     return;
   }
-  if (pagesLoaded.value !== pageNumbers.value) {
-    return;
-  }
+  // Turning works while the sheet loads; a page not drawn yet shows nothing until it is.
   if (event.clientX > window.innerWidth / 2) {
     nextPage();
   } else {
@@ -534,7 +585,7 @@ watch(editMode, async (editMode) => {
   // or cannot be saved into the PDF (the hint says why).
   if (
     editMode &&
-    (pageNumbers.value === 0 || pagesLoaded.value !== pageNumbers.value || store.markupEditDisabled || dividerTurn.value !== null)
+    (pageNumbers.value === 0 || store.sheetLoading !== null || store.markupEditDisabled || dividerTurn.value !== null)
   ) {
     store.editMode = false
     if (store.markupEditDisabled) notices.show(writeBlock.value ? writeBlockText(writeBlock.value) : LOAD_FAILED);
@@ -552,6 +603,18 @@ watch(editMode, async (editMode) => {
     await populateOverlayCanvas();
   }
 })
+
+// Loading ends once every page is drawn and the check returned: the app bar's bar goes, the pencil is ready, and
+// the wrapper gets the "loaded" marker (tests wait for it).
+watch(
+  () => store.sheetLoading,
+  (loading) => {
+    if (!loading || loading.total === 0 || loading.loaded < loading.total || loading.checking) return;
+    store.sheetLoading = null;
+    document.getElementById(sheetViewerWrapperId)?.setAttribute("data-sheet-loaded", "true");
+  },
+  { deep: true },
+);
 
 // The app bar's divider button can be used once every page is rendered, if there is a page turn at all
 // and the sheet lies in the sheet folder.
@@ -1271,33 +1334,36 @@ function clearOverlayCanvas(): void {
     .forEach((canvas) => canvas.remove());
 }
 
+/** Draws the markup overlays of every page drawn so far (a render run still going draws the others). */
 async function populateOverlayCanvas() {
   clearOverlayCanvas();
 
-  const $wrapper = document.getElementById(
-    "sheetViewerWrapper"
-  ) as HTMLDivElement;
-
-  const entries = [...markupPages.entries()].sort(([a], [b]) => a - b);
-  for (const [pageNumber, entry] of entries) {
-    const viewport = pageViewports.get(pageNumber);
-    const canvas = $wrapper?.querySelector(
-      'canvas[data-page="' + pageNumber + '"]'
-    ) as HTMLCanvasElement | null;
-    if (!viewport || !canvas) continue;
-    const halfPageCanvas = $wrapper?.querySelector(
-      'canvas[data-page="' + (pageNumber - 0.5) + '"]'
-    ) as HTMLCanvasElement;
-
-    await createOverlay(canvas, entry, viewport);
-    if (halfPageCanvas) {
-      await createOverlay(halfPageCanvas, entry, viewport);
-      // Cut before it can be shown: the final applyAllCuts only runs after every page's overlay.
-      applyCut(pageNumber - 0.5);
-    }
-    setOverlayVisible();
+  const $wrapper = document.getElementById(sheetViewerWrapperId);
+  const drawn = [...markupPages.keys()]
+    .filter((page) => $wrapper?.querySelector(`canvas[data-page="${page}"][data-rendered]`))
+    .sort((a, b) => a - b);
+  for (const pageNumber of drawn) {
+    await drawPageOverlays(pageNumber);
   }
   applyAllCuts();
+}
+
+/** Draws the markup overlay of page `pageNumber` and of its half step, if the page has markup. */
+async function drawPageOverlays(pageNumber: number): Promise<void> {
+  const entry = markupPages.get(pageNumber);
+  const viewport = pageViewports.get(pageNumber);
+  const $wrapper = document.getElementById(sheetViewerWrapperId);
+  const canvas = $wrapper?.querySelector<HTMLCanvasElement>(`canvas[data-page="${pageNumber}"]`);
+  if (!entry || !viewport || !canvas) return;
+  const halfPageCanvas = $wrapper?.querySelector<HTMLCanvasElement>(`canvas[data-page="${pageNumber - 0.5}"]`);
+
+  await createOverlay(canvas, entry, viewport);
+  if (halfPageCanvas) {
+    await createOverlay(halfPageCanvas, entry, viewport);
+    // Cut before it can be shown.
+    applyCut(pageNumber - 0.5);
+  }
+  setOverlayVisible();
 }
 
 /** Markup overlay of a page canvas; the one of a half step is cut by `applyCut`. */
@@ -1366,33 +1432,53 @@ function applyAllCuts(): void {
   }
 }
 
+/**
+ * Draws the pages one after another from page 1, each with its half step, cut and markup overlays; a page is
+ * shown once it is done. A newer run (resize) or leaving the sheet stops it before the next page.
+ */
 async function renderPdf(): Promise<void> {
-  if (!pdfLoadingTask || unmounted) {
+  if (!pdf || unmounted) {
     return;
   }
-  pdf = await pdfLoadingTask.promise;
-  if (unmounted) return;
-  pageNumbers.value = pdf?.numPages || 0;
+  const run = ++renderRun;
+  pageNumbers.value = pdf.numPages || 0;
   pagesLoaded.value = 0;
+  const $wrapper = document.getElementById(sheetViewerWrapperId) as HTMLDivElement | null;
+  $wrapper?.removeAttribute("data-sheet-loaded");
+  $wrapper?.querySelectorAll("canvas[data-rendered]").forEach((canvas) => canvas.removeAttribute("data-rendered"));
+  store.sheetLoading = { loaded: 0, total: pageNumbers.value, checking: store.sheetLoading?.checking ?? false };
 
-  setTimeout(() => {
-    if (unmounted) return;
-    const $wrapper = document.getElementById(
-      "sheetViewerWrapper"
-    ) as HTMLDivElement;
-    const renderingPromises = [];
-    for (let i = 1; i <= pageNumbers.value; i++) {
-      const $canvas = $wrapper?.querySelector(
-        'canvas[data-page="' + i + '"]'
-      ) as HTMLCanvasElement;
-      renderingPromises.push(
-        renderPage(i, $canvas, $wrapper).then(() => {
-          pagesLoaded.value++;
-        })
-      );
-    }
-    Promise.all(renderingPromises).then(populateOverlayCanvas);
-  }, 0);
+  // The canvases of the pages exist after the next render; the page step of an older run ends first (it
+  // draws on the same canvases and may still add an overlay).
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await pageStep;
+  if (unmounted || run !== renderRun || !$wrapper) return;
+  clearOverlayCanvas();
+  for (let i = 1; i <= pageNumbers.value; i++) {
+    if (unmounted || run !== renderRun) return;
+    pageStep = drawPage(i, $wrapper, run);
+    await pageStep;
+  }
+  if (unmounted || run !== renderRun) return;
+  applyAllCuts();
+}
+
+/** One page of render run `run`: the page, its half step and its markup overlays; then it counts as done. */
+async function drawPage(pageNumber: number, $wrapper: HTMLDivElement, run: number): Promise<void> {
+  const $canvas = $wrapper.querySelector<HTMLCanvasElement>(`canvas[data-page="${pageNumber}"]`);
+  try {
+    if ($canvas) await renderPage(pageNumber, $canvas, $wrapper);
+    if (unmounted || run !== renderRun) return;
+    // While editing, leaving edit mode draws the overlays (populateOverlayCanvas).
+    if (!store.editMode) await drawPageOverlays(pageNumber);
+  } catch (e: unknown) {
+    console.warn(`Could not draw page ${pageNumber}`, e);
+  }
+  if (unmounted || run !== renderRun) return;
+  $canvas?.setAttribute("data-rendered", "");
+  pagesLoaded.value++;
+  if (store.sheetLoading) store.sheetLoading.loaded++;
+  setOverlayVisible();
 }
 
 
@@ -1611,24 +1697,6 @@ function copyPageToHalfPageAndBackdrop(
   padding-left: 16px;
   display: flex;
   flex-wrap: wrap;
-}
-
-.loader {
-  z-index: 99;
-  position: absolute;
-  left: calc(50% - 35px);
-  top: calc(50% - 35px);
-}
-
-.overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  background: white;
-  z-index: 98;
-  opacity: 0.9;
 }
 
 .canvasWrapper {
