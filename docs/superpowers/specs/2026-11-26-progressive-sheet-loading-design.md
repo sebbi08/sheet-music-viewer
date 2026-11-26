@@ -1,6 +1,6 @@
 # Blätter Seite für Seite laden, Schreibprüfung merken
 
-Stand: 2026-11-26 · Status: zur Freigabe · Ergänzt: `2026-11-15-markup-in-pdf-design.md`,
+Stand: 2026-11-26 · Status: freigegeben · Ergänzt: `2026-11-15-markup-in-pdf-design.md`,
 `2026-11-20-strict-markup-migration-design.md` (Prüfung beim Öffnen)
 
 ## Warum
