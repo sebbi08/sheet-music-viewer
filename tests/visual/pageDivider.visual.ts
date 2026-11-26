@@ -3,13 +3,15 @@ import path from "node:path";
 import { afterEach, beforeAll, expect, test } from "vitest";
 import { makePdf } from "../pdfMarkup/fixtures";
 import { repoRoot } from "./corpus";
-import { type AppUnderTest, currentApp, openSheet, type SheetSession } from "./electronDriver";
+import { type AppUnderTest, currentApp, launchApp, openSheet, SHEET_LOADED, type SheetSession } from "./electronDriver";
+import { fifoSupported, holdFile } from "./fifo";
 
 /**
  * The movable page divider (spec 2026-11-23) end to end, headless, on synthetic folders below
  * test-results/visual/work/ (no corpus needed): the first step of a page turn is cut at the stored divider
  * (page image, backdrop, red marks), in the middle without one, also after a resize; the divider mode
- * (drag relative to the grab, a press without movement, keys, restart, „Zur Mitte“, failed load and save).
+ * (drag relative to the grab, a press without movement, keys, restart, „Zur Mitte“, failed load and save,
+ * no mode before the sheet settings arrived).
  * The driver's default `SMV_DISABLE_BULK_MIGRATION=1` lets every folder count as migrated.
  */
 const workDir = path.join(repoRoot, "test-results", "visual", "work");
@@ -330,6 +332,44 @@ test("a broken .config.json keeps the mode off with a notice", { timeout: 5 * 60
   expect((await session.cutState(1)).ratio, "cut of turn 1 in the middle").toBeCloseTo(0.5, 3);
   expect(fs.readFileSync(configPath(folder)).equals(bytes), ".config.json unchanged").toBe(true);
   expect(session.networkRequests()).toEqual([]);
+});
+
+test.skipIf(!fifoSupported)("the divider mode waits for the sheet settings", { timeout: 5 * 60_000 }, async () => {
+  const folder = newFolder();
+  const launched = await launchApp(app, folder);
+  cleanups.push(() => launched.close());
+  const { page } = launched;
+  await page.waitForFunction(() => document.documentElement.dataset.migrationGate === "passed", undefined, { timeout: 30_000 });
+  const push = (to: { name: string; params?: Record<string, string> }) =>
+    page.evaluate((target) => {
+      const vueApp = (document.querySelector("#app") as unknown as {
+        __vue_app__: { config: { globalProperties: { $router: { push(to: unknown): Promise<unknown> } } } };
+      }).__vue_app__;
+      return vueApp.config.globalProperties.$router.push(target);
+    }, to);
+  // The main page has read `.config.json` (set lists, favorites); from now on only the sheet reads it.
+  await push({ name: "Overview" });
+  await page.getByTestId("favorites-empty").waitFor({ timeout: 30_000 });
+  await settle();
+  // The sheet's settings arrive only when the test releases them, after every page is drawn.
+  const held = holdFile(configPath(folder));
+  cleanups.push(() => held.abandon());
+  await push({ name: "SheetViewer", params: { path: path.join(folder, "a.pdf") } });
+  await page.waitForSelector(SHEET_LOADED, { state: "attached", timeout: 60_000 });
+  await settle();
+  const dividerButton = page.locator("header .v-btn").filter({ has: page.locator(".mdi-arrow-split-horizontal, .mdi-check") });
+  expect(await dividerButton.isEnabled(), "divider button before the settings arrived").toBe(false);
+
+  await held.release(JSON.stringify({ version: 1, sheets: { "a.pdf": { pageDividers: { "1": 0.7 } } } }, null, 2));
+  await expect.poll(() => dividerButton.isEnabled(), { timeout: 30_000 }).toBe(true);
+  const clip = await page.evaluate(
+    () => getComputedStyle(document.querySelector<HTMLCanvasElement>('#sheetViewerWrapper canvas[data-page="1.5"]')!).clipPath,
+  );
+  expect(clip, "cut of turn 1 at the stored divider").toMatch(/^inset\(0px 0px 30%/);
+  await dividerButton.click();
+  await page.locator("#sheetViewerWrapper .dividerLine").first().waitFor({ state: "attached" });
+  await launched.refreshRequests();
+  expect(launched.networkRequests()).toEqual([]);
 });
 
 test("a single page PDF has no divider mode", { timeout: 5 * 60_000 }, async () => {

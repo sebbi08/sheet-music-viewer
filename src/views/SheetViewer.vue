@@ -236,6 +236,8 @@ const dividers = ref<PageDividers>({});
 const dividersError = ref<string | null>(null);
 /** The sheet is not below the sheet folder: it has no dividers and no divider mode. */
 const dividersOutside = ref(false);
+/** `loadSheetSettings` returned (dividers, outside or the error known): until then there is no divider mode. */
+const dividersLoaded = ref(false);
 /** In divider mode: the turn shown (the page left, n -> n+1); null outside the mode. */
 const dividerTurn = ref<number | null>(null);
 /** Height of the area that grabs the divider line (the line sits in its middle). */
@@ -329,27 +331,17 @@ onMounted(async () => {
     console.warn("Could not load the markup", e);
     return null;
   });
-  const pdfLoadingTask = pdfJs.getDocument({
-    url: "local-resource://file.html?url=" + btoa(encodeURIComponent(sheetPath)),
-    wasmUrl: new URL("wasm/", pdfJsAssetBaseUrl).toString(),
-    cMapUrl: new URL("cmaps/", pdfJsAssetBaseUrl).toString(),
-    standardFontDataUrl: new URL("standard_fonts/", pdfJsAssetBaseUrl).toString(),
-    // Saving replaces the file, so pdf.js must hold all of it in memory instead of reading ranges later.
-    disableRange: true,
-    disableStream: true,
-    disableAutoFetch: true,
-  });
-  const pdfLoading = pdfLoadingTask.promise.catch((e: unknown) => {
-    console.warn("Could not load the PDF", e);
-    return null;
-  });
+  let pdfLoadingTask = loadPdfDocument();
   // Dividers that arrive after some pages were drawn: the cuts of those pages follow.
   void loadDividers().then(() => {
     if (!unmounted) applyAllCuts();
   });
 
   const loaded: LoadMarkupResult | null = await markupLoading;
-  if (unmounted) return;
+  if (unmounted) {
+    discardPdfLoading(pdfLoadingTask);
+    return;
+  }
   if (!loaded || loaded.writeBlock) {
     // The sheet is still shown; editing stays off, so markup that could not be read is never overwritten
     // and markup that cannot be saved is never drawn in vain.
@@ -364,15 +356,29 @@ onMounted(async () => {
     writeBlock.value = loaded.writeBlock;
     writeBlockDialog.value = true;
     setChecking(false);
+  } else if (loaded.orphans) {
+    // Rare: the check repairs orphaned stamps, which takes them out of our optional content group (hidden
+    // below). pdf.js must read the repaired file, or those stamps stay hidden on this open: the PDF loads
+    // only after the check (the order before page-by-page loading).
+    discardPdfLoading(pdfLoadingTask);
+    await checkWritable();
+    if (unmounted) return;
+    pdfLoadingTask = loadPdfDocument();
   } else {
     // In the background (read-only, trial build): the pages do not wait for it, the pencil does.
     void checkWritable();
   }
 
-  const loadedPdf = await pdfLoading;
+  const loadedPdf = await pdfLoadingTask.promise.catch((e: unknown) => {
+    console.warn("Could not load the PDF", e);
+    return null;
+  });
   if (unmounted) return;
   if (!loadedPdf) {
-    // Nothing to show; nothing loads any more.
+    // Nothing to show and nothing to edit; nothing loads any more.
+    store.markupEditDisabled = true;
+    store.editMode = false;
+    if (loaded) notices.show(LOAD_FAILED);
     store.sheetLoading = null;
     return;
   }
@@ -422,6 +428,26 @@ onBeforeUnmount(() => {
   store.dividerMode = false;
   favorites.current = null;
 })
+
+/** Starts loading the whole PDF into pdf.js. */
+function loadPdfDocument(): pdfJs.PDFDocumentLoadingTask {
+  return pdfJs.getDocument({
+    url: "local-resource://file.html?url=" + btoa(encodeURIComponent(sheetPath)),
+    wasmUrl: new URL("wasm/", pdfJsAssetBaseUrl).toString(),
+    cMapUrl: new URL("cmaps/", pdfJsAssetBaseUrl).toString(),
+    standardFontDataUrl: new URL("standard_fonts/", pdfJsAssetBaseUrl).toString(),
+    // Saving replaces the file, so pdf.js must hold all of it in memory instead of reading ranges later.
+    disableRange: true,
+    disableStream: true,
+    disableAutoFetch: true,
+  });
+}
+
+/** Stops a pdf.js load whose document is not used; its rejection is expected and not reported. */
+function discardPdfLoading(task: pdfJs.PDFDocumentLoadingTask): void {
+  task.promise.catch(() => undefined);
+  void task.destroy();
+}
 
 /** The check whether markup can be saved into the PDF runs (or no longer runs). */
 function setChecking(checking: boolean): void {
@@ -497,6 +523,7 @@ async function loadDividers(): Promise<void> {
     dividers.value = {};
     dividersError.value = dividersLoadFailedText(result.file, result.message, result.newerVersion === true);
   }
+  dividersLoaded.value = true;
 }
 
 /** Rect (PDF user space) -> normalized viewport rectangle at scale 1; null stays null. */
@@ -616,10 +643,11 @@ watch(
   { deep: true },
 );
 
-// The app bar's divider button can be used once every page is rendered, if there is a page turn at all
-// and the sheet lies in the sheet folder.
-watch([pageNumbers, pagesLoaded, dividersOutside], ([pages, loaded, outside]) => {
-  store.dividerModeAvailable = pages >= 2 && loaded === pages && !outside;
+// The app bar's divider button can be used once every page is rendered and the sheet settings arrived (a
+// drag must not start from a default the late load would overwrite), if there is a page turn at all and the
+// sheet lies in the sheet folder.
+watch([pageNumbers, pagesLoaded, dividersLoaded, dividersOutside], ([pages, loaded, settings, outside]) => {
+  store.dividerModeAvailable = pages >= 2 && loaded === pages && settings && !outside;
 }, { immediate: true });
 
 /**

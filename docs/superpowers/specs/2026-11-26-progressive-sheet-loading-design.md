@@ -89,10 +89,13 @@ abarbeitet, und verzögern Seite 1.
   mit `loadMarkup` *(Entscheidung Claude: sonst könnte der Schlüssel zu einem anderen Inhalt gehören, wenn die
   Datei dazwischen geändert wurde)*.
 - Das Reparieren verwaister Stempel (heute in `loadNow`, nur ohne Schreibsperre) wandert mit in die Prüfung:
-  erst wenn feststeht, dass geschrieben werden kann. pdf.js hat die Datei dann schon ganz im Speicher und
-  zeichnet weiter aus diesen Bytes; die Reparatur ersetzt die Datei atomar und ändert nichts Sichtbares (sie
-  benennt nur verwaiste Stempel um und schreibt unsere Metadaten), daher lädt der Viewer danach nichts neu
-  *(Entscheidung Claude)*.
+  erst wenn feststeht, dass geschrieben werden kann. Die Reparatur ersetzt die Datei atomar; sie benennt
+  verwaiste Stempel um, nimmt sie aus unserer Ebene (OCG) und schreibt unsere Metadaten. Das **ist**
+  sichtbar: der Stempel erscheint danach als gewöhnliches Bild, während der Viewer unsere Ebene ausblendet.
+  Hätte pdf.js noch die Bytes vor der Reparatur, bliebe der Stempel beim reparierenden Öffnen unsichtbar.
+  Daher meldet `loadMarkup`, ob die PDF verwaiste Stempel hat (`orphans`); nur dann wartet der Viewer auf die
+  Prüfung und lädt die PDF erst danach in pdf.js (die alte Reihenfolge, nur für diesen seltenen Fall), sonst
+  läuft alles parallel *(Entscheidung nach dem Abschluss-Review)*.
 - Beide laufen wie heute pro Datei nacheinander (`serialized`).
 
 ### Gemerkte Prüfung (Profil)
@@ -103,7 +106,10 @@ abarbeitet, und verzögern Seite 1.
   nicht der Pfad: eine verschobene, aber gleiche PDF trifft, jede Änderung verfehlt.
 - Gemerkt wird nur das Ergebnis der Probefassung (`structure` oder ok). `encrypted`/`unparseable` ergeben
   sich aus dem Zerlegen ohnehin, `readOnly` wird bei jedem Öffnen frisch geprüft.
-- Treffer: keine Probefassung. Kein Treffer: Probefassung bauen, Ergebnis eintragen.
+- Treffer: keine Probefassung. Kein Treffer: Probefassung bauen, Ergebnis eintragen. Ein Fehlschlag wird
+  nur eingetragen, wenn er für diese Bytes feststeht (Fehler von pdf-lib beim Zerlegen oder Aufbauen, die
+  Prüfung beim Zurücklesen); ein `RangeError` (z. B. Speicher auf einem Tablet zu knapp) oder ein
+  Systemfehler mit `code` sperrt nur dieses Öffnen *(Entscheidung nach dem Abschluss-Review)*.
 - Nach einem erfolgreichen eigenen Speichern (und nach einer Reparatur) wird für die geschriebenen Bytes
   `ok` eingetragen: das Speichern hat ein Update gebaut und zurückgelesen *(Entscheidung Claude: das
   Speichern prüft die echten Seiten statt der Probe auf Seite 1; die Struktur, um die es geht, ist die der
@@ -120,6 +126,8 @@ abarbeitet, und verzögern Seite 1.
 ### Viewer: Ablauf beim Öffnen (`src/views/SheetViewer.vue`)
 
 1. Gleichzeitig starten: `loadMarkup`, das Laden der PDF in pdf.js, `loadSheetSettings` (Teiler, Favorit).
+   Meldet `loadMarkup` verwaiste Stempel, wird das Laden in pdf.js verworfen und erst nach der Prüfung (mit
+   ihrer Reparatur) neu gestartet.
 2. Sobald PDF und Markierungen da sind: Stempel ausblenden, wenn die Markierungen gelesen werden konnten
    (wie heute), dann die Seiten **der Reihe nach** zeichnen. Pro Seite: zeichnen, Kopie für den halben
    Schritt, Schnitt nach dem Teiler, die Markierungen dieser Seite (und ihres halben Schritts) darüber; dann
@@ -131,7 +139,8 @@ abarbeitet, und verzögern Seite 1.
    Seiten nachgezogen.
 
 Konnten die Markierungen nicht geladen werden (Fehler beim Aufruf): Seiten werden trotzdem gezeichnet, mit
-sichtbaren Stempeln, Stift aus, Meldung wie heute.
+sichtbaren Stempeln, Stift aus, Meldung wie heute. Kann pdf.js die PDF nicht laden: nichts zu zeigen, Stift
+aus, dieselbe Meldung.
 
 ### Ladeanzeige in der oberen Leiste (`src/App.vue`)
 
@@ -153,7 +162,8 @@ sichtbaren Stempeln, Stift aus, Meldung wie heute.
 
 - Stift-Knopf ausgegraut, bis alle Seiten fertig sind **und** die Prüfung ohne Sperre zurück ist (zusätzlich
   zu den heutigen Gründen: Sperre, Teiler-Modus).
-- Teiler-Knopf wie heute erst, wenn alle Seiten fertig sind.
+- Teiler-Knopf wie heute erst, wenn alle Seiten fertig sind, und erst, wenn `loadSheetSettings` geantwortet
+  hat (sonst könnte man bei 0,5 zu ziehen beginnen und die späte Antwort überschriebe den Wert).
 - Umblättern geht während des Ladens; eine noch nicht fertige Seite zeigt nichts (weiß), bis sie erscheint.
 - Der Schleier hat bisher nur Klicks auf die Noten abgefangen; die Knöpfe der Leiste haben schon eigene
   Bedingungen (Herz: bis der Favorit geladen ist; Teiler und Stift: siehe oben). Zoomen gibt es nur im

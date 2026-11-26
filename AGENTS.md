@@ -87,13 +87,20 @@ npm run test:visual    # visual comparison new app vs old app (see below)
     checks nothing more.
   - Otherwise the viewer starts `checkMarkupOnOpen` (tRPC query) in the background: it reads the file
     itself, checks read-only freshly on every open and takes the trial build's result from a cache in the
-    profile (a miss builds it and remembers `ok` or the `structure` message), **`markup-write-check.json`** in userData (`src/pdfMarkup/writeCheckCache.ts`, set in
-    `src/trcpRouter.ts` via `setWriteCheckCache`): `{ "version": 1, "entries": { "<sha256 hex>:<length>":
-    { "ok": true } | { "ok": false, "message": "…" } } }`, keyed by the content of the whole file
-    (`contentKey`, so a moved but identical PDF hits and any change misses), at most 1000 entries (the oldest
-    go), written atomically; an unreadable or broken file counts as empty, a failed write is logged. Only
-    when the PDF can be written does it repair orphaned stamps (`ok` is remembered for the repaired bytes).
-    A successful save remembers `ok` for the bytes it wrote. Its result is ignored once the sheet was left.
+    profile (a miss builds it and remembers `ok` or the `structure` message; a failure only when it is
+    deterministic for those bytes, `isDeterministicFailure`: not a `RangeError` such as a failed allocation,
+    nor an error with a Node `code`, which block only this open), **`markup-write-check.json`** in userData
+    (`src/pdfMarkup/writeCheckCache.ts`, set in `src/trcpRouter.ts` via `setWriteCheckCache`):
+    `{ "version": 1, "entries": { "<sha256 hex>:<length>": { "ok": true } | { "ok": false, "message": "…" } } }`,
+    keyed by the content of the whole file (`contentKey`, so a moved but identical PDF hits and any change
+    misses), at most 1000 entries (the oldest go), written atomically; an unreadable or broken file counts as
+    empty, a failed write is logged. Bump `FILE_VERSION` whenever the writer or the trial build changes what
+    it accepts (another version counts as empty). A successful save remembers `ok` for the bytes it wrote.
+    Its result is ignored once the sheet was left.
+  - Only when the PDF can be written does the check repair orphaned stamps (`ok` is remembered for the
+    repaired bytes). The repair takes them out of our OCG, so they show as plain images: `loadMarkup` reports
+    them (`LoadMarkupResult.orphans`) and for such a PDF the viewer awaits the check **before** pdf.js loads
+    the file (the PDF only then; every other PDF loads in parallel), so the repaired stamps show on that open.
   - `checkMarkupWritable` (migration pass 1) runs the same check through the same cache but never repairs.
   Nothing of this is written into the sheet folder (`.config.json` stays untouched).
 - Unsaved changes live in the renderer's `markupSaves` store (`src/markup/saveQueue.ts`), survive
@@ -156,15 +163,18 @@ npm run test:visual    # visual comparison new app vs old app (see below)
 
 - Spec: `docs/superpowers/specs/2026-11-26-progressive-sheet-loading-design.md`. On open
   (`src/views/SheetViewer.vue`) `loadMarkup`, pdf.js loading the whole file and `loadSheetSettings` start at
-  the same time; once PDF and markup are there, the pages are drawn **one after another from page 1**, each
-  with its half step, its cut and its markup overlays, and a page shows once it is done (pages can be turned
-  meanwhile; a page not done yet stays white). Dividers that arrive later re-cut the pages already drawn.
-  The write check (`checkMarkupOnOpen`, see "Check on open") runs in parallel.
+  the same time (pdf.js only after the check for a PDF with orphaned stamps, see "Check on open"); once PDF
+  and markup are there, the pages are drawn **one after another from page 1**, each with its half step, its
+  cut and its markup overlays. A page's canvas is visible while pdf.js paints it and its markup follows right
+  after; the page counts as done (`data-rendered`, bar) once both are there (pages can be turned meanwhile; a
+  page not drawn yet stays white). Dividers that arrive later re-cut the pages already drawn. The write check
+  (`checkMarkupOnOpen`, see "Check on open") runs in parallel.
 - Progress: store `sheetLoading: { loaded, total, checking } | null` (`src/store/index.ts`), shown as a thin
   bar at the bottom of the app bar (`data-testid="sheet-loading"`, `src/App.vue`): share of pages done,
   indeterminate once all pages are done while the check still runs, gone afterwards. The pencil is disabled
   until every page is done **and** the check returned without a block; the divider button waits for every
-  page. Leaving the sheet sets `sheetLoading` to null and draws no further page.
+  page and for `loadSheetSettings` (`dividersLoaded`). Leaving the sheet sets `sheetLoading` to null and draws
+  no further page. A PDF pdf.js cannot load leaves the pencil off and shows the `LOAD_FAILED` notice.
 - A resize starts a new run (counter `renderRun`; a newer run or leaving stops the old one before its next
   page): again page by page with the bar; the markup overlays of a page stay until that page is drawn again.
 - Markers for tests: `canvas[data-page="<n>"][data-rendered]` per page done in the current run (integer
@@ -174,9 +184,14 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   on page 1 and the last page): page 1 with its markup shows before the last page is done (bar in the app
   bar, pencil off), pages finish in order, a second open takes the check from `markup-write-check.json`
   (prepared with another result), an encrypted PDF shows its hint without a check (no cache file), leaving
-  during the load (no console error, no dialog, `sheetLoading` null, the check's result remembered), a resize
-  during the first load and during a redraw (every page again in order; the last page's old overlays stay
-  until it is redrawn); every case checks the PDF stays byte-identical and no network request.
+  during the load while the check waits for a remembered block (the cache file is a named pipe the test
+  releases after leaving: no console error, no dialog, pencil state and `sheetLoading` untouched, no page
+  marked done after leaving), a resize during the first load and during a redraw (every page again in order;
+  the last page's old overlays stay until it is redrawn), an orphaned stamp repaired on open shows on that
+  open (page pixels), a PDF pdf.js cannot load (protocol replaced: pencil off, notice); every case except the
+  repair checks the PDF stays byte-identical, and no network request. `pageDivider.visual.ts` holds
+  `.config.json` the same way to check that the divider button waits for the sheet settings. The named pipes
+  (`tests/visual/fifo.ts`) need POSIX; those cases skip on Windows.
 
 ## Page divider
 
