@@ -34,6 +34,13 @@ import {
   writeFixture,
 } from "./fixtures";
 
+// buildMarkedPdf is wrapped so tests can fail single calls; by default it runs the real one.
+vi.mock("../../src/pdfMarkup/buildMarkedPdf", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/pdfMarkup/buildMarkedPdf")>();
+  return { ...actual, buildMarkedPdf: vi.fn(actual.buildMarkedPdf) };
+});
+const buildMock = vi.mocked(buildMarkedPdf);
+
 const readMarkupOf = async (file: string) =>
   readMarkup(await PDFDocument.load(fs.readFileSync(file), { updateMetadata: false }));
 const pngOf = (change: { pngBase64: string }) => new Uint8Array(Buffer.from(change.pngBase64, "base64"));
@@ -90,7 +97,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
 
   test("a PDF without markup loads as source none", async () => {
     const pdf = await writeFixture(dir, "n.pdf", await makePdf({ xref: "table" }));
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], writeBlock: null });
+    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], writeBlock: null, orphans: false });
   });
 
   test("loading never reads a .data file next to the PDF", async () => {
@@ -104,12 +111,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     fs.writeFileSync(getSidecarPath(encryptedPdf), v1Text);
     const readFile = vi.spyOn(fs.promises, "readFile");
 
-    expect(await loadMarkupFromFile(legacyPdf)).toEqual({ source: "none", pages: [], writeBlock: null });
-    expect(await loadMarkupFromFile(v1Pdf)).toEqual({ source: "none", pages: [], writeBlock: null });
+    expect(await loadMarkupFromFile(legacyPdf)).toEqual({ source: "none", pages: [], writeBlock: null, orphans: false });
+    expect(await loadMarkupFromFile(v1Pdf)).toEqual({ source: "none", pages: [], writeBlock: null, orphans: false });
     expect(await loadMarkupFromFile(encryptedPdf)).toEqual({
       source: "none",
       pages: [],
       writeBlock: { reason: "encrypted" },
+      orphans: false,
     });
     // A PDF with markup of its own shows only that.
     await saveMarkupToFile({ path: v1Pdf, pages: [{ ...page1(), payload: payload(2) }] });
@@ -137,7 +145,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
       // Removing all markup again: the PDF is back to its original bytes, the .data still untouched.
       const removed = await saveMarkupToFile({ path: pdf, pages: [{ page: 2, payload: null, pngBase64: null }] });
       expect(removed, name).toEqual({ status: "pdf" });
-      expect(await loadMarkupFromFile(pdf), name).toEqual({ source: "none", pages: [], writeBlock: null });
+      expect(await loadMarkupFromFile(pdf), name).toEqual({ source: "none", pages: [], writeBlock: null, orphans: false });
 
       expect(fs.readFileSync(getSidecarPath(pdf), "utf8"), name).toBe(text);
       expect(fs.readdirSync(dir).sort(), name).toEqual(listing);
@@ -319,11 +327,14 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     const loaded = await loadMarkupFromFile(pdf);
     expect(loaded.source).toBe("pdf");
     expect(loaded.pages.map((p) => p.page)).toEqual([2]);
+    // The viewer waits for the repair before pdf.js reads the file.
+    expect(loaded.orphans).toBe(true);
     expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
 
     expect(await checkMarkupOnOpen(pdf)).toBeNull();
     expect((await readMarkupOf(pdf)).orphans).toEqual([]);
+    expect((await loadMarkupFromFile(pdf)).orphans).toBe(false);
     // The orphaned stamp is still in the file, as a foreign image.
     const annots = await annotationsPerPage(new Uint8Array(fs.readFileSync(pdf)));
     expect(annots[0]).toEqual([expect.objectContaining({ subtype: "Stamp", isOurs: false })]);
@@ -342,7 +353,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     expect(await readMarkupOf(pdf)).toMatchObject({ pages: [], meta: null, orphans: [{ page: 1 }] });
     const before = fs.readFileSync(pdf);
 
-    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], writeBlock: null });
+    expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], writeBlock: null, orphans: true });
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
 
@@ -624,6 +635,35 @@ describe("remembered write check", () => {
     expect((await readMarkupOf(pdf)).orphans).toEqual([]);
     expect(entries.get(beforeKey)).toEqual({ ok: true });
     expect(entries.get(contentKey(fs.readFileSync(pdf)))).toEqual({ ok: true });
+  });
+
+  test("a deterministic trial failure is stored: a failed read-back of the build", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const key = contentKey(fs.readFileSync(pdf));
+    const { entries } = memoryCache();
+    // A build that silently drops the probe stamp: the read-back finds no markup on page 1.
+    buildMock.mockImplementationOnce(async (bytes) => bytes);
+
+    const block = await checkMarkupOnOpen(pdf);
+    expect(block).toEqual({ reason: "structure", message: expect.stringContaining("verification failed") });
+    expect(entries.get(key)).toEqual({ ok: false, message: block?.message });
+  });
+
+  test.each([
+    ["a RangeError (a failed allocation)", () => new RangeError("Array buffer allocation failed")],
+    ["a system error with a code", () => Object.assign(new Error("EMFILE: too many open files"), { code: "EMFILE" })],
+  ])("%s in the trial is returned for this open but not stored", async (_n, makeError) => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const key = contentKey(fs.readFileSync(pdf));
+    const { entries, calls } = memoryCache();
+    const error = makeError();
+    buildMock.mockRejectedValueOnce(error);
+
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "structure", message: error.message });
+    expect(calls.set).toEqual([]);
+    // The next open builds again, and this time it works.
+    expect(await checkMarkupOnOpen(pdf)).toBeNull();
+    expect(entries.get(key)).toEqual({ ok: true });
   });
 
   test("a cache that throws on get counts as a miss", async () => {

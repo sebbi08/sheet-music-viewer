@@ -15,6 +15,11 @@ export interface WriteCheckCache {
   set(key: string, value: CachedWriteCheck): Promise<void>;
 }
 
+/**
+ * Version of the cache file. Bump it whenever the writer (`buildMarkedPdf`, the incremental writer) or the
+ * trial build changes what it accepts: a file of any other version counts as empty, so bumping drops every
+ * remembered result, and a PDF blocked by an old writer is checked again.
+ */
 const FILE_VERSION = 1;
 
 export function contentKey(bytes: Uint8Array): string {

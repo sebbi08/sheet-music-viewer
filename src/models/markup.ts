@@ -47,6 +47,12 @@ export interface LoadMarkupResult {
    * come from `checkMarkupOnOpen` (tRPC `checkMarkupOnOpen`).
    */
   writeBlock: WriteBlock | null;
+  /**
+   * The PDF has orphaned stamps of ours (no usable data). `checkMarkupOnOpen` repairs them when it can write
+   * the PDF, which takes them out of our optional content group; the viewer awaits that check before pdf.js
+   * reads the file, so the repaired stamps show on this open.
+   */
+  orphans: boolean;
 }
 
 /**

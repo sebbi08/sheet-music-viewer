@@ -245,8 +245,9 @@ const blockedError = (block: WriteBlock) => ({
 
 /**
  * Why markup cannot be saved into the PDF `bytes` read from `realPath`; `null` = it can. The trial build
- * runs only when no result is remembered for exactly these bytes, and its result is remembered;
- * unparseable, encrypted and read-only are determined every time. Never throws.
+ * runs only when no result is remembered for exactly these bytes, and its result is remembered (a failure
+ * only when it is deterministic, `isDeterministicFailure`); unparseable, encrypted and read-only are
+ * determined every time. Never throws.
  */
 async function writeBlockOf(
   realPath: string,
@@ -256,17 +257,29 @@ async function writeBlockOf(
   const cheap = await cheapWriteBlockOf(realPath, inspection);
   if (cheap.block) return cheap.block;
   const key = contentKey(bytes);
-  let result = await rememberedCheck(key);
-  if (!result) {
-    try {
-      await trialBuild(bytes, cheap.markup);
-      result = { ok: true };
-    } catch (e) {
-      result = { ok: false, message: errorMessage(e) };
-    }
-    await remember(key, result);
+  const remembered = await rememberedCheck(key);
+  if (remembered) return remembered.ok ? null : { reason: "structure", message: remembered.message };
+  try {
+    await trialBuild(bytes, cheap.markup);
+  } catch (e) {
+    const message = errorMessage(e);
+    // Blocks this open in any case; remembered only when the same bytes would fail the same way again.
+    if (isDeterministicFailure(e)) await remember(key, { ok: false, message });
+    return { reason: "structure", message };
   }
-  return result.ok ? null : { reason: "structure", message: result.message };
+  await remember(key, { ok: true });
+  return null;
+}
+
+/**
+ * A trial build failure that depends only on the bytes: pdf-lib's parse and structure errors and the
+ * read-back `VerificationError`. Not: a `RangeError` (a failed allocation, e.g. on a low-memory tablet, or
+ * a stack overflow) or an error carrying a Node system `code` (EMFILE, ENOMEM, …), which may pass next time.
+ */
+function isDeterministicFailure(e: unknown): boolean {
+  if (e instanceof VerificationError) return true;
+  if (e instanceof RangeError) return false;
+  return !(typeof e === "object" && e !== null && "code" in e);
 }
 
 /** The real path and the bytes of a PDF, or the `unparseable` block of a file that cannot be read. */
@@ -294,7 +307,8 @@ const decodePng = (base64: string) => new Uint8Array(Buffer.from(base64.replace(
 /**
  * Markup of a PDF, from the PDF only: its embedded data (`source: "pdf"`) or none. A `.data` file next to
  * it is never read. Only parses: `writeBlock` is what parsing shows (`encrypted`, `unparseable`), else
- * `null`; no read-only check, no trial build, no repair, never writes (see `checkMarkupOnOpen`).
+ * `null`; `orphans` tells whether it has orphaned stamps (repaired by `checkMarkupOnOpen`). No read-only
+ * check, no trial build, no repair, never writes.
  */
 export function loadMarkupFromFile(pdfPath: string): Promise<LoadMarkupResult> {
   return serialized(pdfPath, () => loadNow(pdfPath));
@@ -309,8 +323,10 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
       : inspection.kind === "encrypted"
         ? { reason: "encrypted" }
         : null;
-  if (hasEmbeddedData(inspection)) return { source: "pdf", pages: toLoadedPages(inspection.markup), writeBlock };
-  return { source: "none", pages: [], writeBlock };
+  const orphans = inspection.kind === "parsed" && inspection.markup.orphans.length > 0;
+  if (hasEmbeddedData(inspection))
+    return { source: "pdf", pages: toLoadedPages(inspection.markup), writeBlock, orphans };
+  return { source: "none", pages: [], writeBlock, orphans };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -322,8 +338,10 @@ async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
  * `null` = it can (unparseable, encrypted, readOnly, or structure from the remembered or a new trial
  * build). Reads the file itself, so the remembered result belongs to exactly the bytes checked. When the
  * PDF can be written and has orphaned stamps, they are repaired (a failed repair is logged, not fatal) and
- * `ok` is remembered for the repaired bytes; the repair changes nothing visible. Never throws: a file that
- * cannot be read is `unparseable` (with the error as `message`).
+ * `ok` is remembered for the repaired bytes. The repair takes the orphans out of our optional content group,
+ * so they show as plain images: the viewer awaits this check before pdf.js reads such a PDF
+ * (`LoadMarkupResult.orphans`). Never throws: a file that cannot be read is `unparseable` (with the error as
+ * `message`).
  */
 export function checkMarkupOnOpen(pdfPath: string): Promise<WriteBlock | null> {
   return serialized(pdfPath, async () => {
