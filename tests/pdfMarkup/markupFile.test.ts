@@ -7,6 +7,7 @@ import { SMV_CATALOG_KEY } from "../../src/models/markupConstants";
 import { reserveObjectNumbers, writeIncrementalUpdate } from "../../src/pdfMarkup/incrementalWriter";
 import { buildMarkedPdf } from "../../src/pdfMarkup/buildMarkedPdf";
 import {
+  checkMarkupOnOpen,
   checkMarkupWritable,
   discardEmptyLegacySidecar,
   getSidecarPath,
@@ -15,8 +16,10 @@ import {
   migrateSidecarToFile,
   saveMarkupToFile,
   setLockRetryDelays,
+  setWriteCheckCache,
 } from "../../src/pdfMarkup/markupFile";
 import { readMarkup } from "../../src/pdfMarkup/readMarkup";
+import { contentKey, type CachedWriteCheck, type WriteCheckCache } from "../../src/pdfMarkup/writeCheckCache";
 import {
   annotationsPerPage,
   dropStartXref,
@@ -38,11 +41,30 @@ const tempFiles = (dir: string) => fs.readdirSync(dir).filter((f) => f.includes(
 /** chmod-based read-only tests do not work as root (root ignores permission bits). */
 const isRoot = process.getuid?.() === 0;
 
+/** An in-memory write check cache that records its calls. */
+function memoryCache(initial: Record<string, CachedWriteCheck> = {}) {
+  const entries = new Map(Object.entries(initial));
+  const calls = { get: [] as string[], set: [] as [string, CachedWriteCheck][] };
+  const cache: WriteCheckCache = {
+    async get(key) {
+      calls.get.push(key);
+      return entries.get(key);
+    },
+    async set(key, value) {
+      calls.set.push([key, value]);
+      entries.set(key, value);
+    },
+  };
+  setWriteCheckCache(cache);
+  return { entries, calls, cache };
+}
+
 let dir: string;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "smv-markup-file-"));
 });
 afterEach(() => {
+  setWriteCheckCache(null);
   vi.restoreAllMocks();
   for (const f of fs.readdirSync(dir)) fs.chmodSync(path.join(dir, f), 0o644);
   fs.chmodSync(dir, 0o755);
@@ -287,15 +309,20 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     expect((await loadMarkupFromFile(pdf)).pages.map((p) => p.page)).toEqual([1, 2]);
   });
 
-  test("orphans are repaired on load", async () => {
+  test("orphans are repaired by the check on open, not by the load", async () => {
     const pdf = await writeFixture(dir, "o.pdf", await makePdf({ xref: "table", pages: 2 }));
     await saveMarkupToFile({ path: pdf, pages: [page1(), page2()] });
     fs.writeFileSync(pdf, await stripSmvData(fs.readFileSync(pdf)));
     expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
+    const before = fs.readFileSync(pdf);
 
     const loaded = await loadMarkupFromFile(pdf);
     expect(loaded.source).toBe("pdf");
     expect(loaded.pages.map((p) => p.page)).toEqual([2]);
+    expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+
+    expect(await checkMarkupOnOpen(pdf)).toBeNull();
     expect((await readMarkupOf(pdf)).orphans).toEqual([]);
     // The orphaned stamp is still in the file, as a foreign image.
     const annots = await annotationsPerPage(new Uint8Array(fs.readFileSync(pdf)));
@@ -303,7 +330,7 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     expect(tempFiles(dir)).toEqual([]);
   });
 
-  test("orphans of a PDF whose data and metadata are gone are repaired; it loads without pages", async () => {
+  test("orphans of a PDF whose data and metadata are gone are repaired by the check; it loads without pages", async () => {
     const pdf = await writeFixture(dir, "s.pdf", await makePdf({ xref: "table", pages: 2 }));
     await saveMarkupToFile({ path: pdf, pages: [page1()] });
     // Another program dropped our data and our catalog metadata: only an orphan is left.
@@ -313,8 +340,13 @@ describe("saveMarkupToFile / loadMarkupFromFile", () => {
     doc.catalog.delete(PDFName.of(SMV_CATALOG_KEY));
     fs.writeFileSync(pdf, writeIncrementalUpdate(stripped, doc.context, [doc.context.trailerInfo.Root as PDFRef]).bytes);
     expect(await readMarkupOf(pdf)).toMatchObject({ pages: [], meta: null, orphans: [{ page: 1 }] });
+    const before = fs.readFileSync(pdf);
 
     expect(await loadMarkupFromFile(pdf)).toEqual({ source: "none", pages: [], writeBlock: null });
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
+
+    expect(await checkMarkupOnOpen(pdf)).toBeNull();
     expect((await readMarkupOf(pdf)).orphans).toEqual([]);
     expect(tempFiles(dir)).toEqual([]);
   });
@@ -386,6 +418,7 @@ describe("write block", () => {
     const plain = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
     expect(await checkMarkupWritable(plain)).toBeNull();
     expect((await loadMarkupFromFile(plain)).writeBlock).toBeNull();
+    expect(await checkMarkupOnOpen(plain)).toBeNull();
 
     // Our markup on page 1 already: the trial replaces it in memory only.
     const marked = await writeFixture(dir, "b.pdf", await makePdf({ xref: "stream", pages: 2 }));
@@ -394,6 +427,7 @@ describe("write block", () => {
     const before = fs.readFileSync(marked);
     expect(await checkMarkupWritable(marked)).toBeNull();
     expect((await loadMarkupFromFile(marked)).writeBlock).toBeNull();
+    expect(await checkMarkupOnOpen(marked)).toBeNull();
     expect(fs.readFileSync(marked).equals(before)).toBe(true);
     expect(fs.readFileSync(getSidecarPath(marked), "utf8")).toBe(legacy);
     expect(fs.readdirSync(dir).sort()).toEqual([".b.data", "a.pdf", "b.pdf"]); // the folder probe is gone again
@@ -403,6 +437,7 @@ describe("write block", () => {
     const pdf = await writeFixture(dir, "e.pdf", makeEncryptedPdf());
     expect(await checkMarkupWritable(pdf)).toEqual({ reason: "encrypted" });
     expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "encrypted" });
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "encrypted" });
   });
 
   test("bytes that are no PDF: unparseable with the parser's message", async () => {
@@ -410,26 +445,28 @@ describe("write block", () => {
     const block = { reason: "unparseable", message: expect.stringMatching(/\S/) };
     expect(await checkMarkupWritable(pdf)).toEqual(block);
     expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual(block);
+    expect(await checkMarkupOnOpen(pdf)).toEqual(block);
     expect(await saveMarkupToFile({ path: pdf, pages: [page1()] })).toEqual({ status: "error", ...block });
     // A file that cannot be read at all.
-    expect(await checkMarkupWritable(path.join(dir, "missing.pdf"))).toEqual({
-      reason: "unparseable",
-      message: expect.stringContaining("ENOENT"),
-    });
+    const missing = { reason: "unparseable", message: expect.stringContaining("ENOENT") };
+    expect(await checkMarkupWritable(path.join(dir, "missing.pdf"))).toEqual(missing);
+    expect(await checkMarkupOnOpen(path.join(dir, "missing.pdf"))).toEqual(missing);
   });
 
-  test.skipIf(isRoot)("read-only file", async () => {
+  test.skipIf(isRoot)("read-only file: the check reports it, the load does no read-only check", async () => {
     const pdf = await writeFixture(dir, "ro.pdf", await makePdf({ xref: "table" }));
     fs.chmodSync(pdf, 0o444);
     expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
-    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "readOnly" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toBeNull();
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "readOnly" });
   });
 
   test.skipIf(isRoot)("folder that accepts no new file", async () => {
     const pdf = await writeFixture(dir, "d.pdf", await makePdf({ xref: "table" }));
     fs.chmodSync(dir, 0o555);
     expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
-    expect((await loadMarkupFromFile(pdf)).writeBlock).toEqual({ reason: "readOnly" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toBeNull();
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "readOnly" });
   });
 
   test("a folder whose probe file is denied (Windows ACL: access() passes) blocks the PDF", async () => {
@@ -438,6 +475,7 @@ describe("write block", () => {
     const denied = Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
     vi.spyOn(fs.promises, "open").mockRejectedValue(denied);
     expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "readOnly" });
     expect(await saveMarkupToFile({ path: pdf, pages: [page1()] })).toMatchObject({ status: "error", reason: "readOnly" });
     expect(await migrateSidecarToFile({ path: pdf, pages: [page1()], dryRun: true })).toMatchObject({
       status: "error",
@@ -454,7 +492,8 @@ describe("write block", () => {
     const pdf = await writeFixture(dir, "s.pdf", breakIt(await makePdf({ xref: "table" })));
     const before = fs.readFileSync(pdf);
     expect(await checkMarkupWritable(pdf)).toMatchObject({ reason: "structure", message: expect.any(String) });
-    expect((await loadMarkupFromFile(pdf)).writeBlock).toMatchObject({ reason: "structure" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toBeNull();
+    expect(await checkMarkupOnOpen(pdf)).toMatchObject({ reason: "structure", message: expect.any(String) });
     const input = { path: pdf, pages: [page1()] };
     expect(await migrateSidecarToFile({ ...input, dryRun: true })).toMatchObject({ status: "error", reason: "structure" });
     expect(await saveMarkupToFile(input)).toMatchObject({ status: "error", reason: "structure" });
@@ -462,7 +501,7 @@ describe("write block", () => {
     expect(fs.readdirSync(dir)).toEqual(["s.pdf"]); // no temp file, no .data file
   });
 
-  test.skipIf(isRoot)("a PDF with an orphan that cannot be written is not repaired on load", async () => {
+  test.skipIf(isRoot)("a PDF with an orphan that cannot be written is not repaired", async () => {
     const pdf = await writeFixture(dir, "o.pdf", await makePdf({ xref: "table", pages: 2 }));
     await saveMarkupToFile({ path: pdf, pages: [page1(), page2()] });
     fs.writeFileSync(pdf, await stripSmvData(fs.readFileSync(pdf)));
@@ -470,7 +509,8 @@ describe("write block", () => {
     const before = fs.readFileSync(pdf);
 
     const loaded = await loadMarkupFromFile(pdf);
-    expect(loaded).toMatchObject({ source: "pdf", pages: [{ page: 2 }], writeBlock: { reason: "readOnly" } });
+    expect(loaded).toMatchObject({ source: "pdf", pages: [{ page: 2 }], writeBlock: null });
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "readOnly" });
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
   });
@@ -481,9 +521,116 @@ describe("write block", () => {
     fs.writeFileSync(pdf, padAfterEof(await stripSmvData(fs.readFileSync(pdf))));
     const before = fs.readFileSync(pdf);
 
-    expect((await loadMarkupFromFile(pdf)).writeBlock).toMatchObject({ reason: "structure" });
+    expect((await loadMarkupFromFile(pdf)).writeBlock).toBeNull();
+    expect(await checkMarkupOnOpen(pdf)).toMatchObject({ reason: "structure" });
     expect(fs.readFileSync(pdf).equals(before)).toBe(true);
     expect(fs.readdirSync(dir)).toEqual(["q.pdf"]);
+  });
+
+  test("checkMarkupWritable never repairs", async () => {
+    const pdf = await writeFixture(dir, "o.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1(), page2()] });
+    fs.writeFileSync(pdf, await stripSmvData(fs.readFileSync(pdf)));
+    const before = fs.readFileSync(pdf);
+
+    expect(await checkMarkupWritable(pdf)).toBeNull();
+    expect((await readMarkupOf(pdf)).orphans).toHaveLength(1);
+    expect(fs.readFileSync(pdf).equals(before)).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(["o.pdf"]);
+  });
+});
+
+describe("remembered write check", () => {
+  test("a cached structure result skips the trial build", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const key = contentKey(fs.readFileSync(pdf));
+    const { calls } = memoryCache({ [key]: { ok: false, message: "cached" } });
+
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "structure", message: "cached" });
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "structure", message: "cached" });
+    expect(calls.get).toEqual([key, key]);
+    expect(calls.set).toEqual([]);
+  });
+
+  test("a cached ok skips the trial build of a broken structure", async () => {
+    const pdf = await writeFixture(dir, "s.pdf", padAfterEof(await makePdf({ xref: "table" })));
+    memoryCache({ [contentKey(fs.readFileSync(pdf))]: { ok: true } });
+    expect(await checkMarkupOnOpen(pdf)).toBeNull();
+    expect(await checkMarkupWritable(pdf)).toBeNull();
+  });
+
+  test("a miss stores the trial result", async () => {
+    const { entries, calls } = memoryCache();
+    const good = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const goodKey = contentKey(fs.readFileSync(good));
+    expect(await checkMarkupOnOpen(good)).toBeNull();
+    expect(entries.get(goodKey)).toEqual({ ok: true });
+
+    const broken = await writeFixture(dir, "s.pdf", padAfterEof(await makePdf({ xref: "table" })));
+    const brokenKey = contentKey(fs.readFileSync(broken));
+    const block = await checkMarkupOnOpen(broken);
+    expect(block).toMatchObject({ reason: "structure", message: expect.stringMatching(/\S/) });
+    expect(entries.get(brokenKey)).toEqual({ ok: false, message: block?.message });
+
+    // checkMarkupWritable stores its trial result, too.
+    entries.clear();
+    calls.set.length = 0;
+    expect(await checkMarkupWritable(good)).toBeNull();
+    expect(calls.set).toEqual([[goodKey, { ok: true }]]);
+  });
+
+  test("encrypted, unparseable and readOnly are never stored", async () => {
+    const { calls } = memoryCache();
+    const encrypted = await writeFixture(dir, "e.pdf", makeEncryptedPdf());
+    const garbage = await writeFixture(dir, "g.pdf", new Uint8Array(Buffer.from("this is not a pdf at all")));
+    await checkMarkupOnOpen(encrypted);
+    await checkMarkupOnOpen(garbage);
+    expect(calls).toEqual({ get: [], set: [] });
+  });
+
+  test.skipIf(isRoot)("readOnly despite a cached ok", async () => {
+    const pdf = await writeFixture(dir, "ro.pdf", await makePdf({ xref: "table" }));
+    fs.chmodSync(pdf, 0o444);
+    const { calls } = memoryCache({ [contentKey(fs.readFileSync(pdf))]: { ok: true } });
+    expect(await checkMarkupOnOpen(pdf)).toEqual({ reason: "readOnly" });
+    expect(await checkMarkupWritable(pdf)).toEqual({ reason: "readOnly" });
+    expect(calls.set).toEqual([]);
+  });
+
+  test("a save records ok for the written bytes", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const { entries, calls } = memoryCache();
+    expect(await saveMarkupToFile({ path: pdf, pages: [page1()] })).toEqual({ status: "pdf" });
+    expect(entries.get(contentKey(fs.readFileSync(pdf)))).toEqual({ ok: true });
+    expect(calls.set).toHaveLength(1);
+  });
+
+  test("a failed save records nothing", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const { calls } = memoryCache();
+    vi.spyOn(fs.promises, "rename").mockRejectedValue(Object.assign(new Error("EIO"), { code: "EIO" }));
+    expect(await saveMarkupToFile({ path: pdf, pages: [page1()] })).toMatchObject({ status: "error" });
+    expect(calls.set).toEqual([]);
+  });
+
+  test("a repair records ok for the repaired bytes", async () => {
+    const pdf = await writeFixture(dir, "o.pdf", await makePdf({ xref: "table", pages: 2 }));
+    await saveMarkupToFile({ path: pdf, pages: [page1(), page2()] });
+    fs.writeFileSync(pdf, await stripSmvData(fs.readFileSync(pdf)));
+    const { entries } = memoryCache();
+    const beforeKey = contentKey(fs.readFileSync(pdf));
+
+    expect(await checkMarkupOnOpen(pdf)).toBeNull();
+    expect((await readMarkupOf(pdf)).orphans).toEqual([]);
+    expect(entries.get(beforeKey)).toEqual({ ok: true });
+    expect(entries.get(contentKey(fs.readFileSync(pdf)))).toEqual({ ok: true });
+  });
+
+  test("a cache that throws on get counts as a miss", async () => {
+    const pdf = await writeFixture(dir, "a.pdf", await makePdf({ xref: "table" }));
+    const { cache } = memoryCache();
+    vi.spyOn(cache, "get").mockRejectedValue(new Error("boom"));
+    expect(await checkMarkupOnOpen(pdf)).toBeNull();
   });
 });
 

@@ -3,8 +3,10 @@
  * markup is loaded from and saved into the PDF only, written atomically (temp file in the same folder,
  * verified, then renamed). A PDF that cannot be written (encrypted, unparseable, read-only, a structure the
  * writer cannot update, still locked after the retries) is a save error and stays byte-identical; this
- * module never writes a `.data` file, and loading never reads one. Why a PDF cannot take markup at all is
- * its write block (`checkMarkupWritable`, `LoadMarkupResult.writeBlock`). Legacy `.data` files are only
+ * module never writes a `.data` file, and loading never reads one. Loading only parses the PDF; why a PDF
+ * cannot take markup at all is its write block, determined by a separate check (`checkMarkupOnOpen` for the
+ * viewer, which also repairs orphaned stamps, `checkMarkupWritable` for the migration); the result of the
+ * trial build is remembered per content (`setWriteCheckCache`). Legacy `.data` files are only
  * handled for the migration gate: `migrateSidecarToFile` moves one into its PDF, `discardEmptyLegacySidecar`
  * deletes one without markup. No Electron imports: this module is unit-tested in Node.
  */
@@ -28,6 +30,7 @@ import { isFolderWritable } from "./folderProbe";
 import { getSidecarPath, legacySidecarHasMarkup, readSidecarContent } from "./legacySidecar";
 import { isLockedError, retryWhileLocked, setLockRetryDelays } from "./lockRetry";
 import { readMarkup, type ReadMarkupResult } from "./readMarkup";
+import { contentKey, type CachedWriteCheck, type WriteCheckCache } from "./writeCheckCache";
 
 export { getSidecarPath, legacySidecarHasMarkup, retryWhileLocked, setLockRetryDelays };
 
@@ -51,6 +54,39 @@ function serialized<T>(file: string, task: () => Promise<T>): Promise<T> {
     if (queues.get(key) === settled) queues.delete(key);
   });
   return next;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Remembered trial builds
+// ---------------------------------------------------------------------------------------------------------
+
+let writeCheckCache: WriteCheckCache | null = null;
+
+/**
+ * Sets where the results of trial builds are remembered, keyed by the PDF's content (`contentKey`);
+ * `null` (the default) remembers nothing.
+ */
+export function setWriteCheckCache(cache: WriteCheckCache | null): void {
+  writeCheckCache = cache;
+}
+
+/** The remembered trial result for `key`; a cache that fails counts as a miss. */
+async function rememberedCheck(key: string): Promise<CachedWriteCheck | undefined> {
+  try {
+    return await writeCheckCache?.get(key);
+  } catch (e) {
+    console.warn("Could not read the markup write check cache", e);
+    return undefined;
+  }
+}
+
+/** Remembers a trial result (or `ok` for bytes we wrote and read back). Never throws. */
+async function remember(key: string, value: CachedWriteCheck): Promise<void> {
+  try {
+    await writeCheckCache?.set(key, value);
+  } catch (e) {
+    console.warn("Could not save the markup write check cache", e);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -207,7 +243,11 @@ const blockedError = (block: WriteBlock) => ({
   ...(block.message !== undefined ? { message: block.message } : {}),
 });
 
-/** Why markup cannot be saved into the PDF `bytes` read from `realPath`; `null` = it can. Never throws. */
+/**
+ * Why markup cannot be saved into the PDF `bytes` read from `realPath`; `null` = it can. The trial build
+ * runs only when no result is remembered for exactly these bytes, and its result is remembered;
+ * unparseable, encrypted and read-only are determined every time. Never throws.
+ */
 async function writeBlockOf(
   realPath: string,
   bytes: Uint8Array,
@@ -215,11 +255,29 @@ async function writeBlockOf(
 ): Promise<WriteBlock | null> {
   const cheap = await cheapWriteBlockOf(realPath, inspection);
   if (cheap.block) return cheap.block;
+  const key = contentKey(bytes);
+  let result = await rememberedCheck(key);
+  if (!result) {
+    try {
+      await trialBuild(bytes, cheap.markup);
+      result = { ok: true };
+    } catch (e) {
+      result = { ok: false, message: errorMessage(e) };
+    }
+    await remember(key, result);
+  }
+  return result.ok ? null : { reason: "structure", message: result.message };
+}
+
+/** The real path and the bytes of a PDF, or the `unparseable` block of a file that cannot be read. */
+async function readForCheck(
+  pdfPath: string,
+): Promise<{ realPath: string; bytes: Uint8Array; block?: undefined } | { block: WriteBlock }> {
   try {
-    await trialBuild(bytes, cheap.markup);
-    return null;
+    const realPath = await fs.promises.realpath(pdfPath);
+    return { realPath, bytes: await fs.promises.readFile(realPath) };
   } catch (e) {
-    return { reason: "structure", message: errorMessage(e) };
+    return { block: { reason: "unparseable", message: errorMessage(e) } };
   }
 }
 
@@ -235,8 +293,8 @@ const decodePng = (base64: string) => new Uint8Array(Buffer.from(base64.replace(
 
 /**
  * Markup of a PDF, from the PDF only: its embedded data (`source: "pdf"`) or none. A `.data` file next to
- * it is never read. Orphaned stamps are repaired first when the PDF has no write block (a failed repair is
- * logged, not fatal).
+ * it is never read. Only parses: `writeBlock` is what parsing shows (`encrypted`, `unparseable`), else
+ * `null`; no read-only check, no trial build, no repair, never writes (see `checkMarkupOnOpen`).
  */
 export function loadMarkupFromFile(pdfPath: string): Promise<LoadMarkupResult> {
   return serialized(pdfPath, () => loadNow(pdfPath));
@@ -244,41 +302,67 @@ export function loadMarkupFromFile(pdfPath: string): Promise<LoadMarkupResult> {
 
 async function loadNow(pdfPath: string): Promise<LoadMarkupResult> {
   const realPath = await fs.promises.realpath(pdfPath);
-  const bytes = await fs.promises.readFile(realPath);
-  // `source`, pages and the write block come from the state before the repair: the repair only renames
-  // orphans (the valid pages stay) and writes our catalog metadata.
-  const inspection = await inspectPdf(bytes);
-  const writeBlock = await writeBlockOf(realPath, bytes, inspection);
-
-  if (writeBlock === null && inspection.kind === "parsed" && inspection.markup.orphans.length > 0) {
-    const expected = expectedFromMarkup(inspection.markup);
-    try {
-      const repaired = await buildMarkedPdf(bytes, []);
-      await atomicReplace(realPath, repaired, (written) => verifyPages(written, expected));
-    } catch (e) {
-      console.warn("Could not repair orphaned markup stamps", e);
-    }
-  }
-
+  const inspection = await inspectPdf(await fs.promises.readFile(realPath));
+  const writeBlock: WriteBlock | null =
+    inspection.kind === "unparseable"
+      ? { reason: "unparseable", message: inspection.message }
+      : inspection.kind === "encrypted"
+        ? { reason: "encrypted" }
+        : null;
   if (hasEmbeddedData(inspection)) return { source: "pdf", pages: toLoadedPages(inspection.markup), writeBlock };
   return { source: "none", pages: [], writeBlock };
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// Write check
+// ---------------------------------------------------------------------------------------------------------
+
 /**
- * Why markup cannot be saved into this PDF; null = it can. Writes nothing but the folder probe. Never
- * throws: a file that cannot be read is `unparseable` (with the error as `message`).
+ * The write check of the viewer, run after `loadMarkupFromFile`: why markup cannot be saved into this PDF,
+ * `null` = it can (unparseable, encrypted, readOnly, or structure from the remembered or a new trial
+ * build). Reads the file itself, so the remembered result belongs to exactly the bytes checked. When the
+ * PDF can be written and has orphaned stamps, they are repaired (a failed repair is logged, not fatal) and
+ * `ok` is remembered for the repaired bytes; the repair changes nothing visible. Never throws: a file that
+ * cannot be read is `unparseable` (with the error as `message`).
+ */
+export function checkMarkupOnOpen(pdfPath: string): Promise<WriteBlock | null> {
+  return serialized(pdfPath, async () => {
+    const read = await readForCheck(pdfPath);
+    if (read.block) return read.block;
+    const { realPath, bytes } = read;
+    const inspection = await inspectPdf(bytes);
+    const block = await writeBlockOf(realPath, bytes, inspection);
+    if (block === null && inspection.kind === "parsed" && inspection.markup.orphans.length > 0)
+      await repairOrphans(realPath, bytes, inspection.markup);
+    return block;
+  });
+}
+
+/**
+ * Renames the orphaned stamps of the PDF `bytes` (the valid pages stay) and writes our catalog metadata,
+ * atomically with a read-back; remembers `ok` for the written bytes. A failure is logged only.
+ */
+async function repairOrphans(realPath: string, bytes: Uint8Array, markup: ReadMarkupResult): Promise<void> {
+  const expected = expectedFromMarkup(markup);
+  try {
+    const repaired = await buildMarkedPdf(bytes, []);
+    await atomicReplace(realPath, repaired, (written) => verifyPages(written, expected));
+    await remember(contentKey(repaired), { ok: true });
+  } catch (e) {
+    console.warn("Could not repair orphaned markup stamps", e);
+  }
+}
+
+/**
+ * Why markup cannot be saved into this PDF; null = it can. The same check as `checkMarkupOnOpen` (through
+ * the remembered trial results) but without the repair: writes nothing but the folder probe (and the
+ * cache). Never throws: a file that cannot be read is `unparseable` (with the error as `message`).
  */
 export function checkMarkupWritable(pdfPath: string): Promise<WriteBlock | null> {
   return serialized(pdfPath, async () => {
-    let realPath: string;
-    let bytes: Uint8Array;
-    try {
-      realPath = await fs.promises.realpath(pdfPath);
-      bytes = await fs.promises.readFile(realPath);
-    } catch (e) {
-      return { reason: "unparseable", message: errorMessage(e) };
-    }
-    return writeBlockOf(realPath, bytes, await inspectPdf(bytes));
+    const read = await readForCheck(pdfPath);
+    if (read.block) return read.block;
+    return writeBlockOf(read.realPath, read.bytes, await inspectPdf(read.bytes));
   });
 }
 
@@ -323,6 +407,8 @@ async function saveNow(input: SaveMarkupInput): Promise<SaveMarkupResult> {
       return { status: "error", message: errorMessage(e), reason };
     }
     await atomicReplace(realPath, marked, (written) => verifyPages(written, expected));
+    // The save built an update and read it back: the file takes markup.
+    await remember(contentKey(marked), { ok: true });
     return { status: "pdf" };
   } catch (e) {
     return { status: "error", message: errorMessage(e), reason: failureReason(e) };

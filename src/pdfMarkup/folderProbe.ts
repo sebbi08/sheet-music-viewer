@@ -1,5 +1,5 @@
 /**
- * Write probe for a folder (main): used by the markup file layer on every load, write check and save (the
+ * Write probe for a folder (main): used by the markup file layer on every write check and save (the
  * temp file and the rename need the folder), and so by both passes of the migration gate. Electron-free.
  */
 import fs from "fs";

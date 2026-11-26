@@ -41,7 +41,11 @@ export interface LoadMarkupResult {
   /** `pdf`: the PDF has our embedded data; `none`: it has none, or its data cannot be read (`writeBlock`). */
   source: "pdf" | "none";
   pages: LoadedMarkupPage[];
-  /** Why markup cannot be saved into this PDF (`null`: it can), determined before any repair. */
+  /**
+   * What parsing shows about saving into this PDF: `encrypted`, `unparseable` (with the parser's message;
+   * the markup could not be read), else `null`. Not the full write check: read-only and the trial build
+   * come from `checkMarkupOnOpen` (tRPC `checkMarkupOnOpen`).
+   */
   writeBlock: WriteBlock | null;
 }
 

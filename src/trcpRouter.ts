@@ -26,12 +26,15 @@ import { pdfPathSchema, saveMarkupInputSchema } from "./models/markup";
 import { type UpdateData } from "./models/types";
 import { readSidecarContent } from "./pdfMarkup/legacySidecar";
 import {
+    checkMarkupOnOpen,
     checkMarkupWritable,
     discardEmptyLegacySidecar,
     loadMarkupFromFile,
     migrateSidecarToFile,
     saveMarkupToFile,
+    setWriteCheckCache,
 } from "./pdfMarkup/markupFile";
+import { createFileWriteCheckCache } from "./pdfMarkup/writeCheckCache";
 import {
     checkForUpdates,
     getAppVersion,
@@ -66,6 +69,9 @@ const { router: createRouter, procedure: publicProcedure } = initTRPC.create({
 void fs.promises
   .rm(path.join(app.getPath("userData"), "markup-migrated-folders.json"), { force: true })
   .catch((e) => console.warn("Could not delete markup-migrated-folders.json", e));
+
+/** The results of the markup write check's trial build, remembered per PDF content in the profile. */
+setWriteCheckCache(createFileWriteCheckCache(path.join(app.getPath("userData"), "markup-write-check.json")));
 
 export const trcpRouter = createRouter({
   getVersion: publicProcedure.query(getAppVersion),
@@ -144,6 +150,8 @@ export const trcpRouter = createRouter({
     .mutation(({ input }) => savePageDivider(input)),
 
   loadMarkup: publicProcedure.input(pdfPathSchema).query(({ input }) => loadMarkupFromFile(input)),
+
+  checkMarkupOnOpen: publicProcedure.input(pdfPathSchema).query(({ input }) => checkMarkupOnOpen(input)),
 
   saveMarkup: publicProcedure
     .input(saveMarkupInputSchema)
