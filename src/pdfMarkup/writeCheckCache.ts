@@ -60,7 +60,8 @@ export function createFileWriteCheckCache(file: string, maxEntries = 1000): Writ
         await fs.promises.mkdir(path.dirname(file), { recursive: true });
         await fs.promises.writeFile(temp, JSON.stringify({ version: FILE_VERSION, entries: Object.fromEntries(entries) }));
         await fs.promises.rename(temp, file);
-      } catch {
+      } catch (e) {
+        console.warn("Could not save the markup write check cache", e);
         await fs.promises.rm(temp, { force: true }).catch(() => undefined);
       }
     },

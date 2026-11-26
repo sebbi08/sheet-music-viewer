@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { contentKey, createFileWriteCheckCache } from "../../src/pdfMarkup/writeCheckCache";
 
 const isRoot = process.getuid?.() === 0;
@@ -73,8 +73,11 @@ describe("createFileWriteCheckCache", () => {
 
   test.skipIf(isRoot)("write failure is swallowed (skipped as root)", async () => {
     fs.chmodSync(dir, 0o555);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const cache = createFileWriteCheckCache(path.join(dir, "sub", "cache.json"));
     await expect(cache.set("k", { ok: true })).resolves.toBeUndefined();
     expect(await cache.get("k")).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith("Could not save the markup write check cache", expect.anything());
+    warn.mockRestore();
   });
 });
