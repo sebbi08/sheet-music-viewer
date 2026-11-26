@@ -22,7 +22,8 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   `folderConfig.visual.ts` (`.config.json`), `pageDivider.visual.ts` (the movable page divider),
   `editZoom.visual.ts` (zooming in edit mode), `iconHitbox.visual.ts` (the box of a music symbol),
   `whitePen.visual.ts` (the white pen below other marks), `favorites.visual.ts` (favorites, see
-  "Favoriten") and the read-only folder case of
+  "Favoriten"), `sheetLoading.visual.ts` (loading a sheet page by page and the remembered write check, see
+  "Loading a sheet") and the read-only folder case of
   `bulkMigration.visual.ts`;
   see "Markup storage" for what each file checks ("Page divider" for `pageDivider.visual.ts`, "Zoom in
   edit mode" for `editZoom.visual.ts`).
@@ -75,10 +76,26 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   A PDF that cannot be written (encrypted, unparseable, read-only, a structure the writer cannot update,
   still locked after the retries) is a save **error** with a reason; the PDF stays byte-identical and no
   `.data` file is ever written. `loadMarkup` never reads a `.data` file.
-- **Check on open:** every open determines whether markup can be saved into the PDF
-  (`LoadMarkupResult.writeBlock`, `checkMarkupWritable`: encrypted, unparseable, read-only incl. a folder
-  probe file, or a trial build in memory that fails) and, if not, shows a dialog with the reason on
-  **every** open (`src/components/WriteBlockDialog.vue`); the sheet stays readable, the pencil is off.
+- **Check on open:** every open determines whether markup can be saved into the PDF (encrypted,
+  unparseable, read-only incl. a folder probe file, or a trial build in memory that fails) and, if not,
+  shows a dialog with the reason on **every** open (`src/components/WriteBlockDialog.vue`); the sheet stays
+  readable, the pencil is off (spec: `docs/superpowers/specs/2026-11-26-progressive-sheet-loading-design.md`).
+  It runs in two steps (`src/pdfMarkup/markupFile.ts`):
+  - `loadMarkup` (tRPC, `loadMarkupFromFile`) only parses: markup plus `LoadMarkupResult.writeBlock`, which
+    is only `encrypted` or `unparseable` (markup not readable, the stamps stay visible), else `null`. No
+    read-only check, no trial build, never writes. With a block the viewer shows the dialog at once and
+    checks nothing more.
+  - Otherwise the viewer starts `checkMarkupOnOpen` (tRPC query) in the background: it reads the file
+    itself, checks read-only freshly on every open and takes the trial build's result from a cache in the
+    profile (a miss builds it and remembers `ok` or the `structure` message), **`markup-write-check.json`** in userData (`src/pdfMarkup/writeCheckCache.ts`, set in
+    `src/trcpRouter.ts` via `setWriteCheckCache`): `{ "version": 1, "entries": { "<sha256 hex>:<length>":
+    { "ok": true } | { "ok": false, "message": "…" } } }`, keyed by the content of the whole file
+    (`contentKey`, so a moved but identical PDF hits and any change misses), at most 1000 entries (the oldest
+    go), written atomically; an unreadable or broken file counts as empty, a failed write is logged. Only
+    when the PDF can be written does it repair orphaned stamps (`ok` is remembered for the repaired bytes).
+    A successful save remembers `ok` for the bytes it wrote. Its result is ignored once the sheet was left.
+  - `checkMarkupWritable` (migration pass 1) runs the same check through the same cache but never repairs.
+  Nothing of this is written into the sheet folder (`.config.json` stays untouched).
 - Unsaved changes live in the renderer's `markupSaves` store (`src/markup/saveQueue.ts`), survive
   leaving the sheet, are retried every 30 s, and closing the window asks before discarding them
   (renderer: `src/markup/closeGuard.ts`; main: `src/exitGuardMachine.ts` + `src/exitGuard.ts`). Main
@@ -134,6 +151,32 @@ npm run test:visual    # visual comparison new app vs old app (see below)
   repeat the change. A file of a newer app (`version` above 1 or `setLists.version` above 2) is a
   `configNewer` failure in the gate and a set-list notice asking to update the app; unknown fields
   (also inside set lists, `markupMigrated` and a sheet's `fingerprint`) survive every write.
+
+## Loading a sheet
+
+- Spec: `docs/superpowers/specs/2026-11-26-progressive-sheet-loading-design.md`. On open
+  (`src/views/SheetViewer.vue`) `loadMarkup`, pdf.js loading the whole file and `loadSheetSettings` start at
+  the same time; once PDF and markup are there, the pages are drawn **one after another from page 1**, each
+  with its half step, its cut and its markup overlays, and a page shows once it is done (pages can be turned
+  meanwhile; a page not done yet stays white). Dividers that arrive later re-cut the pages already drawn.
+  The write check (`checkMarkupOnOpen`, see "Check on open") runs in parallel.
+- Progress: store `sheetLoading: { loaded, total, checking } | null` (`src/store/index.ts`), shown as a thin
+  bar at the bottom of the app bar (`data-testid="sheet-loading"`, `src/App.vue`): share of pages done,
+  indeterminate once all pages are done while the check still runs, gone afterwards. The pencil is disabled
+  until every page is done **and** the check returned without a block; the divider button waits for every
+  page. Leaving the sheet sets `sheetLoading` to null and draws no further page.
+- A resize starts a new run (counter `renderRun`; a newer run or leaving stops the old one before its next
+  page): again page by page with the bar; the markup overlays of a page stay until that page is drawn again.
+- Markers for tests: `canvas[data-page="<n>"][data-rendered]` per page done in the current run (integer
+  pages), `#sheetViewerWrapper[data-sheet-loaded="true"]` once every page with its markup is done and the
+  check returned (`SHEET_LOADED` in `tests/visual/electronDriver.ts`; removed while a run is going).
+- `tests/visual/sheetLoading.visual.ts` (synthetic folders, no corpus needed, a heavy 40-page PDF with markup
+  on page 1 and the last page): page 1 with its markup shows before the last page is done (bar in the app
+  bar, pencil off), pages finish in order, a second open takes the check from `markup-write-check.json`
+  (prepared with another result), an encrypted PDF shows its hint without a check (no cache file), leaving
+  during the load (no console error, no dialog, `sheetLoading` null, the check's result remembered), a resize
+  during the first load and during a redraw (every page again in order; the last page's old overlays stay
+  until it is redrawn); every case checks the PDF stays byte-identical and no network request.
 
 ## Page divider
 
