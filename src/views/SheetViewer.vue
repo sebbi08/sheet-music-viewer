@@ -1334,6 +1334,22 @@ function clearOverlayCanvas(): void {
     .forEach((canvas) => canvas.remove());
 }
 
+/** Removes the markup overlays of page `pageNumber` and of its half step (e.g. drawn at an older size). */
+function removePageOverlays(pageNumber: number): void {
+  const pages = [String(pageNumber), String(pageNumber - 0.5)];
+  const ofPage = (canvas: HTMLCanvasElement) => pages.includes(canvas.getAttribute("data-page-overlay") ?? "");
+  overlayFabrics = overlayFabrics.filter((overlayFabric) => {
+    if (!ofPage(overlayFabric.lowerCanvasEl)) return true;
+    overlayFabric.dispose();
+    return false;
+  });
+  document
+    .querySelectorAll<HTMLCanvasElement>(`#${sheetViewerWrapperId} .overlayCanvas`)
+    .forEach((canvas) => {
+      if (ofPage(canvas)) canvas.remove();
+    });
+}
+
 /** Draws the markup overlays of every page drawn so far (a render run still going draws the others). */
 async function populateOverlayCanvas() {
   clearOverlayCanvas();
@@ -1449,11 +1465,11 @@ async function renderPdf(): Promise<void> {
   store.sheetLoading = { loaded: 0, total: pageNumbers.value, checking: store.sheetLoading?.checking ?? false };
 
   // The canvases of the pages exist after the next render; the page step of an older run ends first (it
-  // draws on the same canvases and may still add an overlay).
+  // draws on the same canvases and may still add an overlay). The overlays of earlier runs stay until their
+  // page is drawn again (`drawPage`): until then they match the page picture still shown.
   await new Promise((resolve) => setTimeout(resolve, 0));
   await pageStep;
   if (unmounted || run !== renderRun || !$wrapper) return;
-  clearOverlayCanvas();
   for (let i = 1; i <= pageNumbers.value; i++) {
     if (unmounted || run !== renderRun) return;
     pageStep = drawPage(i, $wrapper, run);
@@ -1470,7 +1486,10 @@ async function drawPage(pageNumber: number, $wrapper: HTMLDivElement, run: numbe
     if ($canvas) await renderPage(pageNumber, $canvas, $wrapper);
     if (unmounted || run !== renderRun) return;
     // While editing, leaving edit mode draws the overlays (populateOverlayCanvas).
-    if (!store.editMode) await drawPageOverlays(pageNumber);
+    if (!store.editMode) {
+      removePageOverlays(pageNumber);
+      await drawPageOverlays(pageNumber);
+    }
   } catch (e: unknown) {
     console.warn(`Could not draw page ${pageNumber}`, e);
   }
